@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.10.0](https://github.com/tomag-9/zdravy-projekt/compare/v2.9.0...v2.10.0) (2026-09-06)
+
+
+### Features
+
+* **diety:** otvor výber farieb v modale ([2806f9f](https://github.com/tomag-9/zdravy-projekt/commit/2806f9f7736ef127567561d8ec49d79f2ba6bae0))
+
+
+### Bug Fixes
+
+* **diety:** odstráň samostatný "Farba" picker, len text/pozadie ([#536](https://github.com/tomag-9/zdravy-projekt/issues/536)) ([81c3986](https://github.com/tomag-9/zdravy-projekt/commit/81c39869c81685d9ba1710f1b4c339fb2e295743))
+
 ## [2.9.0](https://github.com/tomag-9/zdravy-projekt/compare/v2.8.0...v2.9.0) (2026-09-06)
 
 
