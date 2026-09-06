@@ -56,6 +56,8 @@ class DietSerializer(serializers.ModelSerializer):
             "is_active",
             "description",
             "color",
+            "text_color",
+            "background_color",
             "base_diets",
             "base_colors",
         ]

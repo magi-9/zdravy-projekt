@@ -5,6 +5,8 @@ import { useToast } from "../../context/ToastContext";
 import { logger } from '../../lib/logger';
 import { PageHead, Card, Button, IconButton, Field, Input, Textarea, Modal, Empty, ColorSwatchPicker, Checkbox } from "./ui";
 import { DietColorSwatch } from "./DietColorSwatch";
+import { DietStylePreview } from "./DietStylePreview";
+import { computedDietStyle } from "./dietColorMath";
 import { dietReorderPayload, moveDietBefore, moveDietBy } from "./dietReorder";
 
 export interface Diet {
@@ -14,9 +16,48 @@ export interface Diet {
   is_active: boolean;
   description: string;
   color?: string;
+  text_color?: string;
+  background_color?: string;
   base_diets?: number[];
   base_colors?: string[];
 }
+
+// Zdieľaný picker + náhľad pre "Farba textu v PDF" / "Farba pozadia v PDF"
+// (#536) — prázdna hodnota znamená "automaticky" (dopočíta sa z farby
+// diéty/kombinácie na backende, viď `computedDietStyle`), picker preto ako
+// predvyplnenú hodnotu ukáže práve tento počítaný predvolený štýl.
+const DietStyleFields: React.FC<{
+  label: string;
+  textColor: string;
+  backgroundColor: string;
+  onTextColorChange: (value: string) => void;
+  onBackgroundColorChange: (value: string) => void;
+  computed: { text: string; background: string };
+}> = ({ label, textColor, backgroundColor, onTextColorChange, onBackgroundColorChange, computed }) => (
+  <>
+    <Field label="Farba textu v PDF" as="div" hint="prázdne = automaticky podľa farby diéty">
+      <ColorSwatchPicker
+        value={textColor || computed.text}
+        onChange={onTextColorChange}
+        ariaLabel="Farba textu v PDF"
+      />
+    </Field>
+    <Field label="Farba pozadia v PDF" as="div" hint="prázdne = automaticky podľa farby diéty">
+      <ColorSwatchPicker
+        value={backgroundColor || computed.background}
+        onChange={onBackgroundColorChange}
+        ariaLabel="Farba pozadia v PDF"
+      />
+    </Field>
+    <Field label="Náhľad" as="div">
+      <DietStylePreview
+        label={label}
+        textColor={textColor || computed.text}
+        backgroundColor={backgroundColor || computed.background}
+      />
+    </Field>
+  </>
+);
 
 interface DeleteConfirm {
   id: number;
@@ -29,12 +70,16 @@ interface RenameModal {
   newName: string;
   description: string;
   color: string;
+  textColor: string;
+  backgroundColor: string;
   baseDietIds: number[];
   isComposite: boolean;
 }
 
 interface CompositeModal {
   baseDietIds: number[];
+  textColor: string;
+  backgroundColor: string;
 }
 
 interface DragState {
@@ -71,6 +116,8 @@ const DietManager: React.FC = () => {
   const [newDietName, setNewDietName] = useState("");
   const [newDietDescription, setNewDietDescription] = useState("");
   const [newDietColor, setNewDietColor] = useState("#D83131");
+  const [newDietTextColor, setNewDietTextColor] = useState("");
+  const [newDietBackgroundColor, setNewDietBackgroundColor] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirm | null>(null);
   const [renameModal, setRenameModal] = useState<RenameModal | null>(null);
   const [compositeModal, setCompositeModal] = useState<CompositeModal | null>(null);
@@ -112,6 +159,8 @@ const DietManager: React.FC = () => {
             sort_order: nextSortOrderForComponentCount(diets, 1),
             description: newDietDescription.trim(),
             color: newDietColor,
+            text_color: newDietTextColor,
+            background_color: newDietBackgroundColor,
             base_diets: [],
             is_active: true,
           }),
@@ -126,6 +175,8 @@ const DietManager: React.FC = () => {
         setNewDietName("");
         setNewDietDescription("");
         setNewDietColor("#D83131");
+        setNewDietTextColor("");
+        setNewDietBackgroundColor("");
         fetchDiets();
         success("Diéta bola úspešne pridaná");
       } else {
@@ -143,7 +194,7 @@ const DietManager: React.FC = () => {
       const selected = current.baseDietIds.includes(dietId)
         ? current.baseDietIds.filter((id) => id !== dietId)
         : [...current.baseDietIds, dietId];
-      return { baseDietIds: selected };
+      return { ...current, baseDietIds: selected };
     });
   };
 
@@ -166,6 +217,8 @@ const DietManager: React.FC = () => {
             sort_order: nextSortOrderForComponentCount(diets, selectedDiets.length),
             description: `Kombinácia: ${selectedDiets.map((diet) => diet.name).join(", ")}`,
             color: selectedDiets[0].color || "#D83131",
+            text_color: compositeModal.textColor,
+            background_color: compositeModal.backgroundColor,
             base_diets: selectedDiets.map((diet) => diet.id),
             is_active: true,
           }),
@@ -220,6 +273,8 @@ const DietManager: React.FC = () => {
             name: renameModal.newName.trim(),
             description: renameModal.description.trim(),
             color: renameModal.color,
+            text_color: renameModal.textColor,
+            background_color: renameModal.backgroundColor,
             base_diets: renameModal.baseDietIds,
           }),
         },
@@ -334,6 +389,14 @@ const DietManager: React.FC = () => {
                 ariaLabel="Farba novej diéty"
               />
             </Field>
+            <DietStyleFields
+              label={newDietName}
+              textColor={newDietTextColor}
+              backgroundColor={newDietBackgroundColor}
+              onTextColorChange={setNewDietTextColor}
+              onBackgroundColorChange={setNewDietBackgroundColor}
+              computed={computedDietStyle(newDietColor)}
+            />
             <Button type="submit" disabled={!newDietName.trim()}>
               <Plus /> Pridať diétu
             </Button>
@@ -341,7 +404,7 @@ const DietManager: React.FC = () => {
               type="button"
               variant="secondary"
               disabled={composableDiets.length < 2}
-              onClick={() => setCompositeModal({ baseDietIds: [] })}
+              onClick={() => setCompositeModal({ baseDietIds: [], textColor: "", backgroundColor: "" })}
             >
               <Layers /> Vytvoriť kombinovanú
             </Button>
@@ -432,6 +495,8 @@ const DietManager: React.FC = () => {
                                 newName: diet.name,
                                 description: diet.description || "",
                                 color: diet.color || "#D83131",
+                                textColor: diet.text_color || "",
+                                backgroundColor: diet.background_color || "",
                                 baseDietIds: diet.base_diets || [],
                                 isComposite: (diet.base_diets || []).length > 0,
                               })
@@ -497,6 +562,28 @@ const DietManager: React.FC = () => {
               </span>
             </div>
           )}
+          {compositeModal.baseDietIds.length >= 2 && (
+            <DietStyleFields
+              label={compositeModal.baseDietIds
+                .map((id) => diets.find((diet) => diet.id === id)?.name)
+                .filter(Boolean)
+                .join(" – ")}
+              textColor={compositeModal.textColor}
+              backgroundColor={compositeModal.backgroundColor}
+              onTextColorChange={(value) =>
+                setCompositeModal((current) => (current ? { ...current, textColor: value } : current))
+              }
+              onBackgroundColorChange={(value) =>
+                setCompositeModal((current) => (current ? { ...current, backgroundColor: value } : current))
+              }
+              computed={computedDietStyle(
+                "",
+                compositeModal.baseDietIds
+                  .map((id) => diets.find((diet) => diet.id === id)?.color || "")
+                  .filter(Boolean),
+              )}
+            />
+          )}
         </Modal>
       )}
 
@@ -538,7 +625,10 @@ const DietManager: React.FC = () => {
                   (renameModal.newName.trim() === renameModal.currentName &&
                     renameModal.description.trim() ===
                       (diets.find((diet) => diet.id === renameModal.id)?.description || "").trim() &&
-                    renameModal.color === (diets.find((diet) => diet.id === renameModal.id)?.color || "#D83131"))
+                    renameModal.color === (diets.find((diet) => diet.id === renameModal.id)?.color || "#D83131") &&
+                    renameModal.textColor === (diets.find((diet) => diet.id === renameModal.id)?.text_color || "") &&
+                    renameModal.backgroundColor ===
+                      (diets.find((diet) => diet.id === renameModal.id)?.background_color || ""))
                     && sameDietIds(
                       renameModal.baseDietIds,
                       diets.find((diet) => diet.id === renameModal.id)?.base_diets || [],
@@ -601,6 +691,25 @@ const DietManager: React.FC = () => {
               </div>
             </Field>
           )}
+          <DietStyleFields
+            label={renameModal.newName || renameModal.currentName}
+            textColor={renameModal.textColor}
+            backgroundColor={renameModal.backgroundColor}
+            onTextColorChange={(value) =>
+              setRenameModal((prev) => (prev ? { ...prev, textColor: value } : prev))
+            }
+            onBackgroundColorChange={(value) =>
+              setRenameModal((prev) => (prev ? { ...prev, backgroundColor: value } : prev))
+            }
+            computed={
+              renameModal.isComposite
+                ? computedDietStyle(
+                    "",
+                    renameModal.baseDietIds.map((id) => diets.find((diet) => diet.id === id)?.color || "").filter(Boolean),
+                  )
+                : computedDietStyle(renameModal.color)
+            }
+          />
         </Modal>
       )}
     </>
