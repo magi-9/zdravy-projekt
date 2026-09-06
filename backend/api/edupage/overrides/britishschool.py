@@ -56,13 +56,20 @@ def _kluc(value: str) -> str:
     return (value or "").strip().upper()
 
 
-def _je_vege1(skratka: str, nazov: str) -> bool:
-    """VEGE1 je samostatné menu (obed), nie diéta VEGGIE — obe zdieľajú
-    substring "vege", takže bez explicitnej zhody by generický
+_VEGE_MENU_VARIANTS = {"VEGE": "V", "VEGE1": "V1"}
+
+
+def _vege_variant(skratka: str, nazov: str) -> str | None:
+    """British VEGE a VEGE1 sú samostatné menu (nie diéta VEGGIE), v appke
+    však vystupujú ako štandardné Menu V a Menu V1. Obe
+    zdieľajú substring "vege", takže bez explicitnej zhody by generický
     `resolve_menu_variant`/`resolve_diet_name` skratku tíško vyhodnotil ako
-    diétu VEGGIE (4.9.2026, user: "VEGE a VEGE1 sú dve iné menu")."""
+    diétu VEGGIE (4.9.2026, user: "VEGE a VEGE1 sú dve iné menu"; potvrdené
+    znova 4.9.2026: "tam chýba menu Vege a vege1" — Cluster C sumár ich má
+    ukázať oba ako samostatné položky rozpisu Obedu). Presná zhoda (nie
+    substring), aby sa VEGE a VEGE1 navzájom nezamieňali."""
     normalised = re.sub(r"[\s\-_.]+", "", (skratka or nazov or "")).upper()
-    return normalised == "VEGE1"
+    return _VEGE_MENU_VARIANTS.get(normalised)
 
 
 def british_school_letter_hook(
@@ -70,10 +77,16 @@ def british_school_letter_hook(
 ) -> LetterRule | None:
     """Skratky končiace na "+" necháme bez diéty — rozhodne `payer_hook`.
 
-    VEGE1 (4. obedové menu, popri Klasik/B/C) sa musí vyhodnotiť ako menu
-    variant, nie ako fuzzy-matchnutá diéta VEGGIE."""
-    if _je_vege1(skratka, nazov):
-        return LetterRule(menu="VEGE1")
+    VEGE aj VEGE1 (obedové menu, popri Klasik/B/C/D) sa musia vyhodnotiť ako
+    Menu V/V1, nie ako fuzzy-matchnutá diéta VEGGIE. Toto pravidlo je iba
+    British hook, preto neovplyvňuje ostatné EduPage prevádzky."""
+    vege_variant = _vege_variant(skratka, nazov)
+    if vege_variant is not None:
+        # `suppress_payer_diet=True` — payer meno pre tieto porcie ("MŠ
+        # Vege" a pod.) obsahuje substring "vege", takže by generický
+        # `resolve_payer_diet_name` inak priradil diétu VEGGIE a tá by toto
+        # menu prebila (viď `LetterRule.suppress_payer_diet` docstring).
+        return LetterRule(menu=vege_variant, suppress_payer_diet=True)
     if _kluc(skratka).endswith("+"):
         return LetterRule(menu="A")
     return None

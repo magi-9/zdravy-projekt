@@ -1147,12 +1147,22 @@ class TestBritishSchoolHooks(unittest.TestCase):
         iné menu (British škola, 4.9.2026)."""
         rule = british_school_letter_hook("E", "VEGE1", "Vege 1")
         self.assertIsNotNone(rule)
-        self.assertEqual(rule.menu, "VEGE1")
+        self.assertEqual(rule.menu, "V1")
         self.assertIsNone(rule.diet)
 
-    def test_letter_hook_plain_vege_still_falls_through_to_diet_engine(self):
-        """Plain "Vege"/"VEGGIE" ostáva diéta — len VEGE1 je nové menu."""
-        self.assertIsNone(british_school_letter_hook("V", "Vege", "Vege"))
+    def test_letter_hook_recognizes_plain_vege_as_own_menu_variant_too(self):
+        """VEGE je tiež vlastné menu (nie diéta VEGGIE) — user 4.9.2026:
+        "tam chýba menu Vege a vege1" — Cluster C sumár ich má oba ukázať
+        ako samostatné položky rozpisu Obedu, nie zlúčené pod Menu A."""
+        rule = british_school_letter_hook("E", "VEGE", "Vege")
+        self.assertIsNotNone(rule)
+        self.assertEqual(rule.menu, "V")
+        self.assertIsNone(rule.diet)
+
+    def test_letter_hook_vege_variants_do_not_collide(self):
+        """VEGE a VEGE1 musia zostať dve odlišné menu, nie tá istá zhoda."""
+        self.assertEqual(british_school_letter_hook("E", "VEGE", "Vege").menu, "V")
+        self.assertEqual(british_school_letter_hook("U", "VEGE1", "Vege1").menu, "V1")
 
 
 class TestBritishSchoolHooksInParse(unittest.TestCase):
@@ -1206,6 +1216,34 @@ class TestBritishSchoolHooksInParse(unittest.TestCase):
         self.assertEqual(diets.get("NO ORECH/NO FISH"), 1)
         self.assertEqual(res.uncertain_letters, [])
         self.assertEqual(res.unmapped_letters, [])
+
+    def test_vege_menu_survives_a_payer_label_containing_the_word_vege(self):
+        """Živé dáta (2026-09-07): payer meno pre VEGE porcie je "MŠ Vege"/
+        "2.st. Vege"/"3.st. Vege" — bez `suppress_payer_diet` by generický
+        `resolve_payer_diet_name` (fuzzy "vege" substring) priradil diétu
+        VEGGIE, tá by cez `effective_diet = ... or payer_diet` prebila
+        `menu_variant="VEGE"` z letter_hooku a VEGE by v Cluster C sumári
+        zmizlo pod Menu A (nájdené 4.9.2026, user: "tam chýba menu Vege")."""
+        nazov_menu = {"E": {"skratka": "VEGE", "nazov": "Vege"}}
+        typy = [
+            {
+                "hodnota": json.dumps(
+                    {"46": {"nazov": "MŠ Vege", "porcia": "0"}},
+                )
+            }
+        ]
+        prehlad = {
+            "prehlad": {
+                TARGET.isoformat(): {
+                    "2": {"E": {"typ_platitela": {"46": {"o": 2}}}},
+                }
+            }
+        }
+        html = _make_html(prehlad, nazov_menu, self.NASTAVENIA, typy)
+        res = EdupageScraper()._parse(html, TARGET, config=self._cfg())
+        skolka = res.order_data["lunch"]["Škôlka"]
+        self.assertEqual(skolka["menuCounts"].get("V"), 2)
+        self.assertNotIn("VEGGIE", skolka["diets"])
 
     def test_unknown_payer_on_plus_letter_keeps_the_count(self):
         # Payer_hook nepozná kombináciu → diet_name aj payer_diet ostanú None,

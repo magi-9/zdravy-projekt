@@ -151,6 +151,19 @@
     font-weight: 600;
     opacity: 0.85;
 }
+/* „z toho diéty" patrí pod konkrétne jedlo, preto nie je samostatne
+ * oddelenou položkou. Pri obede patrí pod Menu A a je ešte o stupeň vnorené. */
+.zpa-gram .cluster-ms-diet-count-row td {
+    border-top: none;
+    padding: 3px 20px 5px 36px;
+    font-size: 12px;
+    font-weight: 600;
+    opacity: 0.8;
+}
+.zpa-gram .cluster-ms-menu-diet-row td {
+    padding-left: 52px;
+    font-size: 11px;
+}
 /* Začiatok novej škôlky (prevádzky) — výrazný žltý pás cez celý riadok. */
 .zpa-gram .client-row td {
     background: rgba(255,201,92,0.42);

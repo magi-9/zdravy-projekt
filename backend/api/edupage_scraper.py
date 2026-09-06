@@ -938,10 +938,19 @@ class EdupageScraper:
                         or payer_info.get("portion")
                         or DEFAULT_PORTION_NAME
                     )
+                    # `suppress_payer_diet` (British VEGE/VEGE1, #531) vypína
+                    # celý tento fallback — payer meno pre tie porcie fuzzy-
+                    # matchuje na diétu (substring "vege"), ktorá by inak
+                    # `menu_variant` z letter_hooku prebila (viď
+                    # `LetterRule.suppress_payer_diet` docstring).
                     payer_diet = (
-                        (payer_rule.diet if payer_rule else None)
-                        or payer_info.get("diet")
-                        or None
+                        None
+                        if rule is not None and rule.suppress_payer_diet
+                        else (
+                            (payer_rule.diet if payer_rule else None)
+                            or payer_info.get("diet")
+                            or None
+                        )
                     )
                     # `force_match` znamená, že payer label je pre TENTO riadok
                     # spoľahlivejší než zdieľané menu písmeno (viď `match_prevadzka`)
