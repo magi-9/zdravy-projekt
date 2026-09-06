@@ -214,4 +214,51 @@ describe("DietManager text/background colour picker (#536)", () => {
       background_color: "#EEEEEE",
     });
   });
+
+  it("shows exactly two colour pickers (text + background) — no separate base colour picker", async () => {
+    mockApiFetch.mockImplementation((url: string) => {
+      if (url.includes("/diets/")) {
+        return Promise.resolve(
+          response([
+            { id: 1, name: "Bezlepková", sort_order: 0, is_active: true, description: "", base_diets: [] },
+            { id: 2, name: "Bez laktózy", sort_order: 1, is_active: true, description: "", base_diets: [] },
+          ]),
+        );
+      }
+      return Promise.resolve(response([]));
+    });
+
+    render(
+      <MemoryRouter>
+        <DietManager />
+      </MemoryRouter>,
+    );
+
+    await screen.findByText("Bezlepková");
+
+    // Formulár pridania novej diéty: len 2 pickery (text + pozadie), žiadna
+    // samostatná "Farba" navyše.
+    expect(screen.queryByRole("group", { name: "Farba novej diéty" })).not.toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Farba textu v PDF" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Farba pozadia v PDF" })).toBeInTheDocument();
+
+    // Kombinovaná diéta má tie isté 2 pickery + náhľad, nie navyše.
+    await userEvent.click(screen.getByRole("button", { name: /Vytvoriť kombinovanú/ }));
+    const compositeModal = within(
+      screen.getByText("Vytvoriť kombinovanú diétu").closest(".zpa-modal") as HTMLElement,
+    );
+    await userEvent.click(compositeModal.getByRole("button", { name: /Bezlepková/ }));
+    await userEvent.click(compositeModal.getByRole("button", { name: /Bez laktózy/ }));
+    expect(compositeModal.getByRole("group", { name: "Farba textu v PDF" })).toBeInTheDocument();
+    expect(compositeModal.getByRole("group", { name: "Farba pozadia v PDF" })).toBeInTheDocument();
+    expect(compositeModal.getByTestId("diet-style-preview")).toBeInTheDocument();
+
+    // Úprava existujúcej (nekombinovanej) diéty: rovnako len 2 pickery.
+    await userEvent.click(screen.getByRole("button", { name: "Zrušiť" }));
+    await userEvent.click(screen.getAllByTitle("Upraviť")[0]);
+    const editModal = within(screen.getByText("Upraviť diétu").closest(".zpa-modal") as HTMLElement);
+    expect(editModal.queryByRole("group", { name: /^Farba diéty/ })).not.toBeInTheDocument();
+    expect(editModal.getByRole("group", { name: "Farba textu v PDF" })).toBeInTheDocument();
+    expect(editModal.getByRole("group", { name: "Farba pozadia v PDF" })).toBeInTheDocument();
+  });
 });

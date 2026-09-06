@@ -89,6 +89,14 @@ interface DragState {
 const sameDietIds = (left: number[], right: number[]) =>
   left.length === right.length && left.every((id, index) => id === right[index]);
 
+// `Diet.color` už nemá vlastný picker (#536 — malo by ísť len o farbu textu a
+// farbu pozadia, nie o tretí "identity" výber navyše) — ostáva len ako interná
+// hodnota pre okrúhly odznak v zozname a pre kombinačnú logiku (base_colors),
+// odvodená z toho, čo si admin zvolil pre text/pozadie.
+const DEFAULT_DIET_COLOR = "#D83131";
+const resolveDietColor = (textColor: string, backgroundColor: string, fallback = DEFAULT_DIET_COLOR) =>
+  textColor || backgroundColor || fallback;
+
 // Počet zložiek diéty: nekombinovaná diéta (bez base_diets) je vždy 1-zložková,
 // kombinovaná má toľko zložiek, koľko základných diét spája (min. 2).
 const componentCount = (diet: Pick<Diet, "base_diets">) =>
@@ -115,7 +123,6 @@ const DietManager: React.FC = () => {
   const [diets, setDiets] = useState<Diet[]>([]);
   const [newDietName, setNewDietName] = useState("");
   const [newDietDescription, setNewDietDescription] = useState("");
-  const [newDietColor, setNewDietColor] = useState("#D83131");
   const [newDietTextColor, setNewDietTextColor] = useState("");
   const [newDietBackgroundColor, setNewDietBackgroundColor] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirm | null>(null);
@@ -158,7 +165,7 @@ const DietManager: React.FC = () => {
             name: newDietName.trim(),
             sort_order: nextSortOrderForComponentCount(diets, 1),
             description: newDietDescription.trim(),
-            color: newDietColor,
+            color: resolveDietColor(newDietTextColor, newDietBackgroundColor),
             text_color: newDietTextColor,
             background_color: newDietBackgroundColor,
             base_diets: [],
@@ -174,7 +181,6 @@ const DietManager: React.FC = () => {
         });
         setNewDietName("");
         setNewDietDescription("");
-        setNewDietColor("#D83131");
         setNewDietTextColor("");
         setNewDietBackgroundColor("");
         fetchDiets();
@@ -272,7 +278,7 @@ const DietManager: React.FC = () => {
           body: JSON.stringify({
             name: renameModal.newName.trim(),
             description: renameModal.description.trim(),
-            color: renameModal.color,
+            color: resolveDietColor(renameModal.textColor, renameModal.backgroundColor, renameModal.color),
             text_color: renameModal.textColor,
             background_color: renameModal.backgroundColor,
             base_diets: renameModal.baseDietIds,
@@ -382,20 +388,13 @@ const DietManager: React.FC = () => {
                 placeholder="Popis diéty pre prevádzku"
               />
             </Field>
-            <Field label="Farba" as="div">
-              <ColorSwatchPicker
-                value={newDietColor}
-                onChange={setNewDietColor}
-                ariaLabel="Farba novej diéty"
-              />
-            </Field>
             <DietStyleFields
               label={newDietName}
               textColor={newDietTextColor}
               backgroundColor={newDietBackgroundColor}
               onTextColorChange={setNewDietTextColor}
               onBackgroundColorChange={setNewDietBackgroundColor}
-              computed={computedDietStyle(newDietColor)}
+              computed={computedDietStyle(DEFAULT_DIET_COLOR)}
             />
             <Button type="submit" disabled={!newDietName.trim()}>
               <Plus /> Pridať diétu
@@ -625,7 +624,6 @@ const DietManager: React.FC = () => {
                   (renameModal.newName.trim() === renameModal.currentName &&
                     renameModal.description.trim() ===
                       (diets.find((diet) => diet.id === renameModal.id)?.description || "").trim() &&
-                    renameModal.color === (diets.find((diet) => diet.id === renameModal.id)?.color || "#D83131") &&
                     renameModal.textColor === (diets.find((diet) => diet.id === renameModal.id)?.text_color || "") &&
                     renameModal.backgroundColor ===
                       (diets.find((diet) => diet.id === renameModal.id)?.background_color || ""))
@@ -662,15 +660,7 @@ const DietManager: React.FC = () => {
               rows={4}
             />
           </Field>
-          {!renameModal.isComposite ? (
-            <Field label="Farba" as="div">
-              <ColorSwatchPicker
-                value={renameModal.color}
-                onChange={(color) => setRenameModal((prev) => (prev ? { ...prev, color } : prev))}
-                ariaLabel={`Farba diéty ${renameModal.currentName}`}
-              />
-            </Field>
-          ) : (
+          {renameModal.isComposite && (
             <Field label="Zloženie kombinácie" as="div">
               <div className="zpa-composite-options">
                 {composableDiets.filter((diet) => diet.id !== renameModal.id).map((diet) => (
