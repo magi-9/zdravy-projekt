@@ -41,6 +41,11 @@ def test_overview_splits_edupage_and_app_and_flags(admin_client):
     _manual_celok, manual_prev, manual_user = _celok_with_prevadzka(
         "Manual App", is_edupage=False
     )
+    edu_prev.adults_pack_separately_enabled = True
+    edu_prev.olovrant_s_obedom = True
+    edu_prev.save(update_fields=["adults_pack_separately_enabled", "olovrant_s_obedom"])
+    manual_prev.pack_separately_enabled = True
+    manual_prev.save(update_fields=["pack_separately_enabled"])
 
     # EduPage prevádzka dodala podklady s upozornením, 3 deti majú diétu.
     DailyOrder.objects.create(
@@ -100,6 +105,9 @@ def test_overview_splits_edupage_and_app_and_flags(admin_client):
     assert edu["counts"]["diet_counts"] == {"Bezlaktózová": 3}
     assert edu["has_warning"] is True
     assert edu["flags"]["attention"] == ["A:KZ?"]
+    assert edu["pack_separately_enabled"] is False
+    assert edu["adults_pack_separately_enabled"] is True
+    assert edu["olovrant_s_obedom"] is True
 
     app = body["app"][0]
     assert app["delivered"] is False
@@ -115,6 +123,9 @@ def test_overview_splits_edupage_and_app_and_flags(admin_client):
     assert app_by_name["Auto App"]["counts"]["total"] == 5
     assert app_by_name["Manual App"]["delivery_status"] == "manual"
     assert app_by_name["Manual App"]["counts"]["total"] == 7
+    assert app_by_name["Manual App"]["pack_separately_enabled"] is True
+    assert app_by_name["Manual App"]["adults_pack_separately_enabled"] is False
+    assert app_by_name["Manual App"]["olovrant_s_obedom"] is False
 
 
 @pytest.mark.django_db

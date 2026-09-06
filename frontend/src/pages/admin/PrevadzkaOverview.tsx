@@ -35,6 +35,9 @@ interface OverviewRow {
     uncertain_diets?: string[];
   };
   has_warning: boolean;
+  pack_separately_enabled: boolean;
+  adults_pack_separately_enabled: boolean;
+  olovrant_s_obedom: boolean;
 }
 
 interface OverviewResponse {
@@ -112,6 +115,25 @@ const MealCount: React.FC<{ label: string; value: number; strong?: boolean }> = 
   </div>
 );
 
+const FacilityFlags: React.FC<{ row: OverviewRow; source: "edupage" | "app" }> = ({ row, source }) => {
+  const automaticAdults = source === "edupage";
+  const separatePackingEnabled = automaticAdults
+    ? row.adults_pack_separately_enabled
+    : row.pack_separately_enabled;
+  const zvLabel = automaticAdults
+    ? `EduPage: dospelí automaticky zvlášť — ${separatePackingEnabled ? "zapnuté" : "vypnuté"}`
+    : `App: zabaliť zvlášť — ${separatePackingEnabled ? "zapnuté" : "vypnuté"}`;
+
+  return (
+    <div className="zpa-ovflags">
+      <span className={`zpa-ovflag zv ${separatePackingEnabled ? "on" : "off"}`} aria-label={zvLabel} title={zvLabel}>ZV</span>
+      {row.olovrant_s_obedom && (
+        <span className="zpa-ovflag ol" aria-label="Olovrant sa vozí s obedom" title="Olovrant sa vozí s obedom">OL</span>
+      )}
+    </div>
+  );
+};
+
 const OverviewRowItem: React.FC<{ row: OverviewRow; source: "edupage" | "app" }> = ({ row, source }) => {
   const showCelok = row.celok && row.celok !== row.nazov;
   const dietWarnings = [
@@ -122,6 +144,7 @@ const OverviewRowItem: React.FC<{ row: OverviewRow; source: "edupage" | "app" }>
   return (
     <div className="zpa-ovrow" id={`prevadzka-row-${row.prevadzka_id}`}>
       <StatusDot row={row} source={source} />
+      <FacilityFlags row={row} source={source} />
       <div style={{ minWidth: 0, flex: 1 }}>
         <Link to={`/admin/facilities/${row.prevadzka_id}`} className="zpa-ovrow-link" title="Otvoriť detail prevádzky">
           <div className="nm">{row.nazov}</div>

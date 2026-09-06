@@ -49,6 +49,11 @@
 .zpa-statusdot.warn { background: rgba(255,201,92,0.28); color: var(--mustard-700); }
 .zpa-statusdot.err { background: rgba(201,46,82,0.10); color: var(--coral-600); }
 .zpa-statusdot.zero { background: rgba(96,113,137,0.14); color: var(--ink-3); font-family: var(--font-display); font-size: 13px; font-weight: 800; }
+.zpa-ovflags { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+.zpa-ovflag { display: inline-flex; align-items: center; justify-content: center; min-width: 25px; height: 20px; padding: 0 5px; border-radius: var(--radius-pill); font-family: var(--font-display); font-size: 10px; font-weight: 800; letter-spacing: 0.04em; }
+.zpa-ovflag.zv.on { background: rgba(114,136,75,0.18); color: var(--green-800); }
+.zpa-ovflag.zv.off { background: rgba(201,46,82,0.12); color: var(--coral-600); }
+.zpa-ovflag.ol { background: rgba(255,201,92,0.32); color: var(--mustard-700); }
 .zpa-ovrow { display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-top: 1px solid var(--line-soft); transition: background 160ms; }
 .zpa-ovrow:first-child { border-top: 0; }
 .zpa-ovrow:hover { background: var(--bg-cream-soft); }
