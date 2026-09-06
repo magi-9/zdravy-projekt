@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.11.1](https://github.com/tomag-9/zdravy-projekt/compare/v2.11.0...v2.11.1) (2026-09-06)
+
+
+### Bug Fixes
+
+* **docs:** refine language and remove unnecessary sections in CLAUDE.md ([7bed895](https://github.com/tomag-9/zdravy-projekt/commit/7bed8952829faf9d74896947cf408b037039e731))
+* **edupage:** refine British cluster summary ([0a9744f](https://github.com/tomag-9/zdravy-projekt/commit/0a9744f3939a35ba4bec60d41d1a9f04d277c1d1))
+
 ## [2.11.0](https://github.com/tomag-9/zdravy-projekt/compare/v2.10.0...v2.11.0) (2026-09-06)
 
 
