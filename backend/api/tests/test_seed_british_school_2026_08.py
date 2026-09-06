@@ -120,8 +120,8 @@ def test_seed_british_school_warns_when_trasa_extra_is_missing():
 
 
 @pytest.mark.django_db
-def test_seed_british_school_enables_menu_d_and_vege1():
-    """Menu D a VEGE1 (4. obedové menu, Cluster C sumár) sú British School
+def test_seed_british_school_enables_menu_d_and_v1():
+    """Menu D a V1 (4. obedové menu, Cluster C sumár) sú British School
     špecifiká, neviditeľné pre žiadnu inú prevádzku (`DEFAULT_VISIBLE_MENUS` ich
     neobsahuje, migrácia 0097 ich zo všetkých ostatných odstránila) — seed ich
     musí British explicitne zapnúť (user 4.9.2026: "má byť disabled teda
@@ -130,12 +130,31 @@ def test_seed_british_school_enables_menu_d_and_vege1():
 
     prevadzka = Prevadzka.objects.get(nazov="British School")
     assert "D" in prevadzka.visible_menus
-    assert "VEGE1" in prevadzka.visible_menus
+    assert "V1" in prevadzka.visible_menus
+    assert "VEGE1" not in prevadzka.visible_menus
 
 
 @pytest.mark.django_db
-def test_seed_british_school_repairs_menu_d_and_vege1_if_removed():
-    """Re-run musí obnoviť D/VEGE1 aj keby ich niekto medzičasom odstránil
+def test_seed_british_school_replaces_legacy_vege1_with_v1_only_for_british():
+    """Staré British nastavenie nesmie ďalej ponúkať VEGE1; V1 je jeho
+    používateľský názov. Žiadna všeobecná default migrácia sa pri tom nerobí."""
+    celok = Celok.objects.create(nazov="British School")
+    Prevadzka.objects.create(
+        celok=celok,
+        nazov="British School",
+        visible_menus=["A", "B", "C", "V", "D", "VEGE1"],
+    )
+
+    call_command("seed_british_school_2026_08")
+
+    prevadzka = Prevadzka.objects.get(nazov="British School")
+    assert "V1" in prevadzka.visible_menus
+    assert "VEGE1" not in prevadzka.visible_menus
+
+
+@pytest.mark.django_db
+def test_seed_british_school_repairs_menu_d_and_v1_if_removed():
+    """Re-run musí obnoviť D/V1 aj keby ich niekto medzičasom odstránil
     (rovnaký idempotentný repair vzor ako dedicated_scrape_hour vyššie)."""
     call_command("seed_british_school_2026_08")
     prevadzka = Prevadzka.objects.get(nazov="British School")
@@ -146,7 +165,7 @@ def test_seed_british_school_repairs_menu_d_and_vege1_if_removed():
 
     prevadzka.refresh_from_db()
     assert "D" in prevadzka.visible_menus
-    assert "VEGE1" in prevadzka.visible_menus
+    assert "V1" in prevadzka.visible_menus
 
 
 @pytest.mark.django_db

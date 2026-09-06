@@ -2,6 +2,8 @@ import pytest
 from django.contrib.auth.models import Group, User
 from django.core import management
 
+from api.models import Celok, Prevadzka
+
 
 @pytest.mark.django_db
 def test_init_roles_skips_default_users_in_production(monkeypatch):
@@ -64,3 +66,17 @@ def test_init_roles_migrates_legacy_demo_logins(monkeypatch):
     assert admin_user.check_password("admin")
     assert operation_user.username == "prevadzka@example.com"
     assert operation_user.check_password("prevadzka")
+
+
+@pytest.mark.django_db
+def test_fast_access_only_creates_no_demo_facilities(monkeypatch):
+    monkeypatch.setenv("DJANGO_SETTINGS_MODULE", "app.settings.dev")
+    celok = Celok.objects.create(nazov="Importovaná škola")
+    prevadzka = Prevadzka.objects.create(celok=celok, nazov="Importovaná prevádzka")
+
+    management.call_command("init_roles", "--fast-access-only")
+
+    operation_user = User.objects.get(email="prevadzka@example.com")
+    assert Celok.objects.count() == 1
+    assert Prevadzka.objects.count() == 1
+    assert set(operation_user.profile.dostupne_prevadzky()) == {prevadzka}

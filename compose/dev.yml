@@ -1,11 +1,8 @@
 services:
   db:
-    # #506 — major bump z 15 → 18. Nie je binárne kompatibilné: existujúci
-    # `postgres_data_dev` volume prvýkrát naštartuje s 18 zlyhá. Dev nemá čo
-    # zachovať, tak volume jednoducho zahoď a nechaj seed reťaz v tomto súbore
-    # (real_initial_seed_prevadzky → ... → sync_periodic_tasks) postaviť ho
-    # znova: `docker compose -f compose/dev.yml down -v && docker compose -f
-    # compose/dev.yml up -d`.
+    # #506 — PostgreSQL 18 vyžaduje nový volume po veľkom upgrade z 15.
+    # Bežný `./rebuild-dev.sh` ho však zachováva; zmazať ho smie len explicitné
+    # `./rebuild-dev.sh --reset-db`.
     image: postgres:18-alpine
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-zdravy_projekt_dev}
@@ -36,7 +33,10 @@ services:
     build:
       context: ../backend
       dockerfile: Dockerfile
-    command: sh -c "python manage.py migrate && python manage.py init_roles && python manage.py init_reference_data && python manage.py ensure_global_settings && python manage.py real_initial_seed_prevadzky && python manage.py seed_prevadzky_edupage && python manage.py seed_zdrave_brusko && python manage.py seed_real_delivery_layout && python manage.py seed_merge_celky && python manage.py seed_bystra_breakfast_from_lunch && python manage.py seed_new_edupage_2026_08 && python manage.py seed_british_school_2026_08 && python manage.py seed_cms_pezinok_2026_08 && python manage.py seed_skolicka_zs_2026_09 && python manage.py seed_rozmanita_split_2026_09 && python manage.py sync_periodic_tasks --fix && python manage.py scrape_edupage_orders && python manage.py runserver 0.0.0.0:8000"
+    # Lokálny klon produkcie nesmie pri štarte meniť referenčné dáta, prevádzky,
+    # objednávky ani periodic tasks. `init_roles` ponechávame výhradne pre
+    # fast-access demo loginy; je idempotentný a nemení produkčné záznamy.
+    command: sh -c "python manage.py migrate && python manage.py init_roles --fast-access-only && python manage.py runserver 0.0.0.0:8000"
     volumes:
       - ../backend:/app
     ports:
