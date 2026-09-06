@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.11.0](https://github.com/tomag-9/zdravy-projekt/compare/v2.10.0...v2.11.0) (2026-09-06)
+
+
+### Features
+
+* **admin:** zobraz príznaky balenia a olovrantu ([5cf873f](https://github.com/tomag-9/zdravy-projekt/commit/5cf873f92e64594a33388a6834108d714c530e7e))
+
+
+### Bug Fixes
+
+* **edupage:** vráť SŠV dospelých do bežného správania ([c002c59](https://github.com/tomag-9/zdravy-projekt/commit/c002c59da14b433c63ae76ad2658697243e2291b))
+
 ## [2.10.0](https://github.com/tomag-9/zdravy-projekt/compare/v2.9.0...v2.10.0) (2026-09-06)
 
 
