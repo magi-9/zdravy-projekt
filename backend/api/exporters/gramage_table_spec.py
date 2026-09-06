@@ -1321,6 +1321,10 @@ _MEAL_BAND_ORDER: tuple[str, ...] = ("Raňajky", "Snack", "Obed", "Olovrant")
 
 
 def _meal_band_sort_key(label: str) -> tuple[int, str]:
+    # British „Snack (balíček)" patrí chronologicky po raňajkách, rovnako ako
+    # starší štítok „Snack". Zvyšok popisku preto nesmie meniť poradie pásma.
+    if label.startswith("Snack"):
+        return (_MEAL_BAND_ORDER.index("Snack"), "")
     try:
         return (_MEAL_BAND_ORDER.index(label), "")
     except ValueError:
@@ -1394,11 +1398,17 @@ def _merge_meal_items(a: list[dict], b: list[dict]) -> list[dict]:
     )
 
 
-def _cluster_diet_count_row(diets: dict, total_columns: int) -> dict:
+def _cluster_diet_count_row(
+    diets: dict, total_columns: int, *, under_menu: bool = False
+) -> dict:
     """Riadok „z toho diéty" je drill-down, nie ďalšia porcia."""
     return {
         "kind": "cluster-ms-row",
-        "css": "cluster-ms-row cluster-ms-diet-count-row",
+        "css": (
+            "cluster-ms-row cluster-ms-diet-count-row " "cluster-ms-menu-diet-row"
+            if under_menu
+            else "cluster-ms-row cluster-ms-diet-count-row"
+        ),
         "cells": [
             {
                 "label": "z toho diéty:",
@@ -1467,7 +1477,9 @@ def _render_ms_rows(meal_items: list[dict], total_columns: int) -> list[dict]:
                 }
             )
             if diets and menu["label"] == "Menu A":
-                rows.append(_cluster_diet_count_row(diets, total_columns))
+                rows.append(
+                    _cluster_diet_count_row(diets, total_columns, under_menu=True)
+                )
                 diet_rendered = True
         # Fallback pre neštandardný import bez Menu A: diétu nestratíme, len
         # ju nevieme pravdivo priradiť ku konkrétnemu variantu.

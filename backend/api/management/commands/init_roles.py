@@ -3,7 +3,7 @@ import os
 from django.contrib.auth.models import Group, User
 from django.core.management.base import BaseCommand
 
-from api.models import Prevadzka, UserProfile
+from api.models import Prevadzka, ProfilePrevadzkaAccess, UserProfile
 
 DEMO_ADMIN_EMAIL = "admin@example.com"
 DEMO_ADMIN_PASSWORD = "admin"
@@ -32,6 +32,14 @@ class Command(BaseCommand):
                 "when DJANGO_SETTINGS_MODULE points to production."
             ),
         )
+        parser.add_argument(
+            "--fast-access-only",
+            action="store_true",
+            help=(
+                "Create only the local fast-access accounts. Unlike the legacy "
+                "demo setup this does not create a Celok or Prevádzka."
+            ),
+        )
 
     def handle(self, *args, **options):
         roles = ["Client", "Admin", "Staff"]
@@ -58,6 +66,10 @@ class Command(BaseCommand):
             raise RuntimeError(
                 "Refusing to create default users with weak passwords in production."
             )
+
+        if options["fast_access_only"]:
+            self._ensure_fast_access_users()
+            return
 
         admin_user, created = self._get_or_create_demo_user(
             email=DEMO_ADMIN_EMAIL,
@@ -132,6 +144,52 @@ class Command(BaseCommand):
 
         self._ensure_demo_spravca()
         self._ensure_demo_kuchyna()
+
+    def _ensure_fast_access_users(self) -> None:
+        """Create local quick-login accounts without seeding demo domain data."""
+        users = (
+            (DEMO_ADMIN_EMAIL, "admin", UserProfile.Role.SUPERADMIN, True, True),
+            (DEMO_OPERATION_EMAIL, "prevadzka", UserProfile.Role.KLIENT, False, False),
+            (DEMO_SPRAVCA_EMAIL, "spravca", UserProfile.Role.ADMIN, True, False),
+            (DEMO_KUCHYNA_EMAIL, "kuchyna", UserProfile.Role.KUCHYNA, False, False),
+        )
+        passwords = {
+            DEMO_ADMIN_EMAIL: DEMO_ADMIN_PASSWORD,
+            DEMO_OPERATION_EMAIL: DEMO_OPERATION_PASSWORD,
+            DEMO_SPRAVCA_EMAIL: DEMO_SPRAVCA_PASSWORD,
+            DEMO_KUCHYNA_EMAIL: DEMO_KUCHYNA_PASSWORD,
+        }
+        profiles: dict[str, UserProfile] = {}
+        for email, username, role, is_staff, is_superuser in users:
+            user, _ = self._get_or_create_demo_user(
+                email=email,
+                legacy_username=username,
+                is_staff=is_staff,
+                is_superuser=is_superuser,
+            )
+            user.is_staff = is_staff
+            user.is_superuser = is_superuser
+            user.set_password(passwords[email])
+            user.save()
+            profile = getattr(user, "profile", None)
+            if profile is None:
+                profile = UserProfile(user=user, company_name=f"Fast access {username}")
+                profile.role = role
+                profile._skip_default_facility = True
+                profile.save()
+            elif profile.role != role:
+                profile.role = role
+                profile.save(update_fields=["role"])
+            profiles[email] = profile
+
+        operation = profiles[DEMO_OPERATION_EMAIL]
+        if not operation.dostupne_prevadzky().exists():
+            prevadzka = Prevadzka.objects.filter(is_active=True).order_by("pk").first()
+            if prevadzka is None:
+                raise RuntimeError("Fast access needs an existing prevádzka.")
+            ProfilePrevadzkaAccess.objects.get_or_create(
+                profile=operation, prevadzka=prevadzka
+            )
 
     def _ensure_demo_spravca(self) -> None:
         """Demo login pre rolu Admin (#483).

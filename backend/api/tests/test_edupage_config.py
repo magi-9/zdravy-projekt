@@ -1147,7 +1147,7 @@ class TestBritishSchoolHooks(unittest.TestCase):
         iné menu (British škola, 4.9.2026)."""
         rule = british_school_letter_hook("E", "VEGE1", "Vege 1")
         self.assertIsNotNone(rule)
-        self.assertEqual(rule.menu, "VEGE1")
+        self.assertEqual(rule.menu, "V1")
         self.assertIsNone(rule.diet)
 
     def test_letter_hook_recognizes_plain_vege_as_own_menu_variant_too(self):
@@ -1156,15 +1156,13 @@ class TestBritishSchoolHooks(unittest.TestCase):
         ako samostatné položky rozpisu Obedu, nie zlúčené pod Menu A."""
         rule = british_school_letter_hook("E", "VEGE", "Vege")
         self.assertIsNotNone(rule)
-        self.assertEqual(rule.menu, "VEGE")
+        self.assertEqual(rule.menu, "V")
         self.assertIsNone(rule.diet)
 
     def test_letter_hook_vege_variants_do_not_collide(self):
         """VEGE a VEGE1 musia zostať dve odlišné menu, nie tá istá zhoda."""
-        self.assertEqual(british_school_letter_hook("E", "VEGE", "Vege").menu, "VEGE")
-        self.assertEqual(
-            british_school_letter_hook("U", "VEGE1", "Vege1").menu, "VEGE1"
-        )
+        self.assertEqual(british_school_letter_hook("E", "VEGE", "Vege").menu, "V")
+        self.assertEqual(british_school_letter_hook("U", "VEGE1", "Vege1").menu, "V1")
 
 
 class TestBritishSchoolHooksInParse(unittest.TestCase):
@@ -1244,7 +1242,7 @@ class TestBritishSchoolHooksInParse(unittest.TestCase):
         html = _make_html(prehlad, nazov_menu, self.NASTAVENIA, typy)
         res = EdupageScraper()._parse(html, TARGET, config=self._cfg())
         skolka = res.order_data["lunch"]["Škôlka"]
-        self.assertEqual(skolka["menuCounts"].get("VEGE"), 2)
+        self.assertEqual(skolka["menuCounts"].get("V"), 2)
         self.assertNotIn("VEGGIE", skolka["diets"])
 
     def test_unknown_payer_on_plus_letter_keeps_the_count(self):

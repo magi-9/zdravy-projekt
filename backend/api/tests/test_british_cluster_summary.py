@@ -44,7 +44,7 @@ class TestMealItemsFromOrderData:
         coeffs = {"ZŠ 1.stupeň": Decimal("1.25"), "ZŠ 2.stupeň": Decimal("1")}
         items = meal_items_from_order_data(order_data, coeffs)
         assert len(items) == 1
-        assert items[0]["label"] == "Snack"
+        assert items[0]["label"] == "Snack (balíček)"
         assert items[0]["heads"] == Decimal("38")
         assert items[0]["kusy_only"] is True
 
@@ -69,15 +69,15 @@ class TestMealItemsFromOrderData:
         assert menus_by_label["Menu D"]["total"] == Decimal("64")  # 32 * 2
         assert "Menu VEGE1" not in menus_by_label
 
-    def test_lunch_breaks_down_vege_and_vege1_when_present(self):
-        """VEGE aj VEGE1 sú samostatné menu (letter_hook v britishschool.py
+    def test_lunch_breaks_down_menu_v_and_v1_when_present(self):
+        """British VEGE aj VEGE1 sa po mapovaní zobrazia ako Menu V a Menu V1.
         ich už vyhodnotí ako `menuCounts`, nie `diets`) — obe sa musia
         objaviť v rozpise, nie zliať pod Menu A (user 4.9.2026: "tam chýba
         menu Vege a vege1")."""
         order_data = {
             "lunch": {
                 "Dospelý (SŠ)": {
-                    "menuCounts": {"A": 10, "VEGE": 4, "VEGE1": 3},
+                    "menuCounts": {"A": 10, "V": 4, "V1": 3},
                     "diets": {},
                 },
             },
@@ -85,19 +85,19 @@ class TestMealItemsFromOrderData:
         items = meal_items_from_order_data(order_data, {"Dospelý (SŠ)": Decimal("2")})
         obed = next(item for item in items if item["label"] == "Obed")
         menus_by_label = {m["label"]: m for m in obed["menus"]}
-        assert menus_by_label["Menu VEGE"]["heads"] == Decimal("4")
-        assert menus_by_label["Menu VEGE"]["total"] == Decimal("8")
-        assert menus_by_label["Menu VEGE1"]["heads"] == Decimal("3")
-        assert menus_by_label["Menu VEGE1"]["total"] == Decimal("6")
+        assert menus_by_label["Menu V"]["heads"] == Decimal("4")
+        assert menus_by_label["Menu V"]["total"] == Decimal("8")
+        assert menus_by_label["Menu V1"]["heads"] == Decimal("3")
+        assert menus_by_label["Menu V1"]["total"] == Decimal("6")
 
-    def test_menu_order_is_stable_a_b_c_d_vege_vege1(self):
+    def test_menu_order_is_stable_a_b_c_d_v_v1(self):
         order_data = {
             "lunch": {
                 "Škôlka": {
                     "menuCounts": {
-                        "VEGE1": 1,
+                        "V1": 1,
                         "D": 1,
-                        "VEGE": 1,
+                        "V": 1,
                         "C": 1,
                         "A": 1,
                         "B": 1,
@@ -113,8 +113,8 @@ class TestMealItemsFromOrderData:
             "Menu B",
             "Menu C",
             "Menu D",
-            "Menu VEGE",
-            "Menu VEGE1",
+            "Menu V",
+            "Menu V1",
         ]
 
     def test_meal_absent_that_day_is_not_included(self):

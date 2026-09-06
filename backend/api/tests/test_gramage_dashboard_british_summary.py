@@ -96,8 +96,8 @@ def test_summary_only_prevadzka_gets_its_own_summary_vydaj():
     assert all(not route["rows"] for route in british_vydaj["routes"])
     labels = {m["label"]: m for m in british_vydaj["british_summary"]}
     assert labels["Raňajky"]["heads"] == 10
-    assert labels["Snack"]["heads"] == 5
-    assert labels["Snack"]["kusy_only"] is True
+    assert labels["Snack (balíček)"]["heads"] == 5
+    assert labels["Snack (balíček)"]["kusy_only"] is True
     assert labels["Obed"]["heads"] == 23
     assert labels["Olovrant"]["heads"] == 9
 

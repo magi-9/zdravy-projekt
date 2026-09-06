@@ -21,21 +21,21 @@ from typing import Any
 # Poradie pásiem dňa — chronologické, nezávislé od poradia kľúčov v
 # `order.data`. Interný kľúč ostáva "desiata" (#British Cluster C) — NIE
 # "snack", to je legacy alias pre Olovrant (viď `api.tasks._EXTRA_MEAL_KEYS`) —
-# ale zobrazovaný štítok je "Snack" (user 4.9.2026: "desiata sa má volať
-# snack"). `_KUSY_ONLY_MEAL_KEYS` — Snack sa počíta ČISTO kusovo, žiadny
+# ale zobrazovaný štítok je "Snack (balíček)". `_KUSY_ONLY_MEAL_KEYS` — Snack
+# sa počíta ČISTO kusovo, žiadny
 # prepočet na MŠ porcie (rovnaký user 4.9.2026: "nemá prepočet na ms").
 _MEAL_BANDS: tuple[tuple[str, str], ...] = (
     ("breakfast", "Raňajky"),
-    ("desiata", "Snack"),
+    ("desiata", "Snack (balíček)"),
     ("lunch", "Obed"),
     ("olovrant", "Olovrant"),
 )
 _KUSY_ONLY_MEAL_KEYS: frozenset[str] = frozenset({"desiata"})
 
 # Stabilné poradie menu variantov v rozpise "Obed" — bežné písmená najprv,
-# British špecifiká (Menu D, VEGE, VEGE1) za nimi. Neznáme varianty (budúca
+# British špecifiká (Menu D, V1) za nimi. Neznáme varianty (budúca
 # škola) padnú na koniec, zoradené abecedne, aby poradie ostalo deterministické.
-_MENU_VARIANT_ORDER: tuple[str, ...] = ("A", "B", "C", "D", "VEGE", "VEGE1")
+_MENU_VARIANT_ORDER: tuple[str, ...] = ("A", "B", "C", "D", "V", "V1")
 
 _DEFAULT_COEFFICIENT = Decimal("1")
 
@@ -65,7 +65,7 @@ def meal_items_from_order_data(
     inak by tabuľka fabrikovala jedlo, ktoré škola ten deň neobjednávala.
 
     "Obed" (`lunch`) navyše nesie rozpis `menus` po menu variantoch
-    (`menuCounts` kľúče — A/B/C/D/VEGE1 a čokoľvek ďalšie), len keď je
+    (`menuCounts` kľúče — A/B/C/D/V/V1 a čokoľvek ďalšie), len keď je
     variantov viac než jeden — jediný variant by len duplikoval riadok Obed.
     Diétne počty (`diets`) sa do `heads` NEZAPOČÍTAVAJÚ navyše — sú drill-down
     tej istej hlavičky (`effective_menu`/`menu_counts` v `edupage_scraper.py`
