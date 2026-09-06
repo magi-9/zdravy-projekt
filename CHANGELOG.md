@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.9.0](https://github.com/tomag-9/zdravy-projekt/compare/v2.8.0...v2.9.0) (2026-09-06)
+
+
+### Features
+
+* **british:** Cluster C sumár - Menu D/VEGE1, desiata, kusový výstup ([7857367](https://github.com/tomag-9/zdravy-projekt/commit/7857367cf8f413594e681cdea2fae1882b28ea30))
+* **diety:** explicitná farba textu a pozadia diéty v gramážnej tabuľke/PDF ([08bd20a](https://github.com/tomag-9/zdravy-projekt/commit/08bd20a3683f89173710b126438643ab08438169))
+
+
+### Bug Fixes
+
+* **edupage:** SŠV dospelý vždy zabaliť zvlášť, aj keď zdieľa porciu so žiakmi ([7ea490f](https://github.com/tomag-9/zdravy-projekt/commit/7ea490ffa2afdc860336467123e784c44af0ef23))
+
 ## [2.8.0](https://github.com/tomag-9/zdravy-projekt/compare/v2.7.0...v2.8.0) (2026-09-04)
 
 
