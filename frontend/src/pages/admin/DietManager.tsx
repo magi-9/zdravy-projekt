@@ -80,6 +80,7 @@ interface CompositeModal {
   baseDietIds: number[];
   textColor: string;
   backgroundColor: string;
+  step: 1 | 2;
 }
 
 interface DragState {
@@ -403,7 +404,7 @@ const DietManager: React.FC = () => {
               type="button"
               variant="secondary"
               disabled={composableDiets.length < 2}
-              onClick={() => setCompositeModal({ baseDietIds: [], textColor: "", backgroundColor: "" })}
+              onClick={() => setCompositeModal({ baseDietIds: [], textColor: "", backgroundColor: "", step: 1 })}
             >
               <Layers /> Vytvoriť kombinovanú
             </Button>
@@ -525,63 +526,94 @@ const DietManager: React.FC = () => {
           iconKind="ok"
           foot={
             <>
-              <Button variant="ghost" onClick={() => setCompositeModal(null)}>Zrušiť</Button>
-              <Button
-                onClick={handleAddCompositeDiet}
-                disabled={creatingComposite || compositeModal.baseDietIds.length < 2}
-              >
-                {creatingComposite ? "Vytváram…" : "Vytvoriť kombináciu"}
-              </Button>
+              {compositeModal.step === 1 ? (
+                <>
+                  <Button variant="ghost" onClick={() => setCompositeModal(null)}>Zrušiť</Button>
+                  <Button
+                    onClick={() => setCompositeModal((current) => current ? { ...current, step: 2 } : current)}
+                    disabled={compositeModal.baseDietIds.length < 2}
+                  >
+                    Pokračovať na farby
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button
+                    variant="ghost"
+                    onClick={() => setCompositeModal((current) => current ? { ...current, step: 1 } : current)}
+                  >
+                    Späť
+                  </Button>
+                  <Button onClick={handleAddCompositeDiet} disabled={creatingComposite}>
+                    {creatingComposite ? "Vytváram…" : "Vytvoriť kombináciu"}
+                  </Button>
+                </>
+              )}
             </>
           }
         >
-          <p style={{ margin: 0, color: "var(--ink-2)" }}>
-            Vyberte aspoň dve existujúce diéty. Názov aj viacfarebné označenie sa vytvoria automaticky.
-          </p>
-          <div className="zpa-composite-options">
-            {composableDiets.map((diet) => (
-              <Checkbox
-                key={diet.id}
-                on={compositeModal.baseDietIds.includes(diet.id)}
-                onChange={() => toggleCompositeDiet(diet.id)}
-              >
-                <DietColorSwatch color={diet.color} size={14} />
-                <span>{diet.name}</span>
-              </Checkbox>
-            ))}
-          </div>
-          {compositeModal.baseDietIds.length > 0 && (
-            <div className="zpa-composite-preview">
-              <DietColorSwatch
-                baseColors={compositeModal.baseDietIds.map((id) => diets.find((diet) => diet.id === id)?.color || "")}
-                size={24}
-              />
-              <span>
-                {compositeModal.baseDietIds.map((id) => diets.find((diet) => diet.id === id)?.name).filter(Boolean).join(" – ")}
-              </span>
-            </div>
-          )}
-          {compositeModal.baseDietIds.length >= 2 && (
-            <DietStyleFields
-              label={compositeModal.baseDietIds
-                .map((id) => diets.find((diet) => diet.id === id)?.name)
-                .filter(Boolean)
-                .join(" – ")}
-              textColor={compositeModal.textColor}
-              backgroundColor={compositeModal.backgroundColor}
-              onTextColorChange={(value) =>
-                setCompositeModal((current) => (current ? { ...current, textColor: value } : current))
-              }
-              onBackgroundColorChange={(value) =>
-                setCompositeModal((current) => (current ? { ...current, backgroundColor: value } : current))
-              }
-              computed={computedDietStyle(
-                "",
-                compositeModal.baseDietIds
-                  .map((id) => diets.find((diet) => diet.id === id)?.color || "")
-                  .filter(Boolean),
+          <div className="zpa-step-indicator">Krok {compositeModal.step} z 2</div>
+          {compositeModal.step === 1 ? (
+            <>
+              <p style={{ margin: 0, color: "var(--ink-2)" }}>
+                Vyberte aspoň dve existujúce diéty. Názov aj viacfarebné označenie sa vytvoria automaticky.
+              </p>
+              <div className="zpa-composite-options">
+                {composableDiets.map((diet) => (
+                  <Checkbox
+                    key={diet.id}
+                    on={compositeModal.baseDietIds.includes(diet.id)}
+                    onChange={() => toggleCompositeDiet(diet.id)}
+                  >
+                    <DietColorSwatch color={diet.color} size={14} />
+                    <span>{diet.name}</span>
+                  </Checkbox>
+                ))}
+              </div>
+              {compositeModal.baseDietIds.length > 0 && (
+                <div className="zpa-composite-preview">
+                  <DietColorSwatch
+                    baseColors={compositeModal.baseDietIds.map((id) => diets.find((diet) => diet.id === id)?.color || "")}
+                    size={24}
+                  />
+                  <span>
+                    {compositeModal.baseDietIds.map((id) => diets.find((diet) => diet.id === id)?.name).filter(Boolean).join(" – ")}
+                  </span>
+                </div>
               )}
-            />
+            </>
+          ) : (
+            <div className="zpa-composite-colour-step">
+              <div className="zpa-composite-preview">
+                <DietColorSwatch
+                  baseColors={compositeModal.baseDietIds.map((id) => diets.find((diet) => diet.id === id)?.color || "")}
+                  size={24}
+                />
+                <span>
+                  {compositeModal.baseDietIds.map((id) => diets.find((diet) => diet.id === id)?.name).filter(Boolean).join(" – ")}
+                </span>
+              </div>
+              <DietStyleFields
+                label={compositeModal.baseDietIds
+                  .map((id) => diets.find((diet) => diet.id === id)?.name)
+                  .filter(Boolean)
+                  .join(" – ")}
+                textColor={compositeModal.textColor}
+                backgroundColor={compositeModal.backgroundColor}
+                onTextColorChange={(value) =>
+                  setCompositeModal((current) => (current ? { ...current, textColor: value } : current))
+                }
+                onBackgroundColorChange={(value) =>
+                  setCompositeModal((current) => (current ? { ...current, backgroundColor: value } : current))
+                }
+                computed={computedDietStyle(
+                  "",
+                  compositeModal.baseDietIds
+                    .map((id) => diets.find((diet) => diet.id === id)?.color || "")
+                    .filter(Boolean),
+                )}
+              />
+            </div>
           )}
         </Modal>
       )}

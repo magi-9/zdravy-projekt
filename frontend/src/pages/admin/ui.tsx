@@ -243,79 +243,80 @@ export const ColorSwatchPicker: React.FC<{
     onChange: (value: string) => void;
     ariaLabel: string;
 }> = ({ value, onChange, ariaLabel }) => {
+    const [open, setOpen] = React.useState(false);
     const [showCustomColor, setShowCustomColor] = React.useState(
         () => !!value && !DIET_COLORS.includes(value.toUpperCase())
     );
     const [focusedColor, setFocusedColor] = React.useState<string | null>(null);
 
-    return (
-        <div>
-            <div
-                role="group"
-                aria-label={ariaLabel}
-                style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 28px)', gap: 8 }}
-            >
-                {DIET_COLORS.map((color) => {
-                    const selected = value.toUpperCase() === color;
-                    const focused = focusedColor === color;
+    const selectColor = (color: string) => {
+        onChange(color);
+        setOpen(false);
+    };
 
-                    return (
-                        <button
-                            key={color}
-                            type="button"
-                            aria-label={`${ariaLabel}: ${color}`}
-                            aria-pressed={selected}
-                            onClick={() => onChange(color)}
-                            onFocus={() => setFocusedColor(color)}
-                            onBlur={() => setFocusedColor(null)}
-                            style={{
-                                width: 28,
-                                height: 28,
-                                padding: 0,
-                                border: '2px solid white',
-                                borderRadius: 999,
-                                background: color,
-                                boxShadow: focused
-                                    ? '0 0 0 3px var(--green-700)'
-                                    : selected
-                                      ? '0 0 0 3px var(--green-900)'
-                                      : '0 0 0 1px rgba(39, 52, 34, 0.22)',
-                                cursor: 'pointer',
-                                outline: 'none',
-                            }}
-                        />
-                    );
-                })}
-            </div>
+    return (
+        <>
             <button
                 type="button"
-                aria-expanded={showCustomColor}
-                onClick={() => setShowCustomColor((shown) => !shown)}
-                style={{
-                    display: 'block',
-                    margin: '10px 0 0',
-                    padding: 0,
-                    border: 0,
-                    background: 'transparent',
-                    color: 'var(--green-700)',
-                    font: 'inherit',
-                    fontSize: 12,
-                    textDecoration: 'underline',
-                    cursor: 'pointer',
-                }}
+                className="zpa-color-trigger"
+                aria-label={`Vybrať ${ariaLabel}`}
+                aria-haspopup="dialog"
+                aria-expanded={open}
+                onClick={() => setOpen(true)}
             >
-                Vlastná farba
+                <span className="zpa-color-trigger-swatch" style={{ background: value }} aria-hidden="true" />
+                <span>{value.toUpperCase()}</span>
+                <span className="zpa-color-trigger-action">Zmeniť</span>
             </button>
-            {showCustomColor && (
-                <Input
-                    type="color"
-                    value={value}
-                    onChange={(e) => onChange(e.target.value)}
-                    aria-label={ariaLabel}
-                    style={{ width: 64, marginTop: 8, padding: 4 }}
-                />
+            {open && (
+                <Modal title={ariaLabel} onClose={() => setOpen(false)}>
+                    <div role="group" aria-label={ariaLabel} className="zpa-color-grid">
+                        {DIET_COLORS.map((color) => {
+                            const selected = value.toUpperCase() === color;
+                            const focused = focusedColor === color;
+
+                            return (
+                                <button
+                                    key={color}
+                                    type="button"
+                                    aria-label={`${ariaLabel}: ${color}`}
+                                    aria-pressed={selected}
+                                    onClick={() => selectColor(color)}
+                                    onFocus={() => setFocusedColor(color)}
+                                    onBlur={() => setFocusedColor(null)}
+                                    className="zpa-color-option"
+                                    style={{
+                                        background: color,
+                                        boxShadow: focused
+                                            ? '0 0 0 3px var(--green-700)'
+                                            : selected
+                                              ? '0 0 0 3px var(--green-900)'
+                                              : '0 0 0 1px rgba(39, 52, 34, 0.22)',
+                                    }}
+                                />
+                            );
+                        })}
+                    </div>
+                    <button
+                        type="button"
+                        aria-expanded={showCustomColor}
+                        onClick={() => setShowCustomColor((shown) => !shown)}
+                        className="zpa-color-custom-toggle"
+                    >
+                        Vlastná farba
+                    </button>
+                    {showCustomColor && (
+                        <Input
+                            type="color"
+                            value={value}
+                            onChange={(e) => selectColor(e.target.value)}
+                            aria-label={ariaLabel}
+                            style={{ width: 64, padding: 4 }}
+                        />
+                    )}
+                </Modal>
             )}
-        </div>
+        </>
     );
 };
 
@@ -424,6 +425,9 @@ export const Modal: React.FC<{
 }> = ({ title, onClose, children, foot, wide, icon, iconKind = '' }) => (
     <div
         className="zpa-scrim"
+        role="dialog"
+        aria-modal="true"
+        aria-label={typeof title === 'string' ? title : undefined}
         onMouseDown={(e) => {
             if (e.target === e.currentTarget) onClose?.();
         }}
