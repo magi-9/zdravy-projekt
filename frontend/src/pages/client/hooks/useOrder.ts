@@ -897,8 +897,11 @@ export const useOrder = (activePrevadzkaId?: number, waitForPrevadzkaChoice = fa
     const prevadzkaSettings = prevadzky.find((item) => item.id === activePrevadzkaId);
 
     const adminVisibleMenusSetting = prevadzkaSettings?.visible_menus;
+    // "D" nie je vo fallbacku — je to British School špecifikum (Cluster C),
+    // musí zostať zosynchronizované s `DEFAULT_VISIBLE_MENUS`
+    // (backend/api/default_visibility.py).
     const adminVisibleMenusBase = adminVisibleMenusSetting == null
-        ? ['A', 'B', 'C', 'D', 'V']
+        ? ['A', 'B', 'C', 'V']
         : adminVisibleMenusSetting;
     const adminVisibleMenus = filterMenusByDay(
         adminVisibleMenusBase,

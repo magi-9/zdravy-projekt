@@ -41,6 +41,10 @@ BRITISH_SCHOOL_SCRAPE_MINUTE = 15
 # default-visible pre každú prevádzku (reference_data.OPERATION_SPECIFIC_DIETS),
 # tak ich British School potrebuje zapnuté explicitne, aby ich admin/klient
 # reálne videl v appke.
+# Nie v `DEFAULT_VISIBLE_MENUS` (api/default_visibility.py) — British je jediná
+# prevádzka, ktorá ich má vidieť (Cluster C, kusový sumár, žiadna gramáž).
+BRITISH_SCHOOL_EXTRA_MENUS = ["D", "VEGE1"]
+
 BRITISH_SCHOOL_DIET_NAMES = [
     "VEGAN",
     "NO BRAVCOVINA",
@@ -99,6 +103,21 @@ class Command(BaseCommand):
         if prevadzka.edupage_match != "":
             prevadzka.edupage_match = ""
             update_fields.append("edupage_match")
+        # Menu D a VEGE1 (4. obedové menu, Cluster C sumár, žiadna gramáž) sú
+        # British School špecifiká — nie sú v `DEFAULT_VISIBLE_MENUS` (migrácia
+        # 0097 ich zo všetkých ostatných prevádzok odstránila), takže British
+        # ich musí mať zapnuté explicitne tu.
+        missing_menus = [
+            m for m in BRITISH_SCHOOL_EXTRA_MENUS if m not in prevadzka.visible_menus
+        ]
+        if missing_menus:
+            prevadzka.visible_menus = [*prevadzka.visible_menus, *missing_menus]
+            update_fields.append("visible_menus")
+        # British nemá gramážové menu-šablóny — Cluster C sumár (kusy + MŠ
+        # prepočet) sa počíta priamo z EduPage počtov, mimo bežnej mriežky.
+        if not prevadzka.gramage_summary_only:
+            prevadzka.gramage_summary_only = True
+            update_fields.append("gramage_summary_only")
         if update_fields:
             prevadzka.save(update_fields=update_fields)
 

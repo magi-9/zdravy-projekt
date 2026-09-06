@@ -601,6 +601,36 @@ class TestApplyScrapeIdempotency:
         out = _apply_scrape(existing, {}, None)
         assert out == {}
 
+    def test_desiata_applied_even_when_not_in_requested_meals(self):
+        """British `desiata` (#British Cluster C) nie je v `_ALL_MEALS` —
+        scrape ho vždy prinesie s tým istým HTML fetchom ako ostatné jedlá, ale
+        `requested_meals` (deadline-driven) ho nikdy nepýta explicitne. Bez
+        osobitného handlingu by `_apply_scrape` tento kľúč ticho zahodil, hoci
+        `imported_data` ho má (rovnaký #British bug ako 885 hláv pod lunch
+        namiesto rozpadu na jednotlivé jedlá, 1.9.2026, len pre nový meal_key).
+        Meno "desiata", NIE "snack" — ten je legacy alias pre Olovrant."""
+        from api.tasks import _apply_scrape
+
+        existing = {}
+        out = _apply_scrape(
+            existing,
+            {
+                "lunch": {"Škôlka": {"menuCounts": {"A": 21}}},
+                "desiata": {"kusy": 150},
+            },
+            ["lunch"],
+        )
+        assert out["desiata"] == {"kusy": 150}
+
+    def test_desiata_cleared_when_scraped_empty(self):
+        from api.tasks import _apply_scrape
+
+        existing = {"desiata": {"kusy": 150}}
+        out = _apply_scrape(
+            existing, {"lunch": {"Škôlka": {"menuCounts": {"A": 20}}}}, ["lunch"]
+        )
+        assert "desiata" not in out
+
 
 class TestApplyPartialMenuScrape:
     """Predbežný Menu B/C scrape 1-2 dni vopred: len B/C sa zapíšu, zvyšok

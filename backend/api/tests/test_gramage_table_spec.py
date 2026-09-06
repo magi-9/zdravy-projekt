@@ -379,6 +379,79 @@ def test_combined_diet_of_three_or_more_uses_fixed_orange_background():
     assert summary["background"] == f"#{blend_with_white('F97316')}"
 
 
+def test_explicit_text_and_background_color_win_over_computed_defaults():
+    """Keď má diéta explicitne nastavenú vlastnú farbu textu aj pozadia
+    (Diet.text_color/background_color), tabuľka a PDF ju použijú presne
+    takú, bez stmavovania/blendovania — to rieši len čitateľnosť počítanej
+    predvolenej palety."""
+    payload = _payload()
+    payload["rows"][0]["diet_summary_rows"][0]["text_color"] = "#111111"
+    payload["rows"][0]["diet_summary_rows"][0]["background_color"] = "#EEEEEE"
+    payload["rows"][0]["sub_rows"][1]["diet_text_color"] = "#111111"
+    payload["rows"][0]["sub_rows"][1]["diet_background_color"] = "#EEEEEE"
+
+    spec = build_table_spec(payload)
+
+    summary = next(r for r in spec["rows"] if r["kind"] == "summary-diet")
+    assert summary["color"] == "#111111"
+    assert summary["background"] == "#EEEEEE"
+
+    sub_row = next(
+        r for r in spec["rows"] if r["kind"] == "sub-row" and "diet" in r["css"]
+    )
+    assert sub_row["color"] == "#111111"
+    assert sub_row["background"] == "#EEEEEE"
+
+
+def test_explicit_color_wins_even_for_a_combined_diet():
+    """Kombinovaná diéta s vlastnou explicitnou farbou prebije kombinačnú
+    logiku (hlavná/vedľajšia/oranžová) rovnako ako jednoduchá diéta."""
+    payload = _payload()
+    payload["rows"][0]["diet_summary_rows"][0]["base_colors"] = ["#F59E0B", "#EF4444"]
+    payload["rows"][0]["diet_summary_rows"][0]["text_color"] = "#000000"
+    payload["rows"][0]["diet_summary_rows"][0]["background_color"] = "#FFFFFF"
+
+    spec = build_table_spec(payload)
+
+    summary = next(r for r in spec["rows"] if r["kind"] == "summary-diet")
+    assert summary["color"] == "#000000"
+    assert summary["background"] == "#FFFFFF"
+
+
+def test_only_one_explicit_color_falls_back_to_computed_defaults():
+    """Nastavená len jedna z dvojice (text/pozadie) sa ignoruje — nekonzistentná
+    kombinácia s dopočítanou druhou farbou by mohla byť nečitateľná."""
+    payload = _payload()
+    payload["rows"][0]["diet_summary_rows"][0]["text_color"] = "#000000"
+
+    spec = build_table_spec(payload)
+
+    summary = next(r for r in spec["rows"] if r["kind"] == "summary-diet")
+    assert summary["color"] == f"#{readable_text_color('F59E0B')}"
+    assert summary["background"] == f"#{blend_with_white('F59E0B')}"
+
+
+def test_explicit_colors_can_come_from_the_top_level_diet_maps():
+    """Rovnaká explicitná dvojica vie prísť aj cez `diet_text_colors`/
+    `diet_background_colors` v `data` (mapa meno diéty → farba), rovnako ako
+    `diet_colors`/`diet_base_colors` už fungujú pre `diet_color`."""
+    payload = _payload(
+        diet_text_colors={"No Milk": "#010101"},
+        diet_background_colors={"No Milk": "#FEFEFE"},
+    )
+    spec = build_table_spec(payload)
+
+    summary = next(r for r in spec["rows"] if r["kind"] == "summary-diet")
+    assert summary["color"] == "#010101"
+    assert summary["background"] == "#FEFEFE"
+
+    sub_row = next(
+        r for r in spec["rows"] if r["kind"] == "sub-row" and "diet" in r["css"]
+    )
+    assert sub_row["color"] == "#010101"
+    assert sub_row["background"] == "#FEFEFE"
+
+
 def test_footer_is_the_cluster_summary_plus_the_grand_total():
     """#532 — súhrn porcií je jeden pás „SUMÁR ... S DIÉTAMI MŠ" s jedným
     riadkom na prítomné jedlo (tu len Obed — fixture nemá raňajky/olovrant),
@@ -1342,3 +1415,124 @@ def test_diet_clusters_combined_summary_shown_if_either_half_is_enabled():
     assert _has_diet_band("CLUSTER B DIÉTY") is True
     assert _has_diet_band("CLUSTER A + B DIÉTY") is True
     assert _has_diet_band("CLUSTER C DIÉTY") is False
+
+
+# ── summary_only klaster (British School, Cluster C, #531) — kusový sumár,
+# žiadna gramáž, žiadne per-klientske riadky ──────────────────────────────
+
+
+def _summary_only_vydaj():
+    return {
+        "key": "C",
+        "name": "Cluster C",
+        "summary_only": True,
+        "british_summary": [
+            {"label": "Raňajky", "heads": Decimal("10"), "total": Decimal("10")},
+            {"label": "Desiata", "heads": Decimal("5"), "total": Decimal("5")},
+            {
+                "label": "Obed",
+                "heads": Decimal("23"),
+                "total": Decimal("26"),
+                "menus": [
+                    {"label": "Menu A", "heads": Decimal("20"), "total": Decimal("20")},
+                    {"label": "Menu D", "heads": Decimal("3"), "total": Decimal("6")},
+                ],
+            },
+            {"label": "Olovrant", "heads": Decimal("9"), "total": Decimal("9")},
+        ],
+        "routes": [
+            {"id": None, "name": "British School", "rows": []},
+        ],
+    }
+
+
+def _payload_with_summary_only_cluster():
+    payload = _payload()
+    payload["vydaje"] = [
+        {
+            "key": "A",
+            "name": "Cluster A",
+            "routes": [{"id": 1, "name": "Trasa 1", "rows": payload["rows"]}],
+        },
+        _summary_only_vydaj(),
+    ]
+    payload["rows"] = []
+    payload["unassigned_rows"] = []
+    return payload
+
+
+def test_summary_only_cluster_renders_kusy_ms_rows_not_grid():
+    spec = build_table_spec(_payload_with_summary_only_cluster())
+
+    band_index = next(
+        i
+        for i, row in enumerate(spec["rows"])
+        if row["kind"] == "portion-band"
+        and row["cells"][0]["text"] == "SUMÁR CLUSTER C S DIÉTAMI MŠ"
+    )
+    summary_rows = []
+    for row in spec["rows"][band_index + 1 :]:
+        if row["kind"] != "cluster-ms-row":
+            break
+        summary_rows.append(row)
+
+    assert [r["cells"][0]["label"] for r in summary_rows] == [
+        "Raňajky:",
+        "Desiata:",
+        "Obed:",
+        "Menu A:",
+        "Menu D:",
+        "Olovrant:",
+    ]
+    assert summary_rows[2]["cells"][0]["text"] == "23 ks / 26 MŠ"
+    assert summary_rows[4]["cells"][0]["text"] == "3 ks / 6 MŠ"
+
+
+def test_summary_only_cluster_has_no_route_or_client_rows():
+    """Cluster A si svoju trasu/klienta necháva (bežná mriežka) — British
+    (Cluster C, summary_only) nedostane ani jedno z toho, len sumár."""
+    spec = build_table_spec(_payload_with_summary_only_cluster())
+
+    assert not any(
+        row["kind"] == "route" and row["cells"][0]["text"] == "British School"
+        for row in spec["rows"]
+    )
+    assert any(row["kind"] == "client" for row in spec["rows"])  # Cluster A ho má
+
+
+def test_summary_only_cluster_excluded_from_combined_footer_title():
+    spec = build_table_spec(_payload_with_summary_only_cluster())
+
+    assert spec["footer"][0]["cells"][0]["text"] == "SUMÁR CLUSTER A S DIÉTAMI MŠ"
+
+
+def test_summary_only_cluster_excluded_from_first_two_combination():
+    """British ako 2. (position 1) klaster nesmie skončiť v kombinovanom
+    "Cluster A + B" medzisúčte — ten číta gram-plánové sub_rows, ktoré
+    British nemá."""
+    payload = _payload()
+    payload["vydaje"] = [
+        {
+            "key": "A",
+            "name": "Cluster A",
+            "routes": [{"id": 1, "name": "Trasa 1", "rows": payload["rows"]}],
+        },
+        _summary_only_vydaj(),
+        {
+            "key": "B",
+            "name": "Cluster B",
+            "routes": [{"id": 2, "name": "Trasa 2", "rows": payload["rows"]}],
+        },
+    ]
+    payload["rows"] = []
+    payload["unassigned_rows"] = []
+
+    spec = build_table_spec(payload)
+
+    titles = [
+        row["cells"][0]["text"]
+        for row in spec["rows"]
+        if "portion-summary-band" in row["css"]
+        and row["cells"][0]["text"].startswith("SUMÁR")
+    ]
+    assert "SUMÁR CLUSTER A + C S DIÉTAMI MŠ" not in titles

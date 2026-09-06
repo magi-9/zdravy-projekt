@@ -87,6 +87,14 @@ def zdravebrusko_payer_hook(payer_name: str) -> PayerRule | None:
         match_name = "mšMal"
     elif key.startswith("MSHEY"):
         match_name = "mšHey"
+    elif "SSVDOSPEL" in key:
+        # SŠV (SŠ Veterinárna) dospelí (zamestnanci) zdieľajú s "SŠV žiak" tú
+        # istú porciu "Dospelý (SŠ)" — EduPage porcia kód ich nevie rozlíšiť,
+        # obaja spadajú pod strednú školu. Payer label je jediný spoľahlivý
+        # signál, tak ho appka vždy automaticky zabalí zvlášť — na rozdiel od
+        # `Prevadzka.adults_pack_separately_enabled`, ktorý by zabalil zvlášť
+        # aj žiakov zdieľajúcich tú istú porciu (user 4.9.2026).
+        return PayerRule(pack_separately=True)
     else:
         return None
 

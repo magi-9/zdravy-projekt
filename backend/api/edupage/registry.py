@@ -284,16 +284,24 @@ _CONFIGS: tuple[PrevadzkaConfig, ...] = (
     PrevadzkaConfig(
         subdomena="zdravyprojekt",
         ucty=("British School",),
-        olovrant_mode=OlovrantMode.NEZNAMY,
+        # Potvrdené na živom mealsGuest (2026-09-07): olovrant okno (14:30-15:30,
+        # rovnaký MŠ-only payer set ako raňajky) reálne existuje.
+        olovrant_mode=OlovrantMode.EDUPAGE,
         poznamka=(
-            "Nový onboarding (#531, 26.8.2026) — olovrant_mode zatiaľ "
-            "nepotvrdený, čaká na dáta. Skratky s koncovým '+' (nM+, NNN+, "
-            "nN+, HIT+) nesú len prvú diétu, zvyšok je v mene platiteľskej "
-            "skupiny — payer_hook priraďuje presné kombinácie (#527, viď "
+            "Onboarding #531 — 4 denné okná (živé dáta 2026-09-07): raňajky "
+            "08:30 (MŠ-only), desiata 10:05 (~celá škola, nový meal_key "
+            "'desiata' — NIE 'snack', ten je už obsadený ako legacy alias "
+            "pre Olovrant; počíta sa kusovo, rovnaká pre všetkých), obed "
+            "11:25 (21 druhov jedál, vrátane Menu D a VEGE1 — Cluster C "
+            "sumár, žiadna gramáž), olovrant 14:30 (rovnaký MŠ-only payer "
+            "set ako raňajky). Skratky s koncovým '+' (nM+, NNN+, nN+, HIT+) "
+            "nesú len prvú diétu, zvyšok je v mene platiteľskej skupiny — "
+            "payer_hook priraďuje presné kombinácie (#527, viď "
             "overrides/britishschool.py pre zdrojové EduPage labely)."
         ),
         letter_hook=british_school_letter_hook,
         payer_hook=british_school_payer_hook,
+        meal_hour_thresholds=((9, "breakfast"), (11, "desiata"), (15, "lunch")),
     ),
 )
 

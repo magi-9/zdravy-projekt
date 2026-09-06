@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import DietManager from "./DietManager";
@@ -126,5 +127,91 @@ describe("DietManager diet numbering", () => {
     expect(screen.getByText("1-zložkové", { exact: false })).toBeInTheDocument();
     expect(screen.getByText("2-zložkové", { exact: false })).toBeInTheDocument();
     expect(screen.queryByText("3-zložkové", { exact: false })).not.toBeInTheDocument();
+  });
+});
+
+describe("DietManager text/background colour picker (#536)", () => {
+  it("shows a live preview and saves an explicit text/background colour for a new diet", async () => {
+    let createBody: Record<string, unknown> | undefined;
+    mockApiFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes("/diets/") && init?.method === "POST") {
+        createBody = JSON.parse(init.body as string);
+        return Promise.resolve(
+          response({ id: 3, name: "Bez vajec", sort_order: 0, is_active: true, description: "" }),
+        );
+      }
+      return Promise.resolve(response([]));
+    });
+
+    render(
+      <MemoryRouter>
+        <DietManager />
+      </MemoryRouter>,
+    );
+
+    await userEvent.type(
+      await screen.findByPlaceholderText("Názov novej diéty (napr. Bez lepku)"),
+      "Bez vajec",
+    );
+
+    // Náhľad je vždy vidno, aj bez výberu (ukazuje počítanú predvolenú farbu).
+    expect(screen.getByTestId("diet-style-preview")).toHaveTextContent("Bez vajec");
+
+    await userEvent.click(screen.getByRole("button", { name: "Farba textu v PDF: #31D8D8" }));
+    await userEvent.click(screen.getByRole("button", { name: "Farba pozadia v PDF: #D8D831" }));
+    await userEvent.click(screen.getByRole("button", { name: "Pridať diétu" }));
+
+    expect(createBody).toMatchObject({
+      name: "Bez vajec",
+      text_color: "#31D8D8",
+      background_color: "#D8D831",
+    });
+  });
+
+  it("pre-fills the pickers from the diet being edited and saves the change", async () => {
+    let patchBody: Record<string, unknown> | undefined;
+    mockApiFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes("/diets/") && init?.method === "PATCH") {
+        patchBody = JSON.parse(init.body as string);
+        return Promise.resolve(response({}));
+      }
+      if (url.includes("/diets/")) {
+        return Promise.resolve(
+          response([
+            {
+              id: 1,
+              name: "Bezlepková",
+              sort_order: 0,
+              is_active: true,
+              description: "",
+              color: "#F59E0B",
+              text_color: "#111111",
+              background_color: "#EEEEEE",
+            },
+          ]),
+        );
+      }
+      return Promise.resolve(response([]));
+    });
+
+    render(
+      <MemoryRouter>
+        <DietManager />
+      </MemoryRouter>,
+    );
+
+    await userEvent.click(await screen.findByTitle("Upraviť"));
+    const modal = within(screen.getByText("Upraviť diétu").closest(".zpa-modal") as HTMLElement);
+    // Pred akoukoľvek zmenou je "Uložiť" zablokované (žiadny rozdiel oproti
+    // uloženej diéte) - dokazuje, že pickery boli správne predvyplnené.
+    expect(modal.getByRole("button", { name: "Uložiť" })).toBeDisabled();
+
+    await userEvent.click(modal.getByRole("button", { name: "Farba textu v PDF: #D831D8" }));
+    await userEvent.click(modal.getByRole("button", { name: "Uložiť" }));
+
+    expect(patchBody).toMatchObject({
+      text_color: "#D831D8",
+      background_color: "#EEEEEE",
+    });
   });
 });

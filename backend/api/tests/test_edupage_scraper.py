@@ -6,7 +6,10 @@ from datetime import date
 from unittest.mock import MagicMock, patch
 
 from api.edupage.base import OlovrantMode, PrevadzkaConfig
-from api.edupage.overrides.zdravebrusko import zdravebrusko_letter_hook
+from api.edupage.overrides.zdravebrusko import (
+    zdravebrusko_letter_hook,
+    zdravebrusko_payer_hook,
+)
 from api.edupage_scraper import EdupageScraper, nest_order_data_by_category
 
 
@@ -415,6 +418,45 @@ class TestBuildJidMap(unittest.TestCase):
         }
         result = EdupageScraper._build_jid_map([row], self.TARGET_DATE)
         self.assertEqual(result, {"1": "breakfast", "2": "lunch", "3": "olovrant"})
+
+    def test_config_meal_hour_thresholds_splits_out_a_dedicated_snack_window(self):
+        """British School (live mealsGuest 2026-09-07) má presne 4 okná/deň:
+        08:30 raňajky (MŠ-only payer set), 10:05 desiata (~celá škola, iný typ
+        jedla než náš interný olovrant/desiata koncept — user 4.9.2026), 11:25
+        obed (21 druhov jedál), 14:30 olovrant (rovnaký MŠ-only payer set ako
+        raňajky). Bez vlastných `meal_hour_thresholds` by desiata (hodina 10,
+        nie < generický prah 10) spadla do rovnakého naivného košíka ako obed
+        a olovrant a skončila zlúčená pod "breakfast" (rovnaký #British 885-hláv
+        vzor ako `_build_jid_map`'s docstring, len pre 4. okno namiesto 3)."""
+        row = {
+            "setting": "vydaj_normal",
+            "hodnota": json.dumps(
+                {
+                    "1": [
+                        {"vydaj_od": "08:30", "vydaj_do": "10:00", "druhov_jedal": 1},
+                        {"vydaj_od": "10:05", "vydaj_do": "10:30", "druhov_jedal": 1},
+                        {"vydaj_od": "11:25", "vydaj_do": "14:00", "druhov_jedal": 21},
+                        {"vydaj_od": "14:30", "vydaj_do": "15:30", "druhov_jedal": 1},
+                    ]
+                }
+            ),
+        }
+        config = PrevadzkaConfig(
+            subdomena="zdravyprojekt",
+            ucty=("British School",),
+            olovrant_mode=OlovrantMode.EDUPAGE,
+            meal_hour_thresholds=((9, "breakfast"), (11, "desiata"), (15, "lunch")),
+        )
+        result = EdupageScraper._build_jid_map([row], self.TARGET_DATE, config=config)
+        self.assertEqual(
+            result,
+            {"0": "breakfast", "1": "desiata", "2": "lunch", "3": "olovrant"},
+        )
+
+    def test_without_config_default_thresholds_still_apply(self):
+        """Bez configu (alebo config bez `meal_hour_thresholds`) sa nič
+        nemení pre ostatné školy — regresný test k `_MEAL_BY_HOUR`."""
+        self.assertEqual(self._build("11:00")["2"], "lunch")
 
     def test_small_early_window_loses_to_the_real_lunch_and_falls_to_breakfast(self):
         """Desiata (10:05, 1 druh jedla) padne do rovnakého naivneho košíka
@@ -954,6 +996,58 @@ class TestParse(unittest.TestCase):
                 "Dospelý (SŠ)": {
                     "menuCounts": {"A": 18, "V": 2},
                     "diets": {},
+                }
+            },
+        )
+
+    def test_parse_ssv_dospely_payer_group_is_flagged_pack_separately(self):
+        """SŠV dospelí (zamestnanci) zdieľajú s "SŠV žiak" tú istú porciu
+        ("Dospelý (SŠ)") — EduPage porcia kód ich nevie rozlíšiť, obaja
+        spadajú pod strednú školu. Payer label "SŠV dospelý" je jediný
+        spoľahlivý signál, appka ho preto automaticky označí packSeparately
+        (user 4.9.2026) — na rozdiel od `adults_pack_separately_enabled`,
+        ktorý by zabalil zvlášť aj žiakov zdieľajúcich tú istú porciu."""
+        prehlad = {
+            "prehlad": {
+                self.DATE_STR: {
+                    "2": {"A": {"typ_platitela": {"9": {"o": 3}, "12": {"o": 18}}}},
+                }
+            },
+            "mamUnknown": False,
+            "unknownTypyIDS": [],
+        }
+        nazov_menu = {"A": {"nazov": "Klasik", "skratka": "sšvA"}}
+        nastavenia = [
+            {
+                "setting": "vydaj_normal",
+                "hodnota": json.dumps(
+                    {"1": {"2": {"vydaj_od": "12:00", "vydaj_do": "14:00"}}}
+                ),
+            }
+        ]
+        html = _make_html(
+            prehlad,
+            nazov_menu,
+            nastavenia,
+            self._typy([(9, "SŠV dospelý", 4), (12, "SŠV žiak", 4)]),
+            self.DATE_STR,
+        )
+        config = PrevadzkaConfig(
+            subdomena="zdravebrusko",
+            ucty=("Ďumbierska", "Lamač", "Malý", "Heyrovského"),
+            olovrant_mode=OlovrantMode.EDUPAGE,
+            letter_hook=zdravebrusko_letter_hook,
+            payer_hook=zdravebrusko_payer_hook,
+        )
+        result = self._scrape_html(html, config=config)
+
+        self.assertEqual(
+            result.order_data["lunch"],
+            {
+                "Dospelý (SŠ)": {
+                    "menuCounts": {"A": 21},
+                    "diets": {},
+                    "packSeparately": {"menus": {"A": 3}, "diets": {}},
                 }
             },
         )

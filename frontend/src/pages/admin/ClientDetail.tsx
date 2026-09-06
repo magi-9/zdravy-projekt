@@ -109,7 +109,11 @@ interface ScrapeResult {
   orders?: { prevadzka: string; status: string; order_id: number }[];
 }
 
-const ALL_MENUS = ["A", "B", "C", "D", "V"];
+// "D" a "VEGE1" nie sú tu — sú British School špecifiká (Cluster C, kusový
+// sumár), spravované len cez seed/DB pre tú jednu prevádzku, nie ako
+// všeobecná voľba pre každú (user 4.9.2026: "disabled teda neviditeľná inak
+// pre british úplne rovnako ako menu Vege 1").
+const ALL_MENUS = ["A", "B", "C", "V"];
 const ALL_MEALS = ["breakfast", "lunch", "olovrant"];
 // Dashboard zobrazí len pár posledných objednávok, kým admin nerozbalí celú
 // históriu — ušetrí request/payload pre prevádzky s dlhou históriou.

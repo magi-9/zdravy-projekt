@@ -472,8 +472,18 @@ class EdupageScraper:
         return True
 
     @staticmethod
-    def _build_jid_map(nastavenia: list[dict], target_date: date) -> dict[str, str]:
+    def _build_jid_map(
+        nastavenia: list[dict],
+        target_date: date,
+        config: PrevadzkaConfig | None = None,
+    ) -> dict[str, str]:
         """Return {jid_str: meal_key} using vydaj_od times from nastavenia.
+
+        `config.meal_hour_thresholds`, keď je nastavený, nahradí generický
+        `_MEAL_BY_HOUR` (viď `PrevadzkaConfig.meal_hour_thresholds` docstring) —
+        celý zvyšok algoritmu (naivný košík podľa hodiny, "výherca" podľa
+        `druhov_jedal`, posun kolidujúcich okien na najbližší voľný slot) ostáva
+        nezmenený, len beží nad iným zoznamom prahov/meal_sequence.
 
         A school's olovrant (afternoon snack) window can start as early as
         14:30, which falls on the same side of the fixed hour thresholds as a
@@ -510,9 +520,14 @@ class EdupageScraper:
         wrong (stale or not-yet-active) times to that day.
         """
         jid_map: dict[str, str] = {}
+        meal_hour_thresholds = (
+            config.meal_hour_thresholds
+            if config is not None and config.meal_hour_thresholds is not None
+            else _MEAL_BY_HOUR
+        )
         # Single source of truth for meal ordering, shared with the hour
         # thresholds below - avoids a second, independently-maintained list.
-        meal_sequence = [label for _, label in _MEAL_BY_HOUR] + [_DEFAULT_MEAL]
+        meal_sequence = [label for _, label in meal_hour_thresholds] + [_DEFAULT_MEAL]
 
         for row in nastavenia:
             if row.get("setting") != "vydaj_normal":
@@ -555,7 +570,7 @@ class EdupageScraper:
                 for jid, times in unseen:
                     hour = EdupageScraper._parse_hm(times.get("vydaj_od", "12:00"))[0]
                     meal = _DEFAULT_MEAL
-                    for threshold, label in _MEAL_BY_HOUR:
+                    for threshold, label in meal_hour_thresholds:
                         if hour < threshold:
                             meal = label
                             break
@@ -805,11 +820,14 @@ class EdupageScraper:
         nastavenia: list = nastavenia_raw or []
         typy_platitelov: list = typy_platitelov_raw or []
 
-        jid_map = self._build_jid_map(nastavenia, target_date)
+        jid_map = self._build_jid_map(nastavenia, target_date, config=config)
         payer_map = self._build_payer_map(typy_platitelov, target_date)
 
-        # prevádzka ("" = nerozdelené) -> meal -> porcia -> menu/diet counts
-        counts: dict[str, dict[str, dict[str, dict[str, dict[str, int]]]]] = {}
+        # prevádzka ("" = nerozdelené) -> meal -> porcia -> menu/diet counts.
+        # Posledná úroveň je `Any`, nie `dict[str, int]` — okrem "menuCounts"/
+        # "diets" (letter → int) sem pribúda aj "packSeparately"
+        # ({"menus"/"diets": letter → int}), o úroveň hlbšie.
+        counts: dict[str, dict[str, dict[str, dict[str, Any]]]] = {}
         matches = prevadzka_matches or {}
         unmatched: list[str] = []
         # bucket (názov prevádzky) -> flagy, ktoré do neho reálne padli
@@ -985,6 +1003,21 @@ class EdupageScraper:
                             diet_counts[effective_diet] = (
                                 diet_counts.get(effective_diet, 0) + total
                             )
+                        if payer_rule and payer_rule.pack_separately:
+                            # Napr. SŠV dospelý: payer label je jediný signál,
+                            # že tento riadok treba zabaliť zvlášť, hoci
+                            # porcia je zdieľaná s inou (nezabalenou) skupinou
+                            # — viď `PayerRule.pack_separately` docstring.
+                            pack = portion_counts.setdefault(
+                                "packSeparately", {"menus": {}, "diets": {}}
+                            )
+                            pack["menus"][effective_menu] = (
+                                pack["menus"].get(effective_menu, 0) + total
+                            )
+                            if effective_diet:
+                                pack["diets"][effective_diet] = (
+                                    pack["diets"].get(effective_diet, 0) + total
+                                )
 
         def _clean(counts_by_meal: dict) -> dict[str, Any]:
             return {
@@ -1049,6 +1082,14 @@ def _merge_meal_counts(order_datas) -> dict[str, Any]:
                 for group in ("menuCounts", "diets"):
                     for key, count in details.get(group, {}).items():
                         target[group][key] = target[group].get(key, 0) + count
+                src_pack = details.get("packSeparately")
+                if isinstance(src_pack, dict):
+                    tgt_pack = target.setdefault(
+                        "packSeparately", {"menus": {}, "diets": {}}
+                    )
+                    for sub in ("menus", "diets"):
+                        for key, count in (src_pack.get(sub) or {}).items():
+                            tgt_pack[sub][key] = tgt_pack[sub].get(key, 0) + count
     return merged
 
 

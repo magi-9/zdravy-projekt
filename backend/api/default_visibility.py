@@ -9,7 +9,7 @@ from .order_data import MEAL_KEYS
 from .reference_data import DEFAULT_DIET_NAMES
 
 DEFAULT_VISIBLE_MEALS = list(MEAL_KEYS)
-DEFAULT_VISIBLE_MENUS = ["A", "B", "C", "D", "V"]
+DEFAULT_VISIBLE_MENUS = ["A", "B", "C", "V"]
 
 
 def default_visible_diets() -> list[Diet]:

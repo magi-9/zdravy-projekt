@@ -34,6 +34,8 @@ nahlási cez `unmapped_diets`, nie ticho zle priradí.
 
 from __future__ import annotations
 
+import re
+
 from ..base import LetterRule, PayerRule
 
 _PAYER_RULES: dict[str, str] = {
@@ -54,10 +56,24 @@ def _kluc(value: str) -> str:
     return (value or "").strip().upper()
 
 
+def _je_vege1(skratka: str, nazov: str) -> bool:
+    """VEGE1 je samostatné menu (obed), nie diéta VEGGIE — obe zdieľajú
+    substring "vege", takže bez explicitnej zhody by generický
+    `resolve_menu_variant`/`resolve_diet_name` skratku tíško vyhodnotil ako
+    diétu VEGGIE (4.9.2026, user: "VEGE a VEGE1 sú dve iné menu")."""
+    normalised = re.sub(r"[\s\-_.]+", "", (skratka or nazov or "")).upper()
+    return normalised == "VEGE1"
+
+
 def british_school_letter_hook(
     letter: str, skratka: str, nazov: str
 ) -> LetterRule | None:
-    """Skratky končiace na "+" necháme bez diéty — rozhodne `payer_hook`."""
+    """Skratky končiace na "+" necháme bez diéty — rozhodne `payer_hook`.
+
+    VEGE1 (4. obedové menu, popri Klasik/B/C) sa musí vyhodnotiť ako menu
+    variant, nie ako fuzzy-matchnutá diéta VEGGIE."""
+    if _je_vege1(skratka, nazov):
+        return LetterRule(menu="VEGE1")
     if _kluc(skratka).endswith("+"):
         return LetterRule(menu="A")
     return None

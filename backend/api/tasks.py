@@ -485,6 +485,18 @@ def _filter_order_data_by_meals(order_data, meal_types):
 
 
 _ALL_MEALS = ("breakfast", "lunch", "olovrant")
+# Jedlá mimo deadline-riadeného toku (GlobalSettings deadliny, klientský výber,
+# auto-order) — dnes len British `desiata` (#British Cluster C): počíta sa
+# kusovo, rovnaká pre všetkých, žiadny vlastný deadline/porcia rozpad. NIE
+# "snack" — ten string je už obsadený ako legacy alias pre Olovrant
+# (`MealCategory.choices`, `ORDER_MEAL_TO_PLAN_MEALS` v `meal_plan_service.py`,
+# `gramage_dashboard_export.meal_hue`) — pod tým menom by sa British desiata
+# ticho zliala do olovrantovej gramáže. `_apply_scrape` tieto kľúče
+# synchronizuje VŽDY (nie len keď sú v `requested_meals`), lebo British
+# dedikovaný scrape aj hodinový preview beh čítajú z toho istého HTML fetchu
+# ako lunch/breakfast/olovrant — bez tohto by sa "desiata" z `imported_data`
+# ticho zahodila, keďže nikdy nie je v `_ALL_MEALS`.
+_EXTRA_MEAL_KEYS = ("desiata",)
 
 # Menu B/C majú u niektorých škôl skoršiu EduPage uzávierku než zvyšok obeda —
 # kuchyňa chce ich odhad vidieť pár dní vopred (user 2.9.2026). Hardcoded zámerne:
@@ -533,7 +545,7 @@ def _log_scrape_order_event(order, previous_data: dict, is_new: bool) -> None:
         return
     changed_meals = [
         meal_type
-        for meal_type in _ALL_MEALS
+        for meal_type in (*_ALL_MEALS, *_EXTRA_MEAL_KEYS)
         if previous_data.get(meal_type, {}) != new_data.get(meal_type, {})
     ]
     event_type = (
@@ -571,7 +583,7 @@ def _apply_scrape(existing_data, imported_data, requested_meals):
     """
     result = dict(existing_data or {})
     meals = _ALL_MEALS if requested_meals is None else requested_meals
-    for meal_type in meals:
+    for meal_type in (*meals, *_EXTRA_MEAL_KEYS):
         scraped = imported_data.get(meal_type)
         if scraped:
             result[meal_type] = scraped

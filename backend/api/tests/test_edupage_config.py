@@ -134,6 +134,25 @@ class TestConfigPreUrl(unittest.TestCase):
         self.assertIsNotNone(cfg.letter_hook)
         self.assertIsNotNone(cfg.payer_hook)
 
+    def test_british_school_has_dedicated_desiata_meal_hour_thresholds(self):
+        """Živé dáta (2026-09-07): 4 okná/deň, desiata potrebuje vlastný
+        meal_key "desiata" (NIE "snack" — ten je legacy alias pre Olovrant),
+        nie zlúčenie do "breakfast" — viď
+        `TestBuildJidMap.test_config_meal_hour_thresholds_splits_out_a_dedicated_snack_window`.
+        """
+        cfg = config_pre_url("https://zdravyprojekt.edupage.org/menu/mealsGuest?id=x")
+        self.assertEqual(
+            cfg.meal_hour_thresholds,
+            ((9, "breakfast"), (11, "desiata"), (15, "lunch")),
+        )
+
+    def test_british_school_olovrant_mode_is_edupage(self):
+        """Potvrdené na živom mealsGuest (2026-09-07) — olovrant okno reálne
+        existuje (14:30-15:30, rovnaký MŠ-only payer set ako raňajky), takže
+        `olovrant_mode` už nie je NEZNAMY."""
+        cfg = config_pre_url("https://zdravyprojekt.edupage.org/menu/mealsGuest?id=x")
+        self.assertEqual(cfg.olovrant_mode, OlovrantMode.EDUPAGE)
+
     def test_fantasticka_ms_and_zs_are_separate(self):
         ms = config_pre_url("https://fantastickaskolka.edupage.org/menu?id=x")
         zs = config_pre_url("https://szsfan.edupage.org/menu?id=x")
@@ -692,6 +711,22 @@ class TestZdravebruskoPayerHook(unittest.TestCase):
     def test_unrelated_payer_untouched(self):
         self.assertIsNone(zdravebrusko_payer_hook("1.stupeň Lamač"))
 
+    def test_ssv_dospely_flagged_pack_separately(self):
+        """SŠV dospelí (zamestnanci) zdieľajú s "SŠV žiak" tú istú porciu
+        "Dospelý (SŠ)" — porcia kód ich nevie rozlíšiť. Payer label je jediný
+        spoľahlivý signál, appka ho preto vždy automaticky zabalí zvlášť
+        (user 4.9.2026)."""
+        rule = zdravebrusko_payer_hook("SŠV dospelý")
+        self.assertTrue(rule.pack_separately)
+        self.assertIsNone(rule.match_name)
+        self.assertIsNone(rule.diet)
+        self.assertIsNone(rule.portion)
+        self.assertFalse(rule.force_match)
+
+    def test_ssv_ziak_untouched(self):
+        """Žiaci zostávajú v normálnej porcii bez packSeparately príznaku."""
+        self.assertIsNone(zdravebrusko_payer_hook("SŠV žiak"))
+
 
 class TestFantastickaLetterHook(unittest.TestCase):
     """#527: 'HITNMNGnSnKnFC' sa fuzzy-matchovalo len na NO MILK/NO GLUTEN —
@@ -1120,6 +1155,20 @@ class TestBritishSchoolHooks(unittest.TestCase):
 
     def test_payer_hook_unknown_falls_through_to_engine(self):
         self.assertIsNone(british_school_payer_hook("2.st. noNuts/noBanana"))
+
+    def test_letter_hook_recognizes_vege1_as_own_menu_variant(self):
+        """VEGE1 je vlastné menu, nie diéta VEGGIE — bez tohto pravidla by
+        substring "vege" v `_has_diet_signal` skratku tíško vyhodnotil ako
+        diétu VEGGIE (rovnaký fragment ako plain "Vege"), hoci ide o úplne
+        iné menu (British škola, 4.9.2026)."""
+        rule = british_school_letter_hook("E", "VEGE1", "Vege 1")
+        self.assertIsNotNone(rule)
+        self.assertEqual(rule.menu, "VEGE1")
+        self.assertIsNone(rule.diet)
+
+    def test_letter_hook_plain_vege_still_falls_through_to_diet_engine(self):
+        """Plain "Vege"/"VEGGIE" ostáva diéta — len VEGE1 je nové menu."""
+        self.assertIsNone(british_school_letter_hook("V", "Vege", "Vege"))
 
 
 class TestBritishSchoolHooksInParse(unittest.TestCase):
