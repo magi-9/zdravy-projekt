@@ -63,13 +63,6 @@ class PayerRule:
     )
     diet: str | None = None
     portion: str | None = None
-    # Vynúti packSeparately na riadkoch tohto payera (viď `_parse` v
-    # `edupage_scraper.py`). Existuje pre skupiny, ktoré zdieľajú porciu s inou
-    # skupinou (SŠV dospelý/žiak majú obaja "Dospelý (SŠ)"), takže
-    # `Prevadzka.adults_pack_separately_enabled` (celoportionový prepínač) by
-    # zabalil zvlášť aj tú druhú skupinu — payer label je tu jediný spoľahlivý
-    # signál (user 4.9.2026).
-    pack_separately: bool = False
     # `match_prevadzka` bežne uprednostní skratku menu pred payer labelom (je to
     # spoľahlivejší nosič — viď jej docstring). Zdravé Brúško raňajky/olovrant ale
     # zdieľajú skratku `dsbNMNE` (Deutsche Schule) naprieč MŠ Malokarpatským aj MŠ

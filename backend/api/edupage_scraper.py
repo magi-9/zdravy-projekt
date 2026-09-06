@@ -823,11 +823,8 @@ class EdupageScraper:
         jid_map = self._build_jid_map(nastavenia, target_date, config=config)
         payer_map = self._build_payer_map(typy_platitelov, target_date)
 
-        # prevádzka ("" = nerozdelené) -> meal -> porcia -> menu/diet counts.
-        # Posledná úroveň je `Any`, nie `dict[str, int]` — okrem "menuCounts"/
-        # "diets" (letter → int) sem pribúda aj "packSeparately"
-        # ({"menus"/"diets": letter → int}), o úroveň hlbšie.
-        counts: dict[str, dict[str, dict[str, dict[str, Any]]]] = {}
+        # prevádzka ("" = nerozdelené) -> meal -> porcia -> menu/diet counts
+        counts: dict[str, dict[str, dict[str, dict[str, dict[str, int]]]]] = {}
         matches = prevadzka_matches or {}
         unmatched: list[str] = []
         # bucket (názov prevádzky) -> flagy, ktoré do neho reálne padli
@@ -1003,21 +1000,6 @@ class EdupageScraper:
                             diet_counts[effective_diet] = (
                                 diet_counts.get(effective_diet, 0) + total
                             )
-                        if payer_rule and payer_rule.pack_separately:
-                            # Napr. SŠV dospelý: payer label je jediný signál,
-                            # že tento riadok treba zabaliť zvlášť, hoci
-                            # porcia je zdieľaná s inou (nezabalenou) skupinou
-                            # — viď `PayerRule.pack_separately` docstring.
-                            pack = portion_counts.setdefault(
-                                "packSeparately", {"menus": {}, "diets": {}}
-                            )
-                            pack["menus"][effective_menu] = (
-                                pack["menus"].get(effective_menu, 0) + total
-                            )
-                            if effective_diet:
-                                pack["diets"][effective_diet] = (
-                                    pack["diets"].get(effective_diet, 0) + total
-                                )
 
         def _clean(counts_by_meal: dict) -> dict[str, Any]:
             return {
@@ -1082,14 +1064,6 @@ def _merge_meal_counts(order_datas) -> dict[str, Any]:
                 for group in ("menuCounts", "diets"):
                     for key, count in details.get(group, {}).items():
                         target[group][key] = target[group].get(key, 0) + count
-                src_pack = details.get("packSeparately")
-                if isinstance(src_pack, dict):
-                    tgt_pack = target.setdefault(
-                        "packSeparately", {"menus": {}, "diets": {}}
-                    )
-                    for sub in ("menus", "diets"):
-                        for key, count in (src_pack.get(sub) or {}).items():
-                            tgt_pack[sub][key] = tgt_pack[sub].get(key, 0) + count
     return merged
 
 

@@ -74,6 +74,12 @@ def build_prevadzka_overview(target_date):
             "celok": prevadzka.celok.nazov,
             "delivered": order is not None,
             "delivery_status": delivery_status,
+            # Nastavenia zobrazované ako rýchle odznaky v prehľade prevádzok.
+            # Frontend podľa zdroja objednávok vyberie relevantný prepínač ZV:
+            # app = ručné balenie zvlášť, EduPage = automaticky dospelí zvlášť.
+            "pack_separately_enabled": prevadzka.pack_separately_enabled,
+            "adults_pack_separately_enabled": prevadzka.adults_pack_separately_enabled,
+            "olovrant_s_obedom": prevadzka.olovrant_s_obedom,
             "counts": counts,
             "flags": flags,
             "has_warning": bool(
