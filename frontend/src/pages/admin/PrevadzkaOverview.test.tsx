@@ -70,8 +70,7 @@ describe("PrevadzkaOverview", () => {
 
     render(<MemoryRouter><PrevadzkaOverview /></MemoryRouter>);
 
-    await screen.findByText("Kontrola objednávok");
-    expect(screen.getByText(/NO KAKAO/)).toBeInTheDocument();
+    expect(await screen.findByText(/NO KAKAO/)).toBeInTheDocument();
   });
 
   it("shows uncertain (fuzzy-matched) diets inline", async () => {
@@ -96,8 +95,7 @@ describe("PrevadzkaOverview", () => {
 
     render(<MemoryRouter><PrevadzkaOverview /></MemoryRouter>);
 
-    await screen.findByText("Kontrola objednávok");
-    expect(screen.getByText(/XYZ→NO MILK/)).toBeInTheDocument();
+    expect(await screen.findByText(/XYZ→NO MILK/)).toBeInTheDocument();
   });
 
   it("shows classic count and per-diet breakdown below the row, separate from the delivery total", async () => {
