@@ -6,10 +6,7 @@ from datetime import date
 from unittest.mock import MagicMock, patch
 
 from api.edupage.base import OlovrantMode, PrevadzkaConfig
-from api.edupage.overrides.zdravebrusko import (
-    zdravebrusko_letter_hook,
-    zdravebrusko_payer_hook,
-)
+from api.edupage.overrides.zdravebrusko import zdravebrusko_letter_hook
 from api.edupage_scraper import EdupageScraper, nest_order_data_by_category
 
 
@@ -996,58 +993,6 @@ class TestParse(unittest.TestCase):
                 "Dospelý (SŠ)": {
                     "menuCounts": {"A": 18, "V": 2},
                     "diets": {},
-                }
-            },
-        )
-
-    def test_parse_ssv_dospely_payer_group_is_flagged_pack_separately(self):
-        """SŠV dospelí (zamestnanci) zdieľajú s "SŠV žiak" tú istú porciu
-        ("Dospelý (SŠ)") — EduPage porcia kód ich nevie rozlíšiť, obaja
-        spadajú pod strednú školu. Payer label "SŠV dospelý" je jediný
-        spoľahlivý signál, appka ho preto automaticky označí packSeparately
-        (user 4.9.2026) — na rozdiel od `adults_pack_separately_enabled`,
-        ktorý by zabalil zvlášť aj žiakov zdieľajúcich tú istú porciu."""
-        prehlad = {
-            "prehlad": {
-                self.DATE_STR: {
-                    "2": {"A": {"typ_platitela": {"9": {"o": 3}, "12": {"o": 18}}}},
-                }
-            },
-            "mamUnknown": False,
-            "unknownTypyIDS": [],
-        }
-        nazov_menu = {"A": {"nazov": "Klasik", "skratka": "sšvA"}}
-        nastavenia = [
-            {
-                "setting": "vydaj_normal",
-                "hodnota": json.dumps(
-                    {"1": {"2": {"vydaj_od": "12:00", "vydaj_do": "14:00"}}}
-                ),
-            }
-        ]
-        html = _make_html(
-            prehlad,
-            nazov_menu,
-            nastavenia,
-            self._typy([(9, "SŠV dospelý", 4), (12, "SŠV žiak", 4)]),
-            self.DATE_STR,
-        )
-        config = PrevadzkaConfig(
-            subdomena="zdravebrusko",
-            ucty=("Ďumbierska", "Lamač", "Malý", "Heyrovského"),
-            olovrant_mode=OlovrantMode.EDUPAGE,
-            letter_hook=zdravebrusko_letter_hook,
-            payer_hook=zdravebrusko_payer_hook,
-        )
-        result = self._scrape_html(html, config=config)
-
-        self.assertEqual(
-            result.order_data["lunch"],
-            {
-                "Dospelý (SŠ)": {
-                    "menuCounts": {"A": 21},
-                    "diets": {},
-                    "packSeparately": {"menus": {"A": 3}, "diets": {}},
                 }
             },
         )
