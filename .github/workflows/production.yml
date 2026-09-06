@@ -2,8 +2,11 @@ name: Build And Deploy Production Images
 
 on:
   push:
-    branches:
-      - main
+    # Release Please creates this tag only after its version-bump commit is
+    # on main.  Building the tag therefore bakes the same version that is in
+    # the GitHub Release into the frontend image.
+    tags:
+      - "v*"
   workflow_dispatch:
 
 permissions:
@@ -18,10 +21,6 @@ jobs:
     name: Build and Push Production Images
     runs-on: self-hosted
     environment: production
-    # Skip the deploy that release-please's own version-bump merge causes —
-    # it only touches VERSION/CHANGELOG.md/frontend package.json, no app
-    # code, and the bumped version reaches prod on the next real deploy.
-    if: "${{ !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
 
     steps:
       - name: Checkout code
