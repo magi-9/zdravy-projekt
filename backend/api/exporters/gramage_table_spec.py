@@ -1221,12 +1221,41 @@ def _cluster_ms_totals(rows_for_summary: list[dict], groups: list[dict]) -> list
         seen_variants.add(variant)
         menu_variants.append(variant)
 
+    # Objednávka môže obsahovať variant, pre ktorý sa v dennom pláne ešte
+    # nenachádza gramážový stĺpec. Kusový sumár ho napriek tomu nesmie potichu
+    # zahodiť (najmä Menu V) — poradie plánových stĺpcov ostáva zachované a
+    # dodatočné varianty pridáme za ne v bežnom poradí menu.
+    actual_variants = {
+        str(sub_row.get("variant") or "")
+        for row in rows_for_summary
+        for sub_row in (row.get("sub_rows") or [])
+        if sub_row.get("type") in ("standard", "zvlast", "zvlast_gn")
+        and sub_row.get("meal") == "main_course"
+        and str(sub_row.get("variant") or "")
+    }
+    variant_order = ("A", "B", "C", "D", "V")
+    for variant in sorted(
+        actual_variants - seen_variants,
+        key=lambda value: (
+            (
+                variant_order.index(value)
+                if value in variant_order
+                else len(variant_order)
+            ),
+            value,
+        ),
+    ):
+        seen_variants.add(variant)
+        menu_variants.append(variant)
+
     out: list[dict] = []
     for meal_keys, label in _CLUSTER_SUMMARY_MEAL_BANDS:
         if not present_meals & set(meal_keys):
             continue
         total = Decimal("0")
         heads = Decimal("0")
+        diet_heads = Decimal("0")
+        diet_total = Decimal("0")
         menu_totals: dict[str, tuple[Decimal, Decimal]] = {}
         for row in rows_for_summary:
             for sub_row in row.get("sub_rows") or []:
@@ -1243,6 +1272,21 @@ def _cluster_ms_totals(rows_for_summary: list[dict], groups: list[dict]) -> list
                 sub_ms = _as_decimal(sub_row.get("_ms_recalc"))
                 heads += sub_heads
                 total += sub_ms
+                if sub_row.get("type") == "diet":
+                    diet_heads += sub_heads
+                    diet_total += sub_ms
+                    # EduPage parser zapisuje diétu ako podmnožinu Menu A
+                    # (`effective_menu = "A"`), preto patrí jej drill-down
+                    # práve sem, nie navyše do celkového Obeda.
+                    if sub_row.get("meal") == "main_course":
+                        prev_heads, prev_ms = menu_totals.get(
+                            "A", (Decimal("0"), Decimal("0"))
+                        )
+                        menu_totals["A"] = (
+                            prev_heads + sub_heads,
+                            prev_ms + sub_ms,
+                        )
+                    continue
                 variant = str(sub_row.get("variant") or "")
                 if sub_row.get("meal") == "main_course" and variant in seen_variants:
                     prev_heads, prev_ms = menu_totals.get(
@@ -1250,6 +1294,8 @@ def _cluster_ms_totals(rows_for_summary: list[dict], groups: list[dict]) -> list
                     )
                     menu_totals[variant] = (prev_heads + sub_heads, prev_ms + sub_ms)
         item = {"label": label, "heads": heads, "total": total}
+        if diet_heads:
+            item["diets"] = {"heads": diet_heads, "total": diet_total}
         # Jediný variant by len duplikoval riadok "Obed:" priamo nad sebou —
         # rozpis má zmysel až od dvoch variantov vyššie.
         if len(menu_variants) > 1 and "main_course" in meal_keys:
@@ -1348,6 +1394,24 @@ def _merge_meal_items(a: list[dict], b: list[dict]) -> list[dict]:
     )
 
 
+def _cluster_diet_count_row(diets: dict, total_columns: int) -> dict:
+    """Riadok „z toho diéty" je drill-down, nie ďalšia porcia."""
+    return {
+        "kind": "cluster-ms-row",
+        "css": "cluster-ms-row cluster-ms-diet-count-row",
+        "cells": [
+            {
+                "label": "z toho diéty:",
+                "text": (
+                    f"{format_count(diets['heads'])} ks / "
+                    f"{format_count(diets['total'])} MŠ"
+                ),
+                "colspan": total_columns,
+            }
+        ],
+    }
+
+
 def _render_ms_rows(meal_items: list[dict], total_columns: int) -> list[dict]:
     """`{label, heads, total, menus?}` položky → "Obed: N ks / N MŠ" riadky +
     odsadený rozpis menu variantov. Zdieľané medzi `_cluster_summary_rows`
@@ -1378,6 +1442,13 @@ def _render_ms_rows(meal_items: list[dict], total_columns: int) -> list[dict]:
                 ],
             }
         )
+        diets = item.get("diets")
+        diet_rendered = False
+        # Pri raňajkách a olovrante patrí pod priamo pod jedlo. Pri obede sa
+        # vloží až pod Menu A, kam EduPage parser diéty zaraďuje.
+        if diets and not item.get("menus"):
+            rows.append(_cluster_diet_count_row(diets, total_columns))
+            diet_rendered = True
         for menu in item.get("menus") or []:
             rows.append(
                 {
@@ -1395,6 +1466,13 @@ def _render_ms_rows(meal_items: list[dict], total_columns: int) -> list[dict]:
                     ],
                 }
             )
+            if diets and menu["label"] == "Menu A":
+                rows.append(_cluster_diet_count_row(diets, total_columns))
+                diet_rendered = True
+        # Fallback pre neštandardný import bez Menu A: diétu nestratíme, len
+        # ju nevieme pravdivo priradiť ku konkrétnemu variantu.
+        if diets and not diet_rendered:
+            rows.append(_cluster_diet_count_row(diets, total_columns))
     return rows
 
 

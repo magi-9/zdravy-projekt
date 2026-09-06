@@ -711,22 +711,6 @@ class TestZdravebruskoPayerHook(unittest.TestCase):
     def test_unrelated_payer_untouched(self):
         self.assertIsNone(zdravebrusko_payer_hook("1.stupeň Lamač"))
 
-    def test_ssv_dospely_flagged_pack_separately(self):
-        """SŠV dospelí (zamestnanci) zdieľajú s "SŠV žiak" tú istú porciu
-        "Dospelý (SŠ)" — porcia kód ich nevie rozlíšiť. Payer label je jediný
-        spoľahlivý signál, appka ho preto vždy automaticky zabalí zvlášť
-        (user 4.9.2026)."""
-        rule = zdravebrusko_payer_hook("SŠV dospelý")
-        self.assertTrue(rule.pack_separately)
-        self.assertIsNone(rule.match_name)
-        self.assertIsNone(rule.diet)
-        self.assertIsNone(rule.portion)
-        self.assertFalse(rule.force_match)
-
-    def test_ssv_ziak_untouched(self):
-        """Žiaci zostávajú v normálnej porcii bez packSeparately príznaku."""
-        self.assertIsNone(zdravebrusko_payer_hook("SŠV žiak"))
-
 
 class TestFantastickaLetterHook(unittest.TestCase):
     """#527: 'HITNMNGnSnKnFC' sa fuzzy-matchovalo len na NO MILK/NO GLUTEN —

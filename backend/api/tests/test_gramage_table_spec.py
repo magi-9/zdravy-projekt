@@ -464,6 +464,7 @@ def test_footer_is_the_cluster_summary_plus_the_grand_total():
         "cluster-ms-row",
         "cluster-ms-row",
         "cluster-ms-row",
+        "cluster-ms-row",
         "portion-band",
         "summary-diet",
         "total",
@@ -475,12 +476,14 @@ def test_footer_is_the_cluster_summary_plus_the_grand_total():
     # 8 (štandard) + 2 (diéta) surových hláv × koeficient 1 z fixture = 10 MŠ,
     # rovnaký počet aj kusovo (koeficient v tejto fixture je vždy 1).
     assert obed_row["cells"][0]["text"] == "10 ks / 10 MŠ"
-    # Menu A (8 ks, len štandardný riadok); Menu B bez objednávok — „—".
+    # Menu A zahŕňa aj 2 diétne porcie; jeho podriadok ich vypichne samostatne.
     assert spec["footer"][2]["cells"][0]["label"] == "Menu A:"
-    assert spec["footer"][2]["cells"][0]["text"] == "8 ks / 8 MŠ"
-    assert spec["footer"][3]["cells"][0]["label"] == "Menu B:"
-    assert spec["footer"][3]["cells"][0]["text"] == "— ks / — MŠ"
-    assert spec["footer"][4]["cells"][0]["text"] == "DIÉTY"
+    assert spec["footer"][2]["cells"][0]["text"] == "10 ks / 10 MŠ"
+    assert spec["footer"][3]["cells"][0]["label"] == "z toho diéty:"
+    assert spec["footer"][3]["cells"][0]["text"] == "2 ks / 2 MŠ"
+    assert spec["footer"][4]["cells"][0]["label"] == "Menu B:"
+    assert spec["footer"][4]["cells"][0]["text"] == "— ks / — MŠ"
+    assert spec["footer"][5]["cells"][0]["text"] == "DIÉTY"
     assert spec["footer"][-2]["cells"][0]["text"] == "CELKOM (g / ml)"
 
 
@@ -690,7 +693,7 @@ def test_filter_also_trims_the_cluster_summary():
     ]
     # Filter necháva len main_course_A → jediný variant, žiadny rozpis (ten
     # by len duplikoval "Obed:" priamo pod ním).
-    assert labels == ["Obed:"]
+    assert labels == ["Obed:", "z toho diéty:"]
 
 
 def test_filter_drops_rows_that_lose_all_their_numbers():
@@ -1151,20 +1154,20 @@ def test_combined_first_two_summary_doubles_a_single_clusters_total():
     assert [row["cells"][0]["label"] for row in single] == [
         "Obed:",
         "Menu A:",
+        "z toho diéty:",
         "Menu B:",
     ]
     assert single[0]["cells"][0]["text"] == "10 ks / 10 MŠ"
     assert combined[0]["cells"][0]["text"] == "20 ks / 20 MŠ"
     # Menu rozpis sa zdvojnásobí presne tak ako súčet nad ním.
-    assert single[1]["cells"][0]["text"] == "8 ks / 8 MŠ"
-    assert combined[1]["cells"][0]["text"] == "16 ks / 16 MŠ"
+    assert single[1]["cells"][0]["text"] == "10 ks / 10 MŠ"
+    assert combined[1]["cells"][0]["text"] == "20 ks / 20 MŠ"
 
 
 def test_lunch_summary_breaks_down_by_menu_variant():
     """Kuchyňa chce pod „Obed: N ks / N MŠ" vidieť aj rozpis po Menu A/B/C —
     tri varianty, každý svoj riadok, v poradí stĺpcov tabuľky. Diétny
-    sub-riadok (bez `variant`) ide len do súčtu Obed, do žiadneho konkrétneho
-    menu — nevie sa, ktorý variant si diéta reálne vybrala."""
+    sub-riadok z EduPage patrí do Menu A a zobrazí sa pod ním."""
     payload = _payload()
     payload["col_groups"].append(
         {
@@ -1196,15 +1199,99 @@ def test_lunch_summary_breaks_down_by_menu_variant():
     assert [row["cells"][0]["label"] for row in obed_section] == [
         "Obed:",
         "Menu A:",
+        "z toho diéty:",
         "Menu B:",
         "Menu C:",
     ]
     # 8 (štandard A) + 2 (diéta, bez variantu) + 5 (štandard C) = 15.
     assert obed_section[0]["cells"][0]["text"] == "15 ks / 15 MŠ"
-    assert obed_section[1]["cells"][0]["text"] == "8 ks / 8 MŠ"
+    assert obed_section[1]["cells"][0]["text"] == "10 ks / 10 MŠ"
+    assert obed_section[2]["cells"][0]["text"] == "2 ks / 2 MŠ"
     # Menu B nemá objednávky — „—", nie "0".
-    assert obed_section[2]["cells"][0]["text"] == "— ks / — MŠ"
-    assert obed_section[3]["cells"][0]["text"] == "5 ks / 5 MŠ"
+    assert obed_section[3]["cells"][0]["text"] == "— ks / — MŠ"
+    assert obed_section[4]["cells"][0]["text"] == "5 ks / 5 MŠ"
+
+
+def test_cluster_summary_shows_diets_under_their_meal_and_menu_v_from_orders():
+    """Diéty sú podmnožina Menu A (EduPage ich tak ukladá), nie ďalšie
+    porcie. Aj objednané Menu V musí byť v rozpise, hoci ten deň nemá vlastný
+    gramážový stĺpec."""
+    payload = _payload()
+    payload["rows"][0]["sub_rows"].append(
+        {
+            "type": "standard",
+            "meal": "main_course",
+            "variant": "V",
+            "portion_name": "Škôlka",
+            "label": "Škôlka - Obed Menu V",
+            "count": 3,
+            "_heads": 3,
+            "_ms_recalc": Decimal("3"),
+            "col_grams": [[], [], []],
+        }
+    )
+    payload["rows"][0]["sub_rows"].extend(
+        [
+            {
+                "type": "diet",
+                "meal": "breakfast_snack",
+                "portion_name": "Škôlka",
+                "label": "Škôlka - NO MILK",
+                "diet_name": "NO MILK",
+                "count": 4,
+                "_heads": 4,
+                "_ms_recalc": Decimal("4"),
+                "col_grams": [[], [], []],
+            },
+            {
+                "type": "diet",
+                "meal": "afternoon_snack",
+                "portion_name": "Škôlka",
+                "label": "Škôlka - NO GLUTEN",
+                "diet_name": "NO GLUTEN",
+                "count": 5,
+                "_heads": 5,
+                "_ms_recalc": Decimal("5"),
+                "col_grams": [[], [], []],
+            },
+        ]
+    )
+    payload["col_groups"].insert(
+        0,
+        {
+            "key": "breakfast_snack",
+            "meal": "breakfast_snack",
+            "variant": "",
+            "label": "Raňajky",
+            "template_name": "Pečivo",
+            "components": [GRAMS],
+        },
+    )
+    payload["col_groups"].append(
+        {
+            "key": "afternoon_snack",
+            "meal": "afternoon_snack",
+            "variant": "",
+            "label": "Olovrant",
+            "template_name": "Ovocie",
+            "components": [GRAMS],
+        }
+    )
+
+    spec = build_table_spec(payload)
+    section = _rows_for_section(spec["footer"], "SUMÁR S DIÉTAMI MŠ")
+
+    assert [(row["cells"][0]["label"], row["cells"][0]["text"]) for row in section] == [
+        ("Raňajky:", "4 ks / 4 MŠ"),
+        ("z toho diéty:", "4 ks / 4 MŠ"),
+        ("Obed:", "13 ks / 13 MŠ"),
+        ("Menu A:", "10 ks / 10 MŠ"),
+        ("z toho diéty:", "2 ks / 2 MŠ"),
+        ("Menu B:", "— ks / — MŠ"),
+        ("Menu V:", "3 ks / 3 MŠ"),
+        ("Olovrant:", "5 ks / 5 MŠ"),
+        ("z toho diéty:", "5 ks / 5 MŠ"),
+    ]
 
 
 def test_breakfast_and_snack_summary_rows_get_no_menu_breakdown():
@@ -1214,7 +1301,14 @@ def test_breakfast_and_snack_summary_rows_get_no_menu_breakdown():
 
     section = _rows_for_section(spec["footer"], "SUMÁR S DIÉTAMI MŠ")
     labels = [row["cells"][0]["label"] for row in section]
-    assert labels == ["Raňajky:", "Obed:", "Menu A:", "Menu B:", "Olovrant:"]
+    assert labels == [
+        "Raňajky:",
+        "Obed:",
+        "Menu A:",
+        "z toho diéty:",
+        "Menu B:",
+        "Olovrant:",
+    ]
 
 
 def test_each_named_summary_gets_its_own_diet_breakdown():
@@ -1550,7 +1644,9 @@ def test_summary_only_cluster_merges_into_footer_totals():
     footer_rows = _footer_ms_rows(spec)
 
     assert footer_rows["Obed:"]["cells"][0]["text"] == "33 ks / 36 MŠ"
-    assert footer_rows["Menu A:"]["cells"][0]["text"] == "28 ks / 28 MŠ"
+    # Diétne porcie sú podmnožinou Menu A, preto 8 štandardných + 2 diétne
+    # porcie klastra A dopĺňajú 20 porcií British Menu A.
+    assert footer_rows["Menu A:"]["cells"][0]["text"] == "30 ks / 30 MŠ"
     assert footer_rows["Menu D:"]["cells"][0]["text"] == "3 ks / 6 MŠ"
     assert footer_rows["Raňajky:"]["cells"][0]["text"] == "10 ks / 10 MŠ"
     assert footer_rows["Snack:"]["cells"][0]["text"] == "5 ks"

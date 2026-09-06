@@ -70,8 +70,7 @@ describe("PrevadzkaOverview", () => {
 
     render(<MemoryRouter><PrevadzkaOverview /></MemoryRouter>);
 
-    await screen.findByText("Kontrola objednávok");
-    expect(screen.getByText(/NO KAKAO/)).toBeInTheDocument();
+    expect(await screen.findByText(/NO KAKAO/)).toBeInTheDocument();
   });
 
   it("shows uncertain (fuzzy-matched) diets inline", async () => {
@@ -96,8 +95,7 @@ describe("PrevadzkaOverview", () => {
 
     render(<MemoryRouter><PrevadzkaOverview /></MemoryRouter>);
 
-    await screen.findByText("Kontrola objednávok");
-    expect(screen.getByText(/XYZ→NO MILK/)).toBeInTheDocument();
+    expect(await screen.findByText(/XYZ→NO MILK/)).toBeInTheDocument();
   });
 
   it("shows classic count and per-diet breakdown below the row, separate from the delivery total", async () => {
@@ -151,5 +149,38 @@ describe("PrevadzkaOverview", () => {
 
     await screen.findByText("MŠ Testovacia");
     expect(screen.queryByText(/→/)).not.toBeInTheDocument();
+  });
+
+  it("shows source-specific ZV state and an OL badge only for afternoon snack with lunch", async () => {
+    mockApiFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        date: "2026-08-10",
+        edupage: [{
+          ...baseRow,
+          nazov: "Edu škola",
+          adults_pack_separately_enabled: true,
+          pack_separately_enabled: false,
+          olovrant_s_obedom: true,
+          flags: { attention: [], config_notes: [] },
+        }],
+        app: [{
+          ...baseRow,
+          prevadzka_id: 2,
+          nazov: "App škola",
+          adults_pack_separately_enabled: false,
+          pack_separately_enabled: false,
+          olovrant_s_obedom: false,
+          flags: { attention: [], config_notes: [] },
+        }],
+      }),
+    });
+
+    render(<MemoryRouter><PrevadzkaOverview /></MemoryRouter>);
+
+    expect(await screen.findByLabelText("EduPage: dospelí automaticky zvlášť — zapnuté")).toHaveClass("on");
+    expect(screen.getByLabelText("App: zabaliť zvlášť — vypnuté")).toHaveClass("off");
+    expect(screen.getByLabelText("Olovrant sa vozí s obedom")).toHaveTextContent("OL");
+    expect(document.querySelector("#prevadzka-row-2 [aria-label='Olovrant sa vozí s obedom']")).toBeNull();
   });
 });
