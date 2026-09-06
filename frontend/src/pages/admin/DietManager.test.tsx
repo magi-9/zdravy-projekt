@@ -131,6 +131,12 @@ describe("DietManager diet numbering", () => {
 });
 
 describe("DietManager text/background colour picker (#536)", () => {
+  const chooseColour = async (label: string, colour: string) => {
+    await userEvent.click(screen.getByRole("button", { name: `Vybrať ${label}` }));
+    const colourModal = within(screen.getByRole("dialog", { name: label }));
+    await userEvent.click(colourModal.getByRole("button", { name: `${label}: ${colour}` }));
+  };
+
   it("shows a live preview and saves an explicit text/background colour for a new diet", async () => {
     let createBody: Record<string, unknown> | undefined;
     mockApiFetch.mockImplementation((url: string, init?: RequestInit) => {
@@ -157,8 +163,11 @@ describe("DietManager text/background colour picker (#536)", () => {
     // Náhľad je vždy vidno, aj bez výberu (ukazuje počítanú predvolenú farbu).
     expect(screen.getByTestId("diet-style-preview")).toHaveTextContent("Bez vajec");
 
-    await userEvent.click(screen.getByRole("button", { name: "Farba textu v PDF: #31D8D8" }));
-    await userEvent.click(screen.getByRole("button", { name: "Farba pozadia v PDF: #D8D831" }));
+    // Paleta nezaberá miesto vo formulári — otvorí sa až z kompaktného tlačidla.
+    expect(screen.queryByRole("group", { name: "Farba textu v PDF" })).not.toBeInTheDocument();
+    await chooseColour("Farba textu v PDF", "#31D8D8");
+    expect(screen.queryByRole("dialog", { name: "Farba textu v PDF" })).not.toBeInTheDocument();
+    await chooseColour("Farba pozadia v PDF", "#D8D831");
     await userEvent.click(screen.getByRole("button", { name: "Pridať diétu" }));
 
     expect(createBody).toMatchObject({
@@ -206,12 +215,70 @@ describe("DietManager text/background colour picker (#536)", () => {
     // uloženej diéte) - dokazuje, že pickery boli správne predvyplnené.
     expect(modal.getByRole("button", { name: "Uložiť" })).toBeDisabled();
 
-    await userEvent.click(modal.getByRole("button", { name: "Farba textu v PDF: #D831D8" }));
+    await userEvent.click(modal.getByRole("button", { name: "Vybrať Farba textu v PDF" }));
+    const colourModal = within(screen.getByRole("dialog", { name: "Farba textu v PDF" }));
+    await userEvent.click(colourModal.getByRole("button", { name: "Farba textu v PDF: #D831D8" }));
     await userEvent.click(modal.getByRole("button", { name: "Uložiť" }));
 
     expect(patchBody).toMatchObject({
       text_color: "#D831D8",
       background_color: "#EEEEEE",
     });
+  });
+
+  it("creates a combined diet in two steps: composition first, colours second", async () => {
+    mockApiFetch.mockImplementation((url: string) => {
+      if (url.includes("/diets/")) {
+        return Promise.resolve(
+          response([
+            { id: 1, name: "Bezlepková", sort_order: 0, is_active: true, description: "", base_diets: [] },
+            { id: 2, name: "Bez laktózy", sort_order: 1, is_active: true, description: "", base_diets: [] },
+          ]),
+        );
+      }
+      return Promise.resolve(response([]));
+    });
+
+    render(
+      <MemoryRouter>
+        <DietManager />
+      </MemoryRouter>,
+    );
+
+    await screen.findByText("Bezlepková");
+
+    // Bežná diéta má dve tlačidlá, žiadne stále rozbalené palety ani tretí picker.
+    expect(screen.queryByRole("group", { name: "Farba novej diéty" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Vybrať Farba textu v PDF" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Vybrať Farba pozadia v PDF" })).toBeInTheDocument();
+
+    // Krok 1 obsahuje iba zloženie kombinácie.
+    await userEvent.click(screen.getByRole("button", { name: /Vytvoriť kombinovanú/ }));
+    const compositeModal = within(
+      screen.getByText("Vytvoriť kombinovanú diétu").closest(".zpa-modal") as HTMLElement,
+    );
+    expect(compositeModal.getByText("Krok 1 z 2")).toBeInTheDocument();
+    expect(compositeModal.queryByRole("button", { name: "Vybrať Farba textu v PDF" })).not.toBeInTheDocument();
+    expect(compositeModal.getByRole("button", { name: "Pokračovať na farby" })).toBeDisabled();
+
+    await userEvent.click(compositeModal.getByRole("button", { name: /Bezlepková/ }));
+    await userEvent.click(compositeModal.getByRole("button", { name: /Bez laktózy/ }));
+
+    await userEvent.click(compositeModal.getByRole("button", { name: "Pokračovať na farby" }));
+
+    // Krok 2 obsahuje už iba farby a náhľad; dá sa z neho vrátiť späť.
+    expect(compositeModal.getByText("Krok 2 z 2")).toBeInTheDocument();
+    expect(compositeModal.queryByRole("button", { name: /Bezlepková/ })).not.toBeInTheDocument();
+    expect(compositeModal.getByRole("button", { name: "Vybrať Farba textu v PDF" })).toBeInTheDocument();
+    expect(compositeModal.getByRole("button", { name: "Vybrať Farba pozadia v PDF" })).toBeInTheDocument();
+    expect(compositeModal.getByTestId("diet-style-preview")).toBeInTheDocument();
+    expect(compositeModal.getByRole("button", { name: "Späť" })).toBeInTheDocument();
+
+    await userEvent.click(compositeModal.getByRole("button", { name: "Zavrieť" }));
+    await userEvent.click(screen.getAllByTitle("Upraviť")[0]);
+    const editModal = within(screen.getByText("Upraviť diétu").closest(".zpa-modal") as HTMLElement);
+    expect(editModal.queryByRole("group", { name: /^Farba diéty/ })).not.toBeInTheDocument();
+    expect(editModal.getByRole("button", { name: "Vybrať Farba textu v PDF" })).toBeInTheDocument();
+    expect(editModal.getByRole("button", { name: "Vybrať Farba pozadia v PDF" })).toBeInTheDocument();
   });
 });
