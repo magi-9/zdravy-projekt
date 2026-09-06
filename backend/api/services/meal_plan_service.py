@@ -531,6 +531,19 @@ class MealPlanService:
             for diet in active_diets
             if diet.base_diets.exists()
         }
+        # Explicitná farba textu/pozadia (#XYZ) — na rozdiel od `color` vyššie
+        # (základ pre automatické stmavenie/blend a pre kombinačnú logiku)
+        # ide o hotovú dvojicu, ktorú si admin vybral zámerne a ktorá sa má
+        # v tabuľke/PDF použiť bez ďalšej úpravy. Mapa je prázdna pre diéty
+        # bez explicitného nastavenia — tie ostávajú na starej logike.
+        diet_text_color_map = {
+            diet.name: diet.text_color for diet in active_diets if diet.text_color
+        }
+        diet_background_color_map = {
+            diet.name: diet.background_color
+            for diet in active_diets
+            if diet.background_color
+        }
         # #2 — poznámka ku konkrétnej diéte (napr. "NoGluten – kontrolovať s
         # rodičom"), nastavená v Správe diét (`Diet.description`). Predtým sa
         # ukazovala len tam, kuchyňa ju v gramážnej tabuľke/PDF nevidela.
@@ -1204,6 +1217,12 @@ class MealPlanService:
                                     "diet_base_colors": diet_base_color_map.get(
                                         diet_name, []
                                     ),
+                                    "diet_text_color": diet_text_color_map.get(
+                                        diet_name, ""
+                                    ),
+                                    "diet_background_color": diet_background_color_map.get(
+                                        diet_name, ""
+                                    ),
                                     "diet_note": prevadzka_diet_notes.get(
                                         (
                                             (
@@ -1432,6 +1451,8 @@ class MealPlanService:
                         "name": name,
                         "color": diet_color_map.get(name, "#FDE68A"),
                         "base_colors": diet_base_color_map.get(name, []),
+                        "text_color": diet_text_color_map.get(name, ""),
+                        "background_color": diet_background_color_map.get(name, ""),
                         "count": _tidy_count(diet_summary_counts[name]),
                         "col_grams": _serialize_group_totals(diet_summary_totals[name]),
                         # Rozpis podľa jedla, viď komentár pri
@@ -1803,5 +1824,7 @@ class MealPlanService:
             "count_summary": count_summary,
             "diet_colors": diet_color_map,
             "diet_base_colors": diet_base_color_map,
+            "diet_text_colors": diet_text_color_map,
+            "diet_background_colors": diet_background_color_map,
             "diet_descriptions": diet_description_map,
         }

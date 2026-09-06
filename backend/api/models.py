@@ -190,6 +190,25 @@ class Diet(models.Model):
         default="",
         help_text="Voliteľná HEX farba pre admin prehľady, napr. #F97316.",
     )
+    text_color = models.CharField(
+        max_length=7,
+        blank=True,
+        default="",
+        help_text=(
+            "Voliteľná HEX farba textu v gramážnej tabuľke a PDF. Keď je "
+            "nastavená spolu s background_color, použije sa presne táto "
+            "dvojica namiesto automaticky dopočítanej (#536)."
+        ),
+    )
+    background_color = models.CharField(
+        max_length=7,
+        blank=True,
+        default="",
+        help_text=(
+            "Voliteľná HEX farba podfarbenia riadku v gramážnej tabuľke a "
+            "PDF, viď text_color."
+        ),
+    )
     base_diets = models.ManyToManyField(
         "self",
         symmetrical=False,

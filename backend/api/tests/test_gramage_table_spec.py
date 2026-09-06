@@ -379,6 +379,79 @@ def test_combined_diet_of_three_or_more_uses_fixed_orange_background():
     assert summary["background"] == f"#{blend_with_white('F97316')}"
 
 
+def test_explicit_text_and_background_color_win_over_computed_defaults():
+    """Keď má diéta explicitne nastavenú vlastnú farbu textu aj pozadia
+    (Diet.text_color/background_color), tabuľka a PDF ju použijú presne
+    takú, bez stmavovania/blendovania — to rieši len čitateľnosť počítanej
+    predvolenej palety."""
+    payload = _payload()
+    payload["rows"][0]["diet_summary_rows"][0]["text_color"] = "#111111"
+    payload["rows"][0]["diet_summary_rows"][0]["background_color"] = "#EEEEEE"
+    payload["rows"][0]["sub_rows"][1]["diet_text_color"] = "#111111"
+    payload["rows"][0]["sub_rows"][1]["diet_background_color"] = "#EEEEEE"
+
+    spec = build_table_spec(payload)
+
+    summary = next(r for r in spec["rows"] if r["kind"] == "summary-diet")
+    assert summary["color"] == "#111111"
+    assert summary["background"] == "#EEEEEE"
+
+    sub_row = next(
+        r for r in spec["rows"] if r["kind"] == "sub-row" and "diet" in r["css"]
+    )
+    assert sub_row["color"] == "#111111"
+    assert sub_row["background"] == "#EEEEEE"
+
+
+def test_explicit_color_wins_even_for_a_combined_diet():
+    """Kombinovaná diéta s vlastnou explicitnou farbou prebije kombinačnú
+    logiku (hlavná/vedľajšia/oranžová) rovnako ako jednoduchá diéta."""
+    payload = _payload()
+    payload["rows"][0]["diet_summary_rows"][0]["base_colors"] = ["#F59E0B", "#EF4444"]
+    payload["rows"][0]["diet_summary_rows"][0]["text_color"] = "#000000"
+    payload["rows"][0]["diet_summary_rows"][0]["background_color"] = "#FFFFFF"
+
+    spec = build_table_spec(payload)
+
+    summary = next(r for r in spec["rows"] if r["kind"] == "summary-diet")
+    assert summary["color"] == "#000000"
+    assert summary["background"] == "#FFFFFF"
+
+
+def test_only_one_explicit_color_falls_back_to_computed_defaults():
+    """Nastavená len jedna z dvojice (text/pozadie) sa ignoruje — nekonzistentná
+    kombinácia s dopočítanou druhou farbou by mohla byť nečitateľná."""
+    payload = _payload()
+    payload["rows"][0]["diet_summary_rows"][0]["text_color"] = "#000000"
+
+    spec = build_table_spec(payload)
+
+    summary = next(r for r in spec["rows"] if r["kind"] == "summary-diet")
+    assert summary["color"] == f"#{readable_text_color('F59E0B')}"
+    assert summary["background"] == f"#{blend_with_white('F59E0B')}"
+
+
+def test_explicit_colors_can_come_from_the_top_level_diet_maps():
+    """Rovnaká explicitná dvojica vie prísť aj cez `diet_text_colors`/
+    `diet_background_colors` v `data` (mapa meno diéty → farba), rovnako ako
+    `diet_colors`/`diet_base_colors` už fungujú pre `diet_color`."""
+    payload = _payload(
+        diet_text_colors={"No Milk": "#010101"},
+        diet_background_colors={"No Milk": "#FEFEFE"},
+    )
+    spec = build_table_spec(payload)
+
+    summary = next(r for r in spec["rows"] if r["kind"] == "summary-diet")
+    assert summary["color"] == "#010101"
+    assert summary["background"] == "#FEFEFE"
+
+    sub_row = next(
+        r for r in spec["rows"] if r["kind"] == "sub-row" and "diet" in r["css"]
+    )
+    assert sub_row["color"] == "#010101"
+    assert sub_row["background"] == "#FEFEFE"
+
+
 def test_footer_is_the_cluster_summary_plus_the_grand_total():
     """#532 — súhrn porcií je jeden pás „SUMÁR ... S DIÉTAMI MŠ" s jedným
     riadkom na prítomné jedlo (tu len Obed — fixture nemá raňajky/olovrant),

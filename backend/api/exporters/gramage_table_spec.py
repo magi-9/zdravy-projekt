@@ -207,6 +207,54 @@ def _diet_text_and_background(data: dict, row_like: dict) -> tuple[str, str]:
     return own, own
 
 
+def _explicit_diet_color(
+    data: dict, row_like: dict, keys: tuple[str, str], data_key: str
+) -> str:
+    """HEX hodnota admin-om vybranej farby (`Diet.text_color`/`background_color`),
+    normalizovaná bez „#“, alebo „“ keď nie je nastavená.
+
+    `keys` pokrýva obe konvencie použité v `MealPlanService` payloade — riadok
+    diéty jedného klienta nesie `diet_text_color`/`diet_background_color`,
+    agregovaný súhrnný riadok nesie `text_color`/`background_color`. Keď
+    riadok vlastnú hodnotu nenesie, padá sa na dátovú mapu podľa mena diéty
+    (rovnaký vzor ako `diet_color`).
+    """
+    value = row_like.get(keys[0]) or row_like.get(keys[1])
+    if not value:
+        name = (
+            row_like.get("name") or row_like.get("diet_name") or row_like.get("label")
+        )
+        value = (data.get(data_key) or {}).get(name)
+    normalized = str(value or "").lstrip("#").upper()
+    return normalized if len(normalized) == 6 else ""
+
+
+def _diet_style(data: dict, row_like: dict) -> tuple[str, str]:
+    """Finálna, hotová farba textu a podfarbenia riadku diéty pre CSS/PDF.
+
+    Keď má diéta (jednoduchá aj kombinovaná) explicitne nastavenú vlastnú
+    farbu textu AJ pozadia (`Diet.text_color`/`background_color`), použije sa
+    presne táto dvojica — bez stmavovania/blendovania, ktoré rieši len
+    čitateľnosť automaticky odvodenej predvolenej palety. Iba jedna z dvoch
+    nastavená sa ignoruje (nekonzistentná kombinácia by mohla byť nečitateľná)
+    a spadne sa na pôvodnú logiku (`_diet_text_and_background`).
+    """
+    explicit_text = _explicit_diet_color(
+        data, row_like, ("diet_text_color", "text_color"), "diet_text_colors"
+    )
+    explicit_background = _explicit_diet_color(
+        data,
+        row_like,
+        ("diet_background_color", "background_color"),
+        "diet_background_colors",
+    )
+    if explicit_text and explicit_background:
+        return explicit_text, explicit_background
+
+    text_hex, background_hex = _diet_text_and_background(data, row_like)
+    return readable_text_color(text_hex), blend_with_white(background_hex)
+
+
 def _filter_vydaje(all_vydaje: list[dict], selected: list[str] | None) -> list[int]:
     """Indexy výdajných bodov, ktoré sa majú vykresliť.
 
@@ -375,6 +423,8 @@ def _aggregate_diet_summary(rows_for_summary: list[dict]) -> list[dict]:
                     "name": name,
                     "color": diet.get("color"),
                     "base_colors": diet.get("base_colors") or [],
+                    "text_color": diet.get("text_color"),
+                    "background_color": diet.get("background_color"),
                     "count": Decimal("0"),
                     "col_grams": [[] for _ in (diet.get("col_grams") or [])],
                     # Rozpis podľa jedla (#560) — `count` je plochý súčet cez
@@ -415,7 +465,7 @@ def _diet_name_rows(
     for diet in _aggregate_diet_summary(rows_for_summary):
         if not diet["count"]:
             continue
-        text_hex, background_hex = _diet_text_and_background(data, diet)
+        text_hex, background_hex = _diet_style(data, diet)
         label_cell = _label_cell(
             diet["name"],
             diet["count"],
@@ -435,8 +485,8 @@ def _diet_name_rows(
             {
                 "kind": "summary-diet",
                 "css": "summ-diet",
-                "color": f"#{readable_text_color(text_hex)}",
-                "background": f"#{blend_with_white(background_hex)}",
+                "color": f"#{text_hex}",
+                "background": f"#{background_hex}",
                 "cells": [label_cell]
                 + _gram_cells(diet.get("col_grams") or [], groups, hues),
             }
@@ -991,7 +1041,7 @@ def _client_rows(
             cell["count"] = _composite_meal_count_text(meal_counts, visible_bands)
         text_hex = background_hex = None
         if is_diet:
-            text_hex, background_hex = _diet_text_and_background(data, sub_row)
+            text_hex, background_hex = _diet_style(data, sub_row)
             cell["swatch"] = {
                 "color": f"#{diet_color(data, sub_row)}",
                 "base_colors": sub_row.get("diet_base_colors") or [],
@@ -1002,10 +1052,8 @@ def _client_rows(
                 "css": ("sub-row diet" if is_diet else "sub-row") + zebra,
                 "group_id": key,
                 "collapsible": True,
-                "color": f"#{readable_text_color(text_hex)}" if is_diet else None,
-                "background": (
-                    f"#{blend_with_white(background_hex)}" if is_diet else None
-                ),
+                "color": f"#{text_hex}" if is_diet else None,
+                "background": f"#{background_hex}" if is_diet else None,
                 "cells": [cell] + gram_cells,
             }
         )
@@ -1059,7 +1107,7 @@ def _client_rows(
         if name not in diet_counts:
             continue
         hex_color = diet_color(data, diet)
-        text_hex, background_hex = _diet_text_and_background(data, diet)
+        text_hex, background_hex = _diet_style(data, diet)
         # Interná poznámka k dvojici (prevádzka, diéta) — pozri komentár pri
         # sub-riadku vyššie; tu ide na medzisúčtový riadok tej istej diéty.
         diet_note = str(diet.get("note") or "").strip()
@@ -1081,8 +1129,8 @@ def _client_rows(
             {
                 "kind": "summary-diet",
                 "css": "summ-diet",
-                "color": f"#{readable_text_color(text_hex)}",
-                "background": f"#{blend_with_white(background_hex)}",
+                "color": f"#{text_hex}",
+                "background": f"#{background_hex}",
                 "cells": [label_cell]
                 + _gram_cells(
                     diet.get("col_grams") or [], groups, hues, snack_with_lunch
