@@ -649,12 +649,21 @@ def build_table_spec(
     # (rovnaký denný súhrn, len sa preň netreba znova prechádzať cez rows).
     footer_counts = [item.get("count") or 0 for item in totals_summary]
 
-    # `summary_only` klastre (British School) nemajú čo prispieť do tohto
-    # gram-plánového kombinovaného súčtu (žiadne sub_rows/col_grams) — ich
-    # meno by tam len klamlivo viselo bez zodpovedajúcich čísel.
-    _footer_vydaje = [v for v in shown_vydaje if not v.get("summary_only")]
-    footer_names = [v.get("name") or "" for v in _footer_vydaje]
-    footer_keys = [str(v.get("key") or "") for v in _footer_vydaje]
+    # `summary_only` klastre (British School) prispievajú do tohto footeru
+    # svojím vlastným kusovým sumárom (`british_cluster_summary`) — v
+    # ROVNAKÝCH jednotkách ako gram-plánové klastre (oboje cez
+    # `PortionType.coefficient`), takže sčítanie je korektné (user 4.9.2026:
+    # "prečo nie je sumár cluster A+B+C"). Zlučuje sa cez `extra_items`
+    # (`_cluster_summary_rows`), nie cez `footer_rows`/`sub_rows` — British
+    # tie vôbec nemá (žiadne menu-šablóny).
+    footer_names = [v.get("name") or "" for v in shown_vydaje]
+    footer_keys = [str(v.get("key") or "") for v in shown_vydaje]
+    footer_summary_items: list[dict] = []
+    for vydaj in shown_vydaje:
+        if vydaj.get("summary_only"):
+            footer_summary_items = _merge_meal_items(
+                footer_summary_items, vydaj.get("british_summary") or []
+            )
     footer: list[dict] = (
         _cluster_summary_rows(
             footer_names,
@@ -664,6 +673,7 @@ def build_table_spec(
             hues,
             total_columns,
             include_diets=_cluster_shows_diets(*footer_keys),
+            extra_items=footer_summary_items or None,
         )
         if show_cluster_summary
         else []
@@ -673,14 +683,15 @@ def build_table_spec(
     # porcie naprieč VŠETKÝMI zobrazenými klastrami (Cluster A+B+C) —
     # rovnaký prepočet cez katalógový `PortionType.coefficient`, aký má
     # každý jednotlivý klastrový súhrn (`_cluster_ms_totals`), len sčítaný
-    # dokopy. Nie fakturačný `billing_portion_coefficients` súčet naprieč
-    # všetkými jedlami (predošlé „Spolu prepočítané na MŠ porcie").
+    # dokopy (vrátane `summary_only` klastrov cez `footer_summary_items`,
+    # rovnako ako vyššie). Nie fakturačný `billing_portion_coefficients`
+    # súčet naprieč všetkými jedlami (predošlé „Spolu prepočítané na MŠ
+    # porcie").
+    _obed_items = _cluster_ms_totals(footer_rows, groups)
+    if footer_summary_items:
+        _obed_items = _merge_meal_items(_obed_items, footer_summary_items)
     obed_total = next(
-        (
-            item["total"]
-            for item in _cluster_ms_totals(footer_rows, groups)
-            if item["label"] == "Obed"
-        ),
+        (item["total"] for item in _obed_items if item["label"] == "Obed"),
         Decimal("0"),
     )
     footer.append(
@@ -1206,27 +1217,106 @@ def _cluster_ms_totals(rows_for_summary: list[dict], groups: list[dict]) -> list
     return out
 
 
-def _british_summary_rows(
-    names: list[str], meal_items: list[dict], total_columns: int
-) -> list[dict]:
-    """Kusový sumár pre `summary_only` klastre (British School, Cluster C,
-    #531) — rovnaký vizuálny formát ako `_cluster_summary_rows`
-    ("Obed: N ks / N MŠ" + rozpis Menu variantov), len `meal_items` prichádza
-    už hotové z `british_cluster_summary.build_gramage_summary_only_clusters`
-    (priamo z `DailyOrder.data`), nie z `_cluster_ms_totals` (ktorá číta
-    `col_groups`/`sub_rows` — British nemá menu-šablóny, takže by boli
-    prázdne). Žiadny diétny rozpis — ten pre Cluster C nateraz nie je
-    súčasťou zadania.
-    """
-    rows: list[dict] = [
-        _band(
-            "portion-band",
-            _cluster_summary_title(names),
-            total_columns,
-            css="portion-summary-band",
+# Kanonické (chronologické) poradie pásiem dňa pre zlúčené kusové/MŠ položky
+# (`_merge_meal_items`) — "Snack" (British desiata, iný meal_key aj iný
+# zobrazovaný štítok, viď `british_cluster_summary._MEAL_BANDS`) sem pribudlo
+# len kvôli Britishu (`_CLUSTER_SUMMARY_MEAL_BANDS` ho nepozná, gram-plánové
+# klastre ho nemajú), preto vlastný zoznam namiesto zdieľania s
+# `_CLUSTER_SUMMARY_MEAL_BANDS`.
+_MEAL_BAND_ORDER: tuple[str, ...] = ("Raňajky", "Snack", "Obed", "Olovrant")
+
+
+def _meal_band_sort_key(label: str) -> tuple[int, str]:
+    try:
+        return (_MEAL_BAND_ORDER.index(label), "")
+    except ValueError:
+        return (len(_MEAL_BAND_ORDER), label)
+
+
+def _merge_menu_items(a: list[dict], b: list[dict]) -> list[dict]:
+    order = [m["label"] for m in a]
+    by_label = {m["label"]: dict(m) for m in a}
+    for menu in b:
+        label = menu["label"]
+        if label not in by_label:
+            order.append(label)
+            by_label[label] = {
+                "label": label,
+                "heads": Decimal("0"),
+                "total": Decimal("0"),
+            }
+        by_label[label]["heads"] = _as_decimal(by_label[label]["heads"]) + _as_decimal(
+            menu.get("heads")
         )
-    ]
+        by_label[label]["total"] = _as_decimal(by_label[label]["total"]) + _as_decimal(
+            menu.get("total")
+        )
+    return [by_label[label] for label in order]
+
+
+def _merge_meal_items(a: list[dict], b: list[dict]) -> list[dict]:
+    """Zlúči dva zoznamy `{label, heads, total, menus?, kusy_only?}` podľa
+    `label` — kusy a MŠ prepočet z rôznych zdrojov (gram-plánová
+    `_cluster_ms_totals` a kusová `british_cluster_summary`) sú v ROVNAKÝCH
+    jednotkách (obe cez `PortionType.coefficient`), takže sčítanie je
+    korektné (user 4.9.2026: "prečo nie je sumár cluster A+B+C"). Pásmo,
+    ktoré má len jedna strana (napr. "Snack" — gram-plánové klastre ho vôbec
+    nepoznajú), sa pridá tak ako je (vrátane `kusy_only`, ak ho nesie),
+    nie ako nula. Výsledné poradie je chronologické (`_MEAL_BAND_ORDER`),
+    nezávislé od poradia v `a`/`b`.
+    """
+    by_label = {item["label"]: dict(item) for item in a}
+    for item in b:
+        label = item["label"]
+        if label not in by_label:
+            # Nová (len z `b`) položka si necháva svoje ostatné polia
+            # (napr. `kusy_only`) — len kusy/MŠ sa vynulujú pred pripočítaním
+            # nižšie, aby sa nezdvojili.
+            # `menus` sa NESMIE prevziať referenciou z `item` — o pár riadkov
+            # nižšie sa `existing["menus"]` zlučuje s `item["menus"]`, a keby
+            # to bol ten istý zoznam, zdvojil by sa (nájdené 4.9.2026: Menu A
+            # 48 namiesto 28, presne 2×).
+            by_label[label] = {
+                **item,
+                "heads": Decimal("0"),
+                "total": Decimal("0"),
+                "menus": [],
+            }
+        existing = by_label[label]
+        existing["heads"] = _as_decimal(existing.get("heads")) + _as_decimal(
+            item.get("heads")
+        )
+        existing["total"] = _as_decimal(existing.get("total")) + _as_decimal(
+            item.get("total")
+        )
+        if item.get("kusy_only"):
+            existing["kusy_only"] = True
+        if item.get("menus"):
+            existing["menus"] = _merge_menu_items(
+                existing.get("menus") or [], item["menus"]
+            )
+    return sorted(
+        by_label.values(), key=lambda item: _meal_band_sort_key(item["label"])
+    )
+
+
+def _render_ms_rows(meal_items: list[dict], total_columns: int) -> list[dict]:
+    """`{label, heads, total, menus?}` položky → "Obed: N ks / N MŠ" riadky +
+    odsadený rozpis menu variantov. Zdieľané medzi `_cluster_summary_rows`
+    (gram-plánové klastre) a `_british_summary_rows` (kusové, #531) — obe
+    položky rovnakého tvaru, len z iného zdroja."""
+    rows: list[dict] = []
     for item in meal_items:
+        # "Snack" (British desiata) je ČISTO kusovo — žiadny prepočet na MŠ
+        # porcie (user 4.9.2026: "nemá prepočet na ms, je to iba kusovo").
+        text = (
+            f"{format_count(item['heads'])} ks"
+            if item.get("kusy_only")
+            else (
+                f"{format_count(item['heads'])} ks / "
+                f"{format_count(item['total'])} MŠ"
+            )
+        )
         rows.append(
             {
                 "kind": "cluster-ms-row",
@@ -1234,10 +1324,7 @@ def _british_summary_rows(
                 "cells": [
                     {
                         "label": f"{item['label']}:",
-                        "text": (
-                            f"{format_count(item['heads'])} ks / "
-                            f"{format_count(item['total'])} MŠ"
-                        ),
+                        "text": text,
                         "colspan": total_columns,
                     }
                 ],
@@ -1263,6 +1350,28 @@ def _british_summary_rows(
     return rows
 
 
+def _british_summary_rows(
+    names: list[str], meal_items: list[dict], total_columns: int
+) -> list[dict]:
+    """Kusový sumár pre `summary_only` klastre (British School, Cluster C,
+    #531) — rovnaký vizuálny formát ako `_cluster_summary_rows`
+    ("Obed: N ks / N MŠ" + rozpis Menu variantov), len `meal_items` prichádza
+    už hotové z `british_cluster_summary.build_gramage_summary_only_clusters`
+    (priamo z `DailyOrder.data`), nie z `_cluster_ms_totals` (ktorá číta
+    `col_groups`/`sub_rows` — British nemá menu-šablóny, takže by boli
+    prázdne). Žiadny diétny rozpis — ten pre Cluster C nateraz nie je
+    súčasťou zadania.
+    """
+    return [
+        _band(
+            "portion-band",
+            _cluster_summary_title(names),
+            total_columns,
+            css="portion-summary-band",
+        )
+    ] + _render_ms_rows(meal_items, total_columns)
+
+
 def _cluster_summary_rows(
     names: list[str],
     rows_for_summary: list[dict],
@@ -1271,6 +1380,7 @@ def _cluster_summary_rows(
     hues: list[str],
     total_columns: int,
     include_diets: bool = True,
+    extra_items: list[dict] | None = None,
 ) -> list[dict]:
     """Celý súhrn jedného klastra (alebo kombinácie klastrov) — #532:
 
@@ -1282,6 +1392,13 @@ def _cluster_summary_rows(
 
     `include_diets=False` (nastavenia tabuľky, per-cluster checkbox) vynechá
     len tento diétny rozpis — riadky "Obed:"/"Raňajky:"/"Olovrant:" ostávajú.
+
+    `extra_items` (voliteľné, #531) — kusové položky zo `summary_only`
+    klastrov (British School), zlúčené do rovnakých "Obed:"/"Raňajky:"
+    riadkov (`_merge_meal_items` — rovnaké jednotky, oba cez
+    `PortionType.coefficient`). Používa ho len footer (súčet VŠETKÝCH
+    zobrazených klastrov) — per-cluster blok Britisha sa vykresľuje
+    samostatne cez `_british_summary_rows`, nie cez túto funkciu.
     """
     rows: list[dict] = [
         _band(
@@ -1291,43 +1408,10 @@ def _cluster_summary_rows(
             css="portion-summary-band",
         )
     ]
-    for item in _cluster_ms_totals(rows_for_summary, groups):
-        rows.append(
-            {
-                "kind": "cluster-ms-row",
-                "css": "cluster-ms-row",
-                "cells": [
-                    {
-                        "label": f"{item['label']}:",
-                        "text": (
-                            f"{format_count(item['heads'])} ks / "
-                            f"{format_count(item['total'])} MŠ"
-                        ),
-                        "colspan": total_columns,
-                    }
-                ],
-            }
-        )
-        # Rozpis Obedu po menu variantoch (Menu A/B/C…), odsadený pod ním —
-        # kuchyňa chcela vidieť, koľko z celkového obedu pripadá na ktorý
-        # variant, rovnaký kusovo/MŠ formát ako riadok vyššie.
-        for menu in item.get("menus") or []:
-            rows.append(
-                {
-                    "kind": "cluster-ms-row",
-                    "css": "cluster-ms-row cluster-ms-menu-row",
-                    "cells": [
-                        {
-                            "label": f"{menu['label']}:",
-                            "text": (
-                                f"{format_count(menu['heads'])} ks / "
-                                f"{format_count(menu['total'])} MŠ"
-                            ),
-                            "colspan": total_columns,
-                        }
-                    ],
-                }
-            )
+    ms_items = _cluster_ms_totals(rows_for_summary, groups)
+    if extra_items:
+        ms_items = _merge_meal_items(ms_items, extra_items)
+    rows.extend(_render_ms_rows(ms_items, total_columns))
     diet_rows = (
         _diet_name_rows(rows_for_summary, data, groups, hues) if include_diets else []
     )

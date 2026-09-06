@@ -19,19 +19,23 @@ from decimal import Decimal
 from typing import Any
 
 # Poradie pásiem dňa — chronologické, nezávislé od poradia kľúčov v
-# `order.data`. "desiata" je British-špecifický meal_key (#British Cluster C,
-# NIE "snack" — ten je legacy alias pre Olovrant, viď `api.tasks._EXTRA_MEAL_KEYS`).
+# `order.data`. Interný kľúč ostáva "desiata" (#British Cluster C) — NIE
+# "snack", to je legacy alias pre Olovrant (viď `api.tasks._EXTRA_MEAL_KEYS`) —
+# ale zobrazovaný štítok je "Snack" (user 4.9.2026: "desiata sa má volať
+# snack"). `_KUSY_ONLY_MEAL_KEYS` — Snack sa počíta ČISTO kusovo, žiadny
+# prepočet na MŠ porcie (rovnaký user 4.9.2026: "nemá prepočet na ms").
 _MEAL_BANDS: tuple[tuple[str, str], ...] = (
     ("breakfast", "Raňajky"),
-    ("desiata", "Desiata"),
+    ("desiata", "Snack"),
     ("lunch", "Obed"),
     ("olovrant", "Olovrant"),
 )
+_KUSY_ONLY_MEAL_KEYS: frozenset[str] = frozenset({"desiata"})
 
 # Stabilné poradie menu variantov v rozpise "Obed" — bežné písmená najprv,
-# British špecifiká (Menu D, VEGE1) za nimi. Neznáme varianty (budúca škola)
-# padnú na koniec, zoradené abecedne, aby poradie ostalo deterministické.
-_MENU_VARIANT_ORDER: tuple[str, ...] = ("A", "B", "C", "D", "VEGE1")
+# British špecifiká (Menu D, VEGE, VEGE1) za nimi. Neznáme varianty (budúca
+# škola) padnú na koniec, zoradené abecedne, aby poradie ostalo deterministické.
+_MENU_VARIANT_ORDER: tuple[str, ...] = ("A", "B", "C", "D", "VEGE", "VEGE1")
 
 _DEFAULT_COEFFICIENT = Decimal("1")
 
@@ -90,6 +94,8 @@ def meal_items_from_order_data(
                 )
                 menu_totals[variant] = (prev_heads + count, prev_ms + ms)
         item: dict[str, Any] = {"label": label, "heads": heads, "total": total}
+        if meal_key in _KUSY_ONLY_MEAL_KEYS:
+            item["kusy_only"] = True
         if meal_key == "lunch" and len(menu_totals) > 1:
             item["menus"] = [
                 {

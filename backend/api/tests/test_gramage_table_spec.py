@@ -1355,7 +1355,12 @@ def _summary_only_vydaj():
         "summary_only": True,
         "british_summary": [
             {"label": "Raňajky", "heads": Decimal("10"), "total": Decimal("10")},
-            {"label": "Desiata", "heads": Decimal("5"), "total": Decimal("5")},
+            {
+                "label": "Snack",
+                "heads": Decimal("5"),
+                "total": Decimal("5"),
+                "kusy_only": True,
+            },
             {
                 "label": "Obed",
                 "heads": Decimal("23"),
@@ -1375,6 +1380,10 @@ def _summary_only_vydaj():
 
 def _payload_with_summary_only_cluster():
     payload = _payload()
+    # `data["rows"]` (nefiltrovaná vetva footeru číta priamo z neho, viď
+    # `build_table_spec`) musí ostať Cluster A riadky — len `summary_only`
+    # klastre (British) sa z neho reálne vynechávajú (MealPlanService), nie
+    # každá prevádzka vo `vydaje`.
     payload["vydaje"] = [
         {
             "key": "A",
@@ -1383,7 +1392,6 @@ def _payload_with_summary_only_cluster():
         },
         _summary_only_vydaj(),
     ]
-    payload["rows"] = []
     payload["unassigned_rows"] = []
     return payload
 
@@ -1405,12 +1413,14 @@ def test_summary_only_cluster_renders_kusy_ms_rows_not_grid():
 
     assert [r["cells"][0]["label"] for r in summary_rows] == [
         "Raňajky:",
-        "Desiata:",
+        "Snack:",
         "Obed:",
         "Menu A:",
         "Menu D:",
         "Olovrant:",
     ]
+    # Snack je čisto kusovo — žiadne "/ MŠ".
+    assert summary_rows[1]["cells"][0]["text"] == "5 ks"
     assert summary_rows[2]["cells"][0]["text"] == "23 ks / 26 MŠ"
     assert summary_rows[4]["cells"][0]["text"] == "3 ks / 6 MŠ"
 
@@ -1427,10 +1437,58 @@ def test_summary_only_cluster_has_no_route_or_client_rows():
     assert any(row["kind"] == "client" for row in spec["rows"])  # Cluster A ho má
 
 
-def test_summary_only_cluster_excluded_from_combined_footer_title():
+def test_summary_only_cluster_included_in_combined_footer_title():
+    """Kusy/MŠ z British (Cluster C) sú v ROVNAKÝCH jednotkách ako gram-plánové
+    klastre (obe cez PortionType.coefficient) — footer 'SUMÁR CLUSTER ... S
+    DIÉTAMI MŠ' má C zahŕňať, nie len A/B (user 4.9.2026: "prečo nie je sumár
+    cluster A+B+C")."""
     spec = build_table_spec(_payload_with_summary_only_cluster())
 
-    assert spec["footer"][0]["cells"][0]["text"] == "SUMÁR CLUSTER A S DIÉTAMI MŠ"
+    assert spec["footer"][0]["cells"][0]["text"] == "SUMÁR CLUSTER A + C S DIÉTAMI MŠ"
+
+
+def _footer_ms_rows(spec) -> dict[str, dict]:
+    """{label: row} pre 'cluster-ms-row' riadky priamo pod prvým portion-band
+    pásmom vo footeri (rovnaká štruktúra ako `_rows_for_section`, len na
+    footer namiesto rows)."""
+    out: dict[str, dict] = {}
+    started = False
+    for row in spec["footer"]:
+        if row["kind"] == "portion-band":
+            if started:
+                break
+            started = True
+            continue
+        if not started:
+            continue
+        if row["kind"] != "cluster-ms-row":
+            break
+        out[row["cells"][0]["label"]] = row
+    return out
+
+
+def test_summary_only_cluster_merges_into_footer_totals():
+    """Obed footeru = gram-plánové Cluster A (10 ks: 8 std Menu A + 2 diéta)
+    + British Obed (23 ks) = 33 ks / 36 MŠ. Menu A sa sčíta (8 + 20 = 28),
+    Menu D pribudne ako nové (British-only, 3 ks). Raňajky/Snack/Olovrant
+    existujú len vďaka Britishu — nový band, nie 0. Snack ostáva čisto
+    kusovo aj po zlúčení do footeru."""
+    spec = build_table_spec(_payload_with_summary_only_cluster())
+    footer_rows = _footer_ms_rows(spec)
+
+    assert footer_rows["Obed:"]["cells"][0]["text"] == "33 ks / 36 MŠ"
+    assert footer_rows["Menu A:"]["cells"][0]["text"] == "28 ks / 28 MŠ"
+    assert footer_rows["Menu D:"]["cells"][0]["text"] == "3 ks / 6 MŠ"
+    assert footer_rows["Raňajky:"]["cells"][0]["text"] == "10 ks / 10 MŠ"
+    assert footer_rows["Snack:"]["cells"][0]["text"] == "5 ks"
+    assert footer_rows["Olovrant:"]["cells"][0]["text"] == "9 ks / 9 MŠ"
+
+
+def test_sum_total_obed_ms_footer_line_includes_summary_only_cluster():
+    spec = build_table_spec(_payload_with_summary_only_cluster())
+
+    total_row = next(r for r in spec["footer"] if r["kind"] == "total-ms-porcie")
+    assert total_row["cells"][0]["text"] == "36"
 
 
 def test_summary_only_cluster_excluded_from_first_two_combination():
