@@ -1,5 +1,5 @@
 # Core Django
-Django==5.1.15
+Django==6.1.1
 djangorestframework==3.17.2
 django-cors-headers==4.9.0
 # Pinned to 5.5.1: fixes CVE – missing user validation in for_user() allowed
