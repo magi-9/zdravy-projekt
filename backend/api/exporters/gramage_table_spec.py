@@ -1662,8 +1662,8 @@ def _totals_row(
             # do stĺpcov daného jedla/menu, nemusí si to prepočítavať naspäť
             # z gramáže. Opakovať ho na každej zložke by len duplikovalo
             # rovnaké číslo naprieč riadkom.
-            if component_index == 0 and group_count:
-                cell["count"] = format_count(group_count)
+            if component_index == 0 and group_count and text is not None:
+                cell["corner_count"] = format_count(group_count)
             cells.append(cell)
     return {
         "kind": "total",

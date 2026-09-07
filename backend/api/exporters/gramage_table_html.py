@@ -93,18 +93,24 @@ def _swatch(swatch: dict) -> str:
 def _cell(cell: dict) -> str:
     attrs = _attrs(**{"class": cell.get("css"), "colspan": cell.get("colspan")})
     text = escape(str(cell.get("text") or ""))
+    corner_count = cell.get("corner_count")
+    corner = (
+        f'<span class="corner-count">{escape(str(corner_count))}</span>'
+        if corner_count is not None
+        else ""
+    )
 
     if cell.get("count") is not None:
         inner = text
         if cell.get("swatch"):
             inner = _swatch(cell["swatch"]) + inner
         count = escape(str(cell["count"]))
-        body = (
+        body = corner + (
             f'<span class="lbl-line"><span>{inner}</span>'
             f'<span class="count-badge">{count}</span></span>'
         )
     else:
-        body = text
+        body = corner + text
     return f"<td{attrs}>{body}</td>"
 
 

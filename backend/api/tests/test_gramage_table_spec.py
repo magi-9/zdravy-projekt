@@ -487,6 +487,47 @@ def test_footer_is_the_cluster_summary_plus_the_grand_total():
     assert spec["footer"][-2]["cells"][0]["text"] == "CELKOM (g / ml)"
 
 
+def test_corner_badges_keep_the_count_of_each_menu_column():
+    """Rohový odznak je počet pre konkrétne menu, nie súčet celého riadku.
+
+    Pri 7 porciách Menu A a 5 porciách Menu B môže byť súhrn obeda 12, ale
+    číslo v stĺpci A musí ostať 7 a v stĺpci B 5. Práve prepis 12 do oboch
+    buniek bol dôvod, prečo sa pôvodné odznaky vypínali.
+    """
+    payload = _payload()
+    standard = payload["rows"][0]["sub_rows"][0]
+    standard["count"] = 7
+    standard["_heads"] = 7
+    standard["_ms_recalc"] = Decimal("7")
+    standard["col_grams"] = [["1400.00"], ["2100.00"], []]
+    payload["rows"][0]["sub_rows"].append(
+        {
+            **standard,
+            "variant": "B",
+            "label": "Škôlka - Obed Menu B",
+            "count": 5,
+            "_heads": 5,
+            "_ms_recalc": Decimal("5"),
+            "col_grams": [[], [], ["1500.00"]],
+        }
+    )
+    payload["rows"][0]["standard_col_grams"] = [
+        ["1400.00"],
+        ["2100.00"],
+        ["1500.00"],
+    ]
+
+    spec = build_table_spec(payload)
+    standard_row = next(
+        row
+        for row in spec["rows"]
+        if row["kind"] == "sub-row" and "diet" not in row["css"]
+    )
+
+    assert standard_row["cells"][2]["corner_count"] == "7"
+    assert standard_row["cells"][3]["corner_count"] == "5"
+
+
 def test_footer_diet_breakdown_sums_the_diet_across_all_clients():
     """Sumár dokopy má diétny rozpad sčítaný cez VŠETKÝCH klientov, nie len jedného."""
     payload = _payload()
@@ -557,11 +598,11 @@ def test_totals_row_shows_portion_count_in_the_first_cell_of_each_group():
     # cells[0] = roh „CELKOM (g / ml)"; cells[1] = Polievka, cells[2] = Menu A,
     # cells[3] = Menu B (každá skupina má tu presne 1 zložku).
     assert "count" not in totals_row["cells"][0]
-    assert totals_row["cells"][1]["count"] == format_count(10)
-    assert totals_row["cells"][2]["count"] == format_count(8)
+    assert totals_row["cells"][1]["corner_count"] == format_count(10)
+    assert totals_row["cells"][2]["corner_count"] == format_count(8)
     # Menu B bez objednávok — počet sa nezobrazí, nie "0" (rovnaká konvencia
     # ako pri gramáži, viď `format_count`/`test_count_badge_shows_a_dash_at_zero`).
-    assert "count" not in totals_row["cells"][3]
+    assert "corner_count" not in totals_row["cells"][3]
 
 
 def test_totals_row_count_lands_only_on_the_first_component_of_a_group():
@@ -598,8 +639,8 @@ def test_totals_row_count_lands_only_on_the_first_component_of_a_group():
 
     totals_row = spec["footer"][-2]
     # cells[0] = roh „CELKOM (g / ml)"; cells[1]/[2] = Pečivo/Nátierka (Raňajky).
-    assert totals_row["cells"][1]["count"] == format_count(10)
-    assert "count" not in totals_row["cells"][2]
+    assert totals_row["cells"][1]["corner_count"] == format_count(10)
+    assert "corner_count" not in totals_row["cells"][2]
 
 
 # ── Filter sekcií (verzie tlače aj prehľadu) ─────────────────────────────────
