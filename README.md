@@ -238,7 +238,8 @@ Pre-commit hooks enforce formatting and linting automatically on every commit.
 
 ```bash
 pip install pre-commit   # or: brew install pre-commit
-pre-commit install
+pre-commit install       # installs both the pre-commit and commit-msg hooks
+git config commit.template .gitmessage   # shows the commit format as a template on `git commit`
 ```
 
 **Run against all files manually:**
@@ -247,14 +248,17 @@ pre-commit install
 pre-commit run --all-files
 ```
 
-**Hooks configured:**
+**Hooks configured** (versions must match `backend/requirements.txt` — see the
+comment at the top of `.pre-commit-config.yaml`):
 
-| Hook     | Tool         | What it does                     |
-| -------- | ------------ | -------------------------------- |
-| `black`  | black 25.1.0 | Formats Python code              |
-| `isort`  | isort 5.13.2 | Sorts imports (black-compatible) |
-| `flake8` | flake8 7.0.0 | Lints for style/logic errors     |
-| `mypy`   | mypy 1.11.2  | Static type checking             |
+| Hook                 | Tool         | What it does                                                                                                     |
+| -------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------ |
+| `black`              | black 26.3.1 | Formats Python code                                                                                              |
+| `isort`              | isort 8.0.1  | Sorts imports (black-compatible)                                                                                 |
+| `flake8`             | flake8 7.3.0 | Lints for style/logic errors                                                                                     |
+| `mypy`               | mypy 2.3.1   | Static type checking                                                                                             |
+| `gramage-css-sync`   | —            | Keeps the on-screen and PDF gramáž table CSS identical                                                          |
+| `commit-msg-format`  | —            | Rejects a commit message that isn't Conventional Commits — see `.gitmessage`; feeds release-please's changelog |
 
 **Via Docker (without local Python):**
 

@@ -3,8 +3,9 @@ set -e
 
 echo "🐍 Backend"
 cd backend
-ruff check .
+flake8 .
 black --check .
+isort --check-only .
 mypy api --ignore-missing-imports
 pytest --create-db --cov=api --cov=app --cov-config=.coveragerc --cov-report=term-missing --cov-fail-under=60
 cd ..

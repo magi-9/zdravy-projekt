@@ -1,10 +1,17 @@
+
+# DÔLEŽITÉ: release-please číta commit history medzi tagmi a z headera
+# (<type>(<scope>): <subject>) automaticky generuje CHANGELOG.md a verziu
+# (feat → minor, fix → patch, "BREAKING CHANGE:" v päte → major). Nesprávny
+# alebo nekonvenčný header = chýbajúca/nesprávna položka v changelogu, nie
+# len kozmetika. Commit-msg pre-commit hook (nižšie) toto vynucuje lokálne.
+#
 # <type>(<scope>): <subject>
 # │      │         │
 # │      │         └─⫸ Stručný popis v imperatíve (max 50 znakov)
 # │      │
 # │      └─⫸ Scope: backend|frontend|ci|docker|docs (voliteľné)
 # │
-# └─⫸ Type: feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert
+# └─⫸ Type: feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert|release
 #
 # [Voliteľné telo commitu - vyčerpávajúci popis zmeny]
 # - Prečo bola zmena potrebná?
@@ -30,6 +37,7 @@
 # ci:       Zmeny v CI/CD pipeline
 # build:    Zmeny v build systéme alebo závislostiach
 # revert:   Vrátenie predchádzajúceho commitu
+# release:  Len pre "release: develop → main (...)" a release-please PR ("chore(main): release X.Y.Z" používa chore, nie release)
 #
 # SCOPE (príklady):
 # backend:  Django, Python, API, databáza

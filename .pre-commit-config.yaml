@@ -1,6 +1,11 @@
 # Verzie musia sedieť s `backend/requirements.txt` — CI púšťa nástroje odtiaľ.
 # Keď sa rozídu, hook lokálne prejde a CI na tom istom kóde padne (stalo sa
 # pri PR #501: black 25.1.0 vs 26.3.1 formátujú inak).
+#
+# `commit-msg` hook (nižšie) potrebuje aj stage `commit-msg`, nielen
+# predvolený `pre-commit` — `default_install_hook_types` zariadi, že obyčajné
+# `pre-commit install` (README) nainštaluje oba.
+default_install_hook_types: [pre-commit, commit-msg]
 repos:
   - repo: https://github.com/psf/black
     rev: 26.3.1
@@ -39,3 +44,8 @@ repos:
         language: system
         pass_filenames: false
         files: gramage-table\.css$
+      - id: commit-msg-format
+        name: commit message (Conventional Commits)
+        entry: scripts/check-commit-msg.sh
+        language: system
+        stages: [commit-msg]
