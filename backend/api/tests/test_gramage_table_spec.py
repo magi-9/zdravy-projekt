@@ -487,12 +487,12 @@ def test_footer_is_the_cluster_summary_plus_the_grand_total():
     assert spec["footer"][-2]["cells"][0]["text"] == "CELKOM (g / ml)"
 
 
-def test_corner_badges_keep_the_count_of_each_menu_column():
-    """Rohový odznak je počet pre konkrétne menu, nie súčet celého riadku.
+def test_child_portion_keeps_a_separate_row_and_badge_per_menu_variant():
+    """Aj detská porcia má vlastný riadok a odznak pre každé menu.
 
-    Pri 7 porciách Menu A a 5 porciách Menu B môže byť súhrn obeda 12, ale
-    číslo v stĺpci A musí ostať 7 a v stĺpci B 5. Práve prepis 12 do oboch
-    buniek bol dôvod, prečo sa pôvodné odznaky vypínali.
+    Pri 7 porciách Menu A a 5 porciách Menu B nesmie vzniknúť jeden riadok
+    s počtom 12. Každý variant musí zostať samostatný rovnako ako doteraz
+    „Dospelý (SŠ)".
     """
     payload = _payload()
     standard = payload["rows"][0]["sub_rows"][0]
@@ -518,14 +518,19 @@ def test_corner_badges_keep_the_count_of_each_menu_column():
     ]
 
     spec = build_table_spec(payload)
-    standard_row = next(
+    standard_rows = [
         row
         for row in spec["rows"]
         if row["kind"] == "sub-row" and "diet" not in row["css"]
-    )
+    ]
 
-    assert standard_row["cells"][2]["corner_count"] == "7"
-    assert standard_row["cells"][3]["corner_count"] == "5"
+    assert [row["cells"][0]["text"] for row in standard_rows] == [
+        "Škôlka",
+        "Škôlka - Menu B",
+    ]
+    assert [row["cells"][0]["count"] for row in standard_rows] == ["7", "5"]
+    assert standard_rows[0]["cells"][2]["corner_count"] == "7"
+    assert standard_rows[1]["cells"][3]["corner_count"] == "5"
 
 
 def test_footer_diet_breakdown_sums_the_diet_across_all_clients():
@@ -864,10 +869,8 @@ def test_standard_rows_of_the_same_portion_merge_across_meals():
     assert [c["text"] for c in gram_cells] == ["1600", "2400", "1000"]
 
 
-def test_two_menu_variants_of_the_same_meal_add_up_in_the_merged_count():
-    """Klient objedná tú istú porciu na Menu B aj Menu C obeda plus olovrant —
-    zlúčenie nesmie druhý variant obeda prepísať cez prvý (3.9.2026: Little Big
-    Dospelý SŠ mal v tabuľke "Ob 6" namiesto "Ob 12" pri B:6 + C:6)."""
+def test_child_menu_b_is_not_merged_into_the_menu_a_row():
+    """Menu B má pri detskej porcii vlastný riadok aj popri Menu A a olovrante."""
     payload = _with_breakfast_and_snack_same_portion()
     row = payload["rows"][0]
     main_course_a = next(
@@ -885,11 +888,14 @@ def test_two_menu_variants_of_the_same_meal_add_up_in_the_merged_count():
     row["sub_rows"].append(variant_b)
 
     spec = build_table_spec(payload)
-    standard_row = next(
+    standard_rows = [
         r for r in spec["rows"] if r["kind"] == "sub-row" and "diet" not in r["css"]
-    )
-    # Obed = Menu A (8) + Menu B (3) = 11, nie len posledný variant; Raňajky 0.
-    assert standard_row["cells"][0]["count"] == "0 + 11 + 8"
+    ]
+    assert [r["cells"][0]["text"] for r in standard_rows] == [
+        "Škôlka",
+        "Škôlka - Menu B",
+    ]
+    assert [r["cells"][0]["count"] for r in standard_rows] == ["0 + 8 + 8", "0 + 3 + 0"]
 
 
 def test_adult_portion_keeps_a_separate_row_per_menu_variant():

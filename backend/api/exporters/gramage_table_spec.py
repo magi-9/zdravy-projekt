@@ -377,6 +377,24 @@ def _visible_meal_bands(groups: list) -> tuple[tuple[str, ...], ...]:
     return tuple(keys for keys, _ in _CLUSTER_SUMMARY_MEAL_BANDS if present & set(keys))
 
 
+def _row_merge_variant(sub_row: dict) -> str:
+    """Variant, ktorý má pri zlúčení vlastný riadok.
+
+    Pre deti je Menu A bežný základný obed a môže zostať zlúčené s ostatnými
+    jedlami. Menu B/C a ďalšie voľby sa však nikdy nesmú primiešať do jeho
+    riadku. Dospelí majú samostatné riadky pri každom variante už od #527.
+    """
+    if sub_row.get("type") != "standard":
+        return ""
+    variant = str(sub_row.get("variant") or "")
+    if sub_row.get("portion_name") == ADULT_PORTION_TYPE_NAME or variant not in (
+        "",
+        "A",
+    ):
+        return variant
+    return ""
+
+
 def _merge_sub_rows_across_meals(sub_rows: list[dict]) -> list[dict]:
     """Zlúči „štandard"/„diéta" riadky tej istej porcie naprieč jedlami (#527).
 
@@ -392,10 +410,9 @@ def _merge_sub_rows_across_meals(sub_rows: list[dict]) -> list[dict]:
     text, nie len počet — ostávajú preto nezlúčené, jeden riadok na jedlo,
     presne ako doteraz.
 
-    "Dospelý (SŠ)" má na rozdiel od ostatných porcií viac menu variantov,
-    ktoré kuchyňa chce vidieť oddelene (klasik/vege...) — pre túto porciu sa
-    preto zlučuje len naprieč jedlami (rovnaký variant), nie naprieč
-    variantmi (viď `variant` v kľúči nižšie a `base_label` v `_client_rows`).
+    Detské Menu B/C (aj ďalšie ne-A varianty) a všetky varianty dospelých
+    zostávajú na vlastných riadkoch. Bežné detské Menu A ostáva základným
+    riadkom, do ktorého sa môžu zlúčiť raňajky či olovrant.
     """
     merged: dict[tuple, dict] = {}
     out: list[dict] = []
@@ -408,11 +425,7 @@ def _merge_sub_rows_across_meals(sub_rows: list[dict]) -> list[dict]:
             sub_row["type"],
             portion_name,
             sub_row.get("diet_name", ""),
-            (
-                sub_row.get("variant", "")
-                if portion_name == ADULT_PORTION_TYPE_NAME
-                else ""
-            ),
+            _row_merge_variant(sub_row),
         )
         existing = merged.get(key)
         if existing is None:
@@ -1073,17 +1086,11 @@ def _client_rows(
         # porcie, rozpis na jedlá nesie počet nižšie. "zvlast"/"zvlast_gn" sa
         # nezlučujú, ich label si drží meno jedla ako doteraz.
         #
-        # "Dospelý (SŠ)" je výnimka — zlučuje sa len naprieč jedlami, nie
-        # naprieč menu variantmi (viď `_merge_sub_rows_across_meals`), takže
-        # si variant musí niesť ďalej v labeli, inak by "Menu A" a "Menu B"
-        # riadky vyzerali identicky.
+        # Ne-A variant detskej porcie (B/C/...) aj každý variant dospelého má
+        # vlastný riadok, preto musí byť viditeľný aj v jeho labeli.
         portion_name = sub_row.get("portion_name") or ""
         variant = sub_row.get("variant") or ""
-        if (
-            row_type == "standard"
-            and portion_name == ADULT_PORTION_TYPE_NAME
-            and variant
-        ):
+        if _row_merge_variant(sub_row):
             base_label = f"{portion_name} - Menu {variant}"
         elif row_type == "standard":
             base_label = portion_name or sub_row.get("label") or ""
