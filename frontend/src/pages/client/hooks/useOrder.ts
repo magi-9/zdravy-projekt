@@ -92,6 +92,11 @@ export const filterMenusByDay = (
     });
 };
 
+/** Raňajky napr. „len v piatok" (#meal_day_restrictions) — mimo povolených
+ * dní sa dané jedlo neponúka, aj keď je inak vo `visible_meals` zapnuté.
+ * Rovnaká sémantika ako `filterMenusByDay`, len na úrovni celého jedla. */
+export const filterMealsByDay = filterMenusByDay;
+
 export class OrderRequestError extends Error {
     code?: string;
 
@@ -913,9 +918,14 @@ export const useOrder = (activePrevadzkaId?: number, waitForPrevadzkaChoice = fa
         getVisibleMenusForMeal(mealKey, adminVisibleMenus);
 
     const adminVisibleMealsSetting = prevadzkaSettings?.visible_meals;
-    const adminVisibleMeals = adminVisibleMealsSetting == null
+    const adminVisibleMealsBase = adminVisibleMealsSetting == null
         ? ['breakfast', 'lunch', 'olovrant']
         : adminVisibleMealsSetting;
+    const adminVisibleMeals = filterMealsByDay(
+        adminVisibleMealsBase,
+        prevadzkaSettings?.meal_day_restrictions,
+        selectedDate,
+    );
 
     const visibleDietSetting = prevadzkaSettings?.visible_diets as
         | DietDetail[]

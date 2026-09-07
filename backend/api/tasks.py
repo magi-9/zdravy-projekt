@@ -815,7 +815,7 @@ def scrape_edupage_orders_task(
             nest_order_data_by_category,
             prevadzky_without_match,
         )
-        from api.models import DailyOrder, GlobalSettings
+        from api.models import DailyOrder, GlobalSettings, Prevadzka
         from api.scheduling import business_days, closed_dates_for_prevadzky, is_day_off
         from api.services import _next_workday
         from api.services.edupage_connection_service import edupage_operations
@@ -1036,6 +1036,22 @@ def scrape_edupage_orders_task(
                     data_by_nazov = result.order_data_by_prevadzka
                 else:
                     data_by_nazov = {prevadzky[0].nazov: result.order_data}
+
+                # Výnimka zdieľaného feedu (Libellus `sA` → Stromček): parser
+                # vráti samostatný bucket, ale Stromček nepatrí medzi EduPage
+                # prevádzky tejto connection ani nemení svoj appkový zdroj.
+                for nazov, redirected_data in result.order_data_by_prevadzka.items():
+                    if nazov in by_nazov:
+                        continue
+                    redirected = Prevadzka.objects.filter(nazov=nazov).first()
+                    if redirected is None:
+                        logger.error(
+                            "scrape_edupage_orders_task: redirect target %s missing",
+                            nazov,
+                        )
+                        continue
+                    by_nazov[nazov] = redirected
+                    data_by_nazov[nazov] = redirected_data
 
                 for nazov, prevadzka in by_nazov.items():
                     if target_date in closed_by_prevadzka.get(prevadzka.id, set()):

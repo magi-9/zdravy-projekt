@@ -17,6 +17,8 @@ export interface SpecCell {
   css?: string;
   colspan?: number;
   count?: string;
+  /** Počet porcií pre konkrétnu gramážovú skupinu/menu. */
+  corner_count?: string;
   sub?: string;
   meta?: string;
   meta_right?: string;
@@ -70,6 +72,9 @@ const SpecCells: React.FC<{ cells: SpecCell[] }> = ({ cells }) => (
   <>
     {cells.map((cell, index) => (
       <td key={index} className={cell.css || undefined} colSpan={cell.colspan}>
+        {cell.corner_count !== undefined && (
+          <span className="corner-count">{cell.corner_count}</span>
+        )}
         {cell.count !== undefined ? (
           <span className="lbl-line">
             <span title={cell.text}>

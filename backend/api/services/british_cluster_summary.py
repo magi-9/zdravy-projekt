@@ -55,7 +55,9 @@ def _menu_sort_key(variant: str) -> tuple[int, str]:
 
 
 def meal_items_from_order_data(
-    order_data: dict[str, Any], portion_coefficients: dict[str, Decimal]
+    order_data: dict[str, Any],
+    portion_coefficients: dict[str, Decimal],
+    fixed_british_layout: bool = False,
 ) -> list[dict[str, Any]]:
     """`order.data` → zoznam pásiem dňa s kusmi + MŠ prepočtom.
 
@@ -67,6 +69,10 @@ def meal_items_from_order_data(
     "Obed" (`lunch`) navyše nesie rozpis `menus` po menu variantoch
     (`menuCounts` kľúče — A/B/C/D/V/V1 a čokoľvek ďalšie), len keď je
     variantov viac než jeden — jediný variant by len duplikoval riadok Obed.
+    Pri `fixed_british_layout=True` sa vrátia vždy všetky British pásy a Menu
+    A/B/C/D/V/V1, aj s nulovým počtom. Používa sa iba pre Cluster C; ostatné
+    clustre naďalej zobrazujú len jedlá, ktoré naozaj majú.
+
     Diétne počty (`diets`) sa do `heads` NEZAPOČÍTAVAJÚ navyše — sú drill-down
     tej istej hlavičky (`effective_menu`/`menu_counts` v `edupage_scraper.py`
     ich už zarátal), nie samostatné porcie.
@@ -74,14 +80,22 @@ def meal_items_from_order_data(
     items: list[dict[str, Any]] = []
     for meal_key, label in _MEAL_BANDS:
         meal_data = order_data.get(meal_key)
-        if not meal_data:
+        if not meal_data and not fixed_british_layout:
             continue
+        meal_data = meal_data or {}
         heads = Decimal("0")
         total = Decimal("0")
+        diet_heads = Decimal("0")
+        diet_total = Decimal("0")
         menu_totals: dict[str, tuple[Decimal, Decimal]] = {}
         for portion_name, counts in meal_data.items():
             coeff = portion_coefficients.get(portion_name, _DEFAULT_COEFFICIENT)
             menu_counts = (counts or {}).get("menuCounts") or {}
+            for raw_count in ((counts or {}).get("diets") or {}).values():
+                count = _as_decimal(raw_count)
+                if count > 0:
+                    diet_heads += count
+                    diet_total += count * coeff
             for variant, raw_count in menu_counts.items():
                 count = _as_decimal(raw_count)
                 if count <= 0:
@@ -94,17 +108,30 @@ def meal_items_from_order_data(
                 )
                 menu_totals[variant] = (prev_heads + count, prev_ms + ms)
         item: dict[str, Any] = {"label": label, "heads": heads, "total": total}
+        if fixed_british_layout:
+            # Renderer musí nulu ukázať, nie ju nahradiť bežnou pomlčkou.
+            item["show_zero"] = True
+        if diet_heads:
+            item["diets"] = {"heads": diet_heads, "total": diet_total}
         if meal_key in _KUSY_ONLY_MEAL_KEYS:
             item["kusy_only"] = True
-        if meal_key == "lunch" and len(menu_totals) > 1:
+        if meal_key == "lunch" and (fixed_british_layout or len(menu_totals) > 1):
             item["menus"] = [
                 {
                     "label": f"Menu {variant}",
-                    "heads": menu_heads,
-                    "total": menu_total,
+                    "heads": menu_totals.get(variant, (Decimal("0"), Decimal("0")))[0],
+                    "total": menu_totals.get(variant, (Decimal("0"), Decimal("0")))[1],
+                    "show_zero": fixed_british_layout,
                 }
-                for variant, (menu_heads, menu_total) in sorted(
-                    menu_totals.items(), key=lambda kv: _menu_sort_key(kv[0])
+                for variant in (
+                    _MENU_VARIANT_ORDER
+                    if fixed_british_layout
+                    else [
+                        variant
+                        for variant, _ in sorted(
+                            menu_totals.items(), key=lambda kv: _menu_sort_key(kv[0])
+                        )
+                    ]
                 )
             ]
         items.append(item)
@@ -139,10 +166,14 @@ def build_gramage_summary_only_clusters(date_str: str) -> list[dict[str, Any]]:
         order = orders_by_prevadzka.get(prevadzka.id)
         if order is None or not isinstance(order.data, dict) or not order.data:
             continue
-        meals = meal_items_from_order_data(order.data, portion_coefficients)
+        route = prevadzka.delivery_route
+        meals = meal_items_from_order_data(
+            order.data,
+            portion_coefficients,
+            fixed_british_layout=bool(route and route.vydaj == Vydaj.C),
+        )
         if not meals:
             continue
-        route = prevadzka.delivery_route
         clusters.append(
             {
                 "vydaj_key": str(route.vydaj) if route else str(Vydaj.A),

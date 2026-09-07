@@ -10,7 +10,7 @@ from django.utils import timezone
 
 from ..exceptions import ClosedDayOrderModificationError
 from ..models import Celok, DailyOrder, Prevadzka
-from ..order_data import MEAL_KEYS, OrderData
+from ..order_data import MEAL_KEYS, OrderData, safe_count
 from ..scheduling import closed_dates_for_prevadzky, is_weekend, next_business_day
 
 logger = logging.getLogger(__name__)
@@ -67,14 +67,106 @@ def _normalise_meal(meal: Any) -> Dict[str, Any]:
     return OrderData.normalise_meal(meal)
 
 
+def _allowed_menus_for_date(
+    visible_menus: List[str],
+    day_restrictions: Optional[Dict[str, List[int]]],
+    date: datetime.date,
+) -> List[str]:
+    """Ktoré z `visible_menus` sa dá na `date` objednať — rovnaká sémantika
+    ako `filterMenusByDay` (frontend `useOrder.ts`) a
+    `_enforce_menu_day_restrictions` (serializers.py)."""
+    if not day_restrictions:
+        return list(visible_menus)
+    weekday = date.isoweekday()
+    return [
+        menu
+        for menu in visible_menus
+        if not day_restrictions.get(menu) or weekday in day_restrictions[menu]
+    ]
+
+
+def _meal_allowed_on_date(
+    meal_key: str,
+    day_restrictions: Optional[Dict[str, List[int]]],
+    date: datetime.date,
+) -> bool:
+    """Rovnaká sémantika ako `_enforce_meal_day_restrictions` (serializers.py)."""
+    if not day_restrictions:
+        return True
+    allowed_days = day_restrictions.get(meal_key)
+    if not allowed_days:
+        return True
+    return date.isoweekday() in allowed_days
+
+
+def _is_leaf_payload(value: Any) -> bool:
+    return isinstance(value, dict) and ("menuCounts" in value or "diets" in value)
+
+
+def _redirect_counts_map(counts: Any, allowed_set: set, fallback: Optional[str]) -> Any:
+    if not isinstance(counts, dict):
+        return counts
+    result: Dict[str, int] = {}
+    for menu, count in counts.items():
+        target = menu if menu in allowed_set else fallback
+        if target is None:
+            continue
+        result[target] = result.get(target, 0) + safe_count(count)
+    return result
+
+
+def _redirect_restricted_menus_in_leaf(
+    leaf: Dict[str, Any], allowed_set: set, fallback: Optional[str]
+) -> None:
+    if "menuCounts" in leaf:
+        leaf["menuCounts"] = _redirect_counts_map(
+            leaf["menuCounts"], allowed_set, fallback
+        )
+    for pack_field in ("packSeparately", "packSeparatelyGn"):
+        pack = leaf.get(pack_field)
+        if isinstance(pack, dict) and isinstance(pack.get("menus"), dict):
+            pack["menus"] = _redirect_counts_map(pack["menus"], allowed_set, fallback)
+
+
+def _redirect_restricted_menus(
+    meal_data: Dict[str, Any], allowed_menus: List[str]
+) -> Dict[str, Any]:
+    """Menu písmeno zakázané na cieľový deň (`menu_day_restrictions`, napr.
+    menu B len v piatok) sa presunie do prvého dnes povoleného menu, namiesto
+    toho, aby auto-objednávka skopírovala šablónu s menu, ktoré by na
+    `_enforce_menu_day_restrictions` padlo a jej počty by jednoducho zmizli."""
+    allowed_set = set(allowed_menus)
+    fallback = allowed_menus[0] if allowed_menus else None
+    for details in meal_data.values():
+        if not isinstance(details, dict):
+            continue
+        if _is_leaf_payload(details):
+            _redirect_restricted_menus_in_leaf(details, allowed_set, fallback)
+            continue
+        for portion_details in details.values():
+            if isinstance(portion_details, dict) and _is_leaf_payload(portion_details):
+                _redirect_restricted_menus_in_leaf(
+                    portion_details, allowed_set, fallback
+                )
+    return meal_data
+
+
 def _build_auto_data(
     template: DailyOrder,
     visible_meals: List[str],
     visible_portion_types: Optional[List[str]] = None,
+    target_date: Optional[datetime.date] = None,
 ) -> Dict[str, Any]:
     """
     Copy only the allowed meals from the template, always in category-nested shape.
     If visible_meals is empty, all three meals are copied.
+
+    `target_date`, keď je zadaný, navyše vynúti deň-špecifické obmedzenia
+    (`meal_day_restrictions`, `menu_day_restrictions`): jedlo zakázané v ten
+    deň sa vôbec neskopíruje (rovnako, akoby vo `visible_meals` nebolo), menu
+    písmeno zakázané v ten deň sa presunie do prvého povoleného menu toho
+    dňa (`_redirect_restricted_menus`) namiesto toho, aby zmizlo. Bez
+    `target_date` (staršie volania) sa toto obmedzenie neaplikuje.
     """
     allowed = set(visible_meals) if visible_meals else set(MEAL_KEYS)
     # Raňajky sa štandardne kopírujú z predošlých raňajok, ale niektoré
@@ -89,9 +181,26 @@ def _build_auto_data(
         getattr(prevadzka, "auto_order_breakfast_source", "breakfast") or "breakfast"
     )
     meal_sources = {"breakfast": breakfast_source}
+
+    meal_day_restrictions: Optional[Dict[str, List[int]]] = None
+    allowed_menus_today: Optional[List[str]] = None
+    if target_date is not None:
+        meal_day_restrictions = getattr(prevadzka, "meal_day_restrictions", None) or {}
+        menu_day_restrictions = getattr(prevadzka, "menu_day_restrictions", None) or {}
+        prevadzka_visible_menus = list(getattr(prevadzka, "visible_menus", []) or [])
+        if menu_day_restrictions and prevadzka_visible_menus:
+            allowed_menus_today = _allowed_menus_for_date(
+                prevadzka_visible_menus, menu_day_restrictions, target_date
+            )
+
     data = {}
     for meal_key in MEAL_KEYS:
-        if meal_key in allowed:
+        meal_allowed = meal_key in allowed
+        if meal_allowed and target_date is not None:
+            meal_allowed = _meal_allowed_on_date(
+                meal_key, meal_day_restrictions, target_date
+            )
+        if meal_allowed:
             source_key = meal_sources.get(meal_key, meal_key)
             raw = (template.data or {}).get(source_key, {})
             normalised = _normalise_meal(raw)
@@ -102,6 +211,8 @@ def _build_auto_data(
                     for name, values in normalised.items()
                     if name in allowed_portion_types
                 }
+            if allowed_menus_today is not None:
+                normalised = _redirect_restricted_menus(normalised, allowed_menus_today)
             data[meal_key] = normalised
         else:
             data[meal_key] = {}
@@ -304,7 +415,9 @@ def apply_auto_orders(
                 skipped += 1
                 continue
 
-            template_fill = _build_auto_data(template, missing, visible_portion_types)
+            template_fill = _build_auto_data(
+                template, missing, visible_portion_types, target_date=target_date
+            )
             filled_any = False
             for meal in missing:
                 value = template_fill.get(meal, {})
@@ -356,6 +469,7 @@ def apply_auto_orders(
             template,
             visible_meals,
             visible_portion_types,
+            target_date=target_date,
         )
 
         # Skip if filtered data is empty

@@ -52,6 +52,10 @@ class LetterRule:
     # tento fallback pre daný riadok úplne vypne — `payer_diet` sa neuplatní,
     # aj keby payer_hook/engine niečo našli.
     suppress_payer_diet: bool = False
+    # Úzky importný presmerovač pre zdieľaný feed: porcia sa nezapíše
+    # prevádzke feedu, ale priamo pomenovanej inej prevádzke. Neznamená to,
+    # že cieľová prevádzka má EduPage ako vlastný zdroj objednávok.
+    redirect_prevadzka: str | None = None
 
 
 # Hook beží pri parsovaní, na každé menu písmeno pred agregáciou.

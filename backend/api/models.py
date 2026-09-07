@@ -533,13 +533,14 @@ class Vydaj(models.TextChoices):
     Výdaj je vlastnosť TRASY: prevádzka patrí do toho výdaja, v ktorého trase
     stojí, takže sa nastavuje na jednom mieste a nemá si ako protirečiť.
 
-    Kľúče (`A`/`B`/`C`) sú interné a nemenia sa (#531) — premenované je len
+    Kľúče (`A`/`B`/`C`/`D`) sú interné a nemenia sa (#531) — premenované je len
     zobrazované meno "Výdaj X" → "Cluster X".
     """
 
     A = "A", "Cluster A"
     B = "B", "Cluster B"
     C = "C", "Cluster C"
+    D = "D", "Cluster D"
 
 
 class Prevadzka(models.Model):
@@ -645,6 +646,16 @@ class Prevadzka(models.Model):
         default=_default_all_meals,
         blank=True,
         help_text="Chody dostupné pre objednávky tejto prevádzky.",
+    )
+    meal_day_restrictions = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            "{jedlo: [ISO deň v týždni, 1=pondelok..7=nedeľa]} — obmedzenie, "
+            "kedy sa dané jedlo (z visible_meals) dá objednať, napr. raňajky len "
+            'v piatok = {"breakfast": [5]}. Chýbajúci kľúč alebo prázdny zoznam = '
+            "každý deň."
+        ),
     )
     visible_diets = models.ManyToManyField(
         Diet,
@@ -841,7 +852,7 @@ class DeliveryRoute(models.Model):
         help_text=(
             "Výdajný bod kuchyne, ktorý túto trasu obsluhuje. Gramážová tabuľka "
             "sa delí podľa neho — trasy výdaja A tvoria tabuľku A, trasy výdaja "
-            "B tabuľku B."
+            "B tabuľku B, atď."
         ),
     )
     name = models.CharField(max_length=160)

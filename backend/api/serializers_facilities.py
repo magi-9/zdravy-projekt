@@ -123,6 +123,7 @@ class AdminPrevadzkaSerializer(serializers.ModelSerializer):
             "visible_menus",
             "menu_day_restrictions",
             "visible_meals",
+            "meal_day_restrictions",
             "visible_diets",
             "diet_assignments",
             "diet_notes",

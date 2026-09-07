@@ -317,6 +317,111 @@ class TestBuildAutoData:
 
         assert set(auto_data["breakfast"]) == {"Škôlka"}
 
+    def test_target_date_none_skips_day_restrictions(self):
+        """Bez `target_date` (staršie volania/testy) sa deň-špecifické
+        obmedzenia neaplikujú — pôvodné správanie ostáva netknuté."""
+        prevadzka = Prevadzka.objects.create(
+            celok=Celok.objects.create(nazov="Day-restriction test celok"),
+            nazov="Day-restriction test prevádzka",
+            visible_menus=["A", "B"],
+            menu_day_restrictions={"B": [5]},
+        )
+        auto_data = _build_auto_data(
+            DailyOrder(data=NON_EMPTY_DATA, prevadzka=prevadzka), visible_meals=[]
+        )
+        assert auto_data["lunch"] == NON_EMPTY_DATA["lunch"]
+
+    def test_meal_restricted_on_target_date_is_dropped(self):
+        """Raňajky zakázané v utorok (meal_day_restrictions) — auto-
+        -objednávka na utorok raňajky vôbec neskopíruje, hoci sú vo
+        visible_meals aj v šablóne."""
+        prevadzka = Prevadzka.objects.create(
+            celok=Celok.objects.create(nazov="Meal-restriction test celok"),
+            nazov="Meal-restriction test prevádzka",
+            meal_day_restrictions={"breakfast": [5]},  # len piatok
+        )
+        auto_data = _build_auto_data(
+            DailyOrder(data=NON_EMPTY_DATA, prevadzka=prevadzka),
+            visible_meals=[],
+            target_date=TUESDAY,
+        )
+        assert auto_data["breakfast"] == {}
+        assert auto_data["lunch"] == NON_EMPTY_DATA["lunch"]
+
+    def test_meal_allowed_on_its_restricted_day_is_kept(self):
+        prevadzka = Prevadzka.objects.create(
+            celok=Celok.objects.create(nazov="Meal-restriction ok test celok"),
+            nazov="Meal-restriction ok test prevádzka",
+            meal_day_restrictions={"breakfast": [5]},
+        )
+        auto_data = _build_auto_data(
+            DailyOrder(data=NON_EMPTY_DATA, prevadzka=prevadzka),
+            visible_meals=[],
+            target_date=FRIDAY,
+        )
+        assert auto_data["breakfast"] == NON_EMPTY_DATA["breakfast"]
+
+    def test_menu_restricted_on_target_date_is_redirected_to_the_allowed_menu(self):
+        """Menu B len v piatok — v utorok šablóna s menu B v obede preklopí
+        počty do menu A (jediné dnes povolené), namiesto toho, aby zmizli."""
+        prevadzka = Prevadzka.objects.create(
+            celok=Celok.objects.create(nazov="Menu-redirect test celok"),
+            nazov="Menu-redirect test prevádzka",
+            visible_menus=["A", "B"],
+            menu_day_restrictions={"B": [5]},
+        )
+        data = {
+            "breakfast": {},
+            "lunch": {"Dospelý": {"menuCounts": {"B": 2}, "diets": {}}},
+            "olovrant": {},
+        }
+        auto_data = _build_auto_data(
+            DailyOrder(data=data, prevadzka=prevadzka),
+            visible_meals=[],
+            target_date=TUESDAY,
+        )
+        assert auto_data["lunch"]["Dospelý"]["menuCounts"] == {"A": 2}
+
+    def test_menu_allowed_on_its_restricted_day_is_not_redirected(self):
+        prevadzka = Prevadzka.objects.create(
+            celok=Celok.objects.create(nazov="Menu-redirect ok test celok"),
+            nazov="Menu-redirect ok test prevádzka",
+            visible_menus=["A", "B"],
+            menu_day_restrictions={"B": [5]},
+        )
+        data = {
+            "breakfast": {},
+            "lunch": {"Dospelý": {"menuCounts": {"B": 2}, "diets": {}}},
+            "olovrant": {},
+        }
+        auto_data = _build_auto_data(
+            DailyOrder(data=data, prevadzka=prevadzka),
+            visible_meals=[],
+            target_date=FRIDAY,
+        )
+        assert auto_data["lunch"]["Dospelý"]["menuCounts"] == {"B": 2}
+
+    def test_menu_redirect_merges_into_existing_fallback_count(self):
+        """Ak šablóna má v tej istej kategórii aj A aj zakázané B, počty sa
+        po presune sčítajú, nič sa nestratí."""
+        prevadzka = Prevadzka.objects.create(
+            celok=Celok.objects.create(nazov="Menu-redirect merge test celok"),
+            nazov="Menu-redirect merge test prevádzka",
+            visible_menus=["A", "B"],
+            menu_day_restrictions={"B": [5]},
+        )
+        data = {
+            "breakfast": {},
+            "lunch": {"Dospelý": {"menuCounts": {"A": 1, "B": 2}, "diets": {}}},
+            "olovrant": {},
+        }
+        auto_data = _build_auto_data(
+            DailyOrder(data=data, prevadzka=prevadzka),
+            visible_meals=[],
+            target_date=TUESDAY,
+        )
+        assert auto_data["lunch"]["Dospelý"]["menuCounts"] == {"A": 3}
+
 
 @pytest.mark.django_db
 class TestApplyAutoOrders:
@@ -434,6 +539,42 @@ class TestApplyAutoOrders:
         # Other meals must be empty
         assert auto.data.get("breakfast") == {}
         assert auto.data.get("olovrant") == {}
+
+    def test_meal_day_restrictions_are_respected(self, user):
+        """Raňajky zakázané na cieľový deň — auto-objednávka ich vôbec
+        nevytvorí, hoci sú vo visible_meals aj v šablóne (#preklopiť)."""
+        prevadzka = user.profile.dostupne_prevadzky().first()
+        prevadzka.meal_day_restrictions = {"breakfast": [5]}  # len piatok
+        prevadzka.save()
+        DailyOrder.objects.create(user=user, date=MONDAY, data=NON_EMPTY_DATA)
+
+        apply_auto_orders(target_date=TUESDAY)
+
+        auto = DailyOrder.objects.get(user=user, date=TUESDAY)
+        assert auto.data.get("breakfast") == {}
+        assert auto.data.get("lunch") == NON_EMPTY_DATA["lunch"]
+
+    def test_menu_day_restrictions_redirect_instead_of_dropping(self, user):
+        """Menu B len v piatok — v utorok sa počty preklopia do menu A
+        namiesto toho, aby sa objednávka jednoducho stratila."""
+        prevadzka = user.profile.dostupne_prevadzky().first()
+        prevadzka.visible_menus = ["A", "B"]
+        prevadzka.menu_day_restrictions = {"B": [5]}
+        prevadzka.save()
+        DailyOrder.objects.create(
+            user=user,
+            date=MONDAY,
+            data={
+                "breakfast": {},
+                "lunch": {"Dospelý": {"menuCounts": {"B": 2}, "diets": {}}},
+                "olovrant": {},
+            },
+        )
+
+        apply_auto_orders(target_date=TUESDAY)
+
+        auto = DailyOrder.objects.get(user=user, date=TUESDAY)
+        assert auto.data["lunch"]["Dospelý"]["menuCounts"] == {"A": 2}
 
     def test_apply_auto_orders_carries_pack_separately_forward(self, user):
         prevadzka = user.profile.dostupne_prevadzky().first()

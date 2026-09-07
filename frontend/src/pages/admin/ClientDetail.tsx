@@ -61,6 +61,7 @@ interface FacilityDetail {
   visible_menus: string[];
   menu_day_restrictions?: Record<string, number[]> | null;
   visible_meals: string[];
+  meal_day_restrictions?: Record<string, number[]> | null;
   visible_diets: number[];
   visible_portion_types?: number[] | null;
   admin_order_note: string;
@@ -153,6 +154,7 @@ const ClientDetail: React.FC = () => {
   const [menus, setMenus] = useState<Set<string>>(new Set());
   const [menuDayRestrictions, setMenuDayRestrictions] = useState<Record<string, number[]>>({});
   const [meals, setMeals] = useState<Set<string>>(new Set());
+  const [mealDayRestrictions, setMealDayRestrictions] = useState<Record<string, number[]>>({});
   const [userDiets, setUserDiets] = useState<Set<number>>(new Set());
   // Poznámka per (prevádzka, diéta) — kľúč je Diet.id. Edituje sa cez
   // popover na tabe Diéty, ukladá sa spolu s ostatnými nastaveniami.
@@ -234,6 +236,7 @@ const ClientDetail: React.FC = () => {
     setMenus(new Set(data.visible_menus?.length ? data.visible_menus : ALL_MENUS));
     setMenuDayRestrictions(data.menu_day_restrictions || {});
     setMeals(new Set(data.visible_meals?.length ? data.visible_meals : ALL_MEALS));
+    setMealDayRestrictions(data.meal_day_restrictions || {});
     setUserDiets(new Set(data.visible_diets || []));
     setDietNotes(
       Object.fromEntries((data.diet_assignments || []).map((a) => [a.diet, a.note])),
@@ -565,11 +568,19 @@ const ClientDetail: React.FC = () => {
           ([menu, days]) => menus.has(menu) && days.length > 0,
         ),
       );
+      // Rovnaké čistenie ako pri menu — obmedzenie dní nechávame len pre
+      // jedlo, ktoré je ešte vôbec zapnuté vo Viditeľných jedlách.
+      const cleanedMealDayRestrictions = Object.fromEntries(
+        Object.entries(mealDayRestrictions).filter(
+          ([meal, days]) => meals.has(meal) && days.length > 0,
+        ),
+      );
       const payload = {
         ...prevadzkaForm,
         visible_menus: Array.from(menus),
         menu_day_restrictions: cleanedMenuDayRestrictions,
         visible_meals: Array.from(meals),
+        meal_day_restrictions: cleanedMealDayRestrictions,
         visible_diets: Array.from(userDiets),
         diet_notes: Object.fromEntries(
           Array.from(userDiets)
@@ -1115,21 +1126,55 @@ const ClientDetail: React.FC = () => {
               <Card pad>
                 <CardHead title="Viditeľné jedlá" desc="Nastavte, ktoré chody dňa sú dostupné." />
                 <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 8 }}>
-                  {ALL_MEALS.map((meal) => (
-                    <Checkbox
-                      key={meal}
-                      on={meals.has(meal)}
-                      onChange={() => {
-                        if (meals.has(meal) && meals.size === 1) {
-                          toastWarning("Prevádzka musí mať povolený aspoň jeden chod.");
-                          return;
-                        }
-                        toggleSet(meals, meal, setMeals);
-                      }}
-                    >
-                      {MEAL_LABELS[meal] ?? meal}
-                    </Checkbox>
-                  ))}
+                  {ALL_MEALS.map((meal) => {
+                    const selectedDays = new Set(mealDayRestrictions[meal] || []);
+                    return (
+                      <div key={meal} style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+                        <Checkbox
+                          on={meals.has(meal)}
+                          onChange={() => {
+                            if (meals.has(meal) && meals.size === 1) {
+                              toastWarning("Prevádzka musí mať povolený aspoň jeden chod.");
+                              return;
+                            }
+                            toggleSet(meals, meal, setMeals);
+                          }}
+                        >
+                          {MEAL_LABELS[meal] ?? meal}
+                        </Checkbox>
+                        {meals.has(meal) && (
+                          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                            {WEEKDAYS.map(({ day, label }) => {
+                              const on = selectedDays.has(day);
+                              return (
+                                <button
+                                  key={day}
+                                  type="button"
+                                  className={`zpa-daypill${on ? " on" : ""}`}
+                                  aria-label={`${MEAL_LABELS[meal] ?? meal} - ${label}`}
+                                  title={`${MEAL_LABELS[meal] ?? meal} bude dostupné v tento deň${selectedDays.size === 0 ? " (teraz: každý deň)" : ""}`}
+                                  onClick={() => {
+                                    const next = new Set(selectedDays);
+                                    if (next.has(day)) next.delete(day);
+                                    else next.add(day);
+                                    setMealDayRestrictions((prev) => ({
+                                      ...prev,
+                                      [meal]: Array.from(next).sort(),
+                                    }));
+                                  }}
+                                >
+                                  {label}
+                                </button>
+                              );
+                            })}
+                            <span style={{ fontSize: 11, color: "var(--ink-3)" }}>
+                              {selectedDays.size === 0 ? "každý deň" : "len vybrané dni"}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </Card>
 
@@ -1510,6 +1555,7 @@ const ClientDetail: React.FC = () => {
           visibleMenus={orderEditorMenus}
           menuDayRestrictions={menuDayRestrictions}
           visibleMeals={orderEditorMeals}
+          mealDayRestrictions={mealDayRestrictions}
           visibleDiets={orderEditorDiets}
           portionTypeNames={portionTypeNames}
           packSeparatelyEnabled={packSeparatelyEnabled}

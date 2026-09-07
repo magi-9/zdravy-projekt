@@ -21,14 +21,24 @@ class TestMealItemsFromOrderData:
 
     def test_breakfast_and_olovrant_are_flat_head_counts(self):
         order_data = {
-            "breakfast": {"Škôlka": {"menuCounts": {"A": 10}, "diets": {}}},
-            "olovrant": {"Škôlka": {"menuCounts": {"A": 8}, "diets": {}}},
+            "breakfast": {
+                "Škôlka": {"menuCounts": {"A": 10}, "diets": {"NO GLUTEN": 2}}
+            },
+            "olovrant": {"Škôlka": {"menuCounts": {"A": 8}, "diets": {"NO MILK": 1}}},
         }
         items = meal_items_from_order_data(order_data, {"Škôlka": Decimal("1")})
         by_label = {item["label"]: item for item in items}
         assert by_label["Raňajky"]["heads"] == Decimal("10")
         assert by_label["Raňajky"]["total"] == Decimal("10")
+        assert by_label["Raňajky"]["diets"] == {
+            "heads": Decimal("2"),
+            "total": Decimal("2"),
+        }
         assert by_label["Olovrant"]["heads"] == Decimal("8")
+        assert by_label["Olovrant"]["diets"] == {
+            "heads": Decimal("1"),
+            "total": Decimal("1"),
+        }
 
     def test_desiata_gets_its_own_band_labelled_snack_kusy_only(self):
         """Desiata NIE JE náš interný olovrant/desiata koncept — samostatný
@@ -68,6 +78,7 @@ class TestMealItemsFromOrderData:
         assert menus_by_label["Menu D"]["heads"] == Decimal("32")
         assert menus_by_label["Menu D"]["total"] == Decimal("64")  # 32 * 2
         assert "Menu VEGE1" not in menus_by_label
+        assert obed["diets"] == {"heads": Decimal("5"), "total": Decimal("10")}
 
     def test_lunch_breaks_down_menu_v_and_v1_when_present(self):
         """British VEGE aj VEGE1 sa po mapovaní zobrazia ako Menu V a Menu V1.
@@ -89,6 +100,7 @@ class TestMealItemsFromOrderData:
         assert menus_by_label["Menu V"]["total"] == Decimal("8")
         assert menus_by_label["Menu V1"]["heads"] == Decimal("3")
         assert menus_by_label["Menu V1"]["total"] == Decimal("6")
+        assert "diets" not in obed
 
     def test_menu_order_is_stable_a_b_c_d_v_v1(self):
         order_data = {
@@ -123,6 +135,43 @@ class TestMealItemsFromOrderData:
         order_data = {"lunch": {"Škôlka": {"menuCounts": {"A": 5}, "diets": {}}}}
         items = meal_items_from_order_data(order_data, {"Škôlka": Decimal("1")})
         assert [item["label"] for item in items] == ["Obed"]
+
+    def test_british_fixed_layout_keeps_all_meals_and_menu_variants_at_zero(self):
+        """Cluster C má stálu osnovu, aby sa žiadna British položka nestratila.
+
+        Bežné clustre túto osnovu nemajú: nevedia pripraviť Snack (balíček)
+        ani Menu D/V1. Pri British objednávke s jediným Menu A sa však musia
+        aj nulové položky jasne vrátiť do sumáru.
+        """
+        items = meal_items_from_order_data(
+            {"lunch": {"Škôlka": {"menuCounts": {"A": 5}, "diets": {}}}},
+            {"Škôlka": Decimal("1")},
+            fixed_british_layout=True,
+        )
+
+        assert [item["label"] for item in items] == [
+            "Raňajky",
+            "Snack (balíček)",
+            "Obed",
+            "Olovrant",
+        ]
+        assert items[1] == {
+            "label": "Snack (balíček)",
+            "heads": Decimal("0"),
+            "total": Decimal("0"),
+            "kusy_only": True,
+            "show_zero": True,
+        }
+        assert [menu["label"] for menu in items[2]["menus"]] == [
+            "Menu A",
+            "Menu B",
+            "Menu C",
+            "Menu D",
+            "Menu V",
+            "Menu V1",
+        ]
+        assert items[2]["menus"][3]["heads"] == Decimal("0")
+        assert items[2]["menus"][5]["heads"] == Decimal("0")
 
     def test_unknown_portion_defaults_to_coefficient_one(self):
         order_data = {"breakfast": {"Neznáma": {"menuCounts": {"A": 4}, "diets": {}}}}
