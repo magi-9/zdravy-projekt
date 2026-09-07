@@ -47,6 +47,7 @@ import PrevadzkaOverview from "./pages/admin/PrevadzkaOverview";
 import DeliveryLayoutAdmin from "./pages/admin/DeliveryLayoutAdmin";
 import SystemSettings from "./pages/admin/SystemSettings";
 import MealPlanCalendar from "./pages/admin/MealPlanCalendar";
+import DietComponentMergePage from "./pages/admin/DietComponentMerge";
 import MealCatalogAdmin from "./pages/admin/MealCatalogAdmin";
 import PushNotificationsAdmin from "./pages/admin/PushNotifications";
 import HolidaysAdmin from "./pages/admin/HolidaysAdmin";
@@ -264,6 +265,7 @@ export default function App() {
                 <Route path="roles/:id" element={<SuperadminRoute><Section section={SECTION.pristupy}><AdminUserDetail /></Section></SuperadminRoute>} />
                 <Route path="diets" element={<Section section={SECTION.diety}><DietManager /></Section>} />
                 <Route path="meal-plan" element={<Section section={SECTION.jedalnicek}><MealPlanCalendar /></Section>} />
+                <Route path="diet-component-merge" element={<Section section={SECTION.jedalnicek}><DietComponentMergePage /></Section>} />
                 <Route path="meal-catalog" element={<Section section={SECTION.katalog}><MealCatalogAdmin /></Section>} />
                 <Route path="settings" element={<SuperadminRoute><Section section={SECTION.nastavenia}><SystemSettings /></Section></SuperadminRoute>} />
                 <Route path="push-notifications" element={<Section section={SECTION.notifikacie}><PushNotificationsAdmin /></Section>} />
