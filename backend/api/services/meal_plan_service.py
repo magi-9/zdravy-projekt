@@ -591,7 +591,10 @@ class MealPlanService:
             numeric_components = [
                 {
                     "label": c.get("label", ""),
-                    "base_grams": str(c["grams"]),
+                    # Staršie záznamy mohli uložiť slovenskú desatinnú čiarku.
+                    # Serializer ju už pri zápise normalizuje; tento fallback
+                    # chráni tabuľku, kým dátová migrácia opraví historické dáta.
+                    "base_grams": str(c["grams"]).replace(",", "."),
                     "unit": c.get("unit", "g"),
                 }
                 for c in components

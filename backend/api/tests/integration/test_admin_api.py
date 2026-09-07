@@ -455,6 +455,7 @@ class MealTemplateCatalogApiTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         payload = response.json()
         self.assertEqual(payload["base_weight_grams"], "70.50")
+        self.assertEqual(payload["components"][0]["grams"], "50.5")
 
     def test_creating_a_template_with_non_numeric_grams_is_rejected_not_500(self):
         self.client.force_authenticate(user=self.admin)
