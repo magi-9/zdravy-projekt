@@ -29,4 +29,5 @@ export const VYDAJE = [
   { key: "A", label: "Cluster A" },
   { key: "B", label: "Cluster B" },
   { key: "C", label: "Cluster C" },
+  { key: "D", label: "Cluster D" },
 ] as const;
