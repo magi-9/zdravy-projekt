@@ -234,6 +234,7 @@ class PrevadzkaSettingsSerializer(serializers.ModelSerializer):
             "visible_menus",
             "menu_day_restrictions",
             "visible_meals",
+            "meal_day_restrictions",
             "visible_diets",
             "visible_portion_types",
             "admin_order_note",
@@ -416,6 +417,7 @@ class AdminPrevadzkaSettingsSerializer(serializers.ModelSerializer):
             "visible_menus",
             "menu_day_restrictions",
             "visible_meals",
+            "meal_day_restrictions",
             "visible_diets",
             "admin_order_note",
         ]
