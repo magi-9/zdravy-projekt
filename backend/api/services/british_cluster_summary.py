@@ -78,10 +78,17 @@ def meal_items_from_order_data(
             continue
         heads = Decimal("0")
         total = Decimal("0")
+        diet_heads = Decimal("0")
+        diet_total = Decimal("0")
         menu_totals: dict[str, tuple[Decimal, Decimal]] = {}
         for portion_name, counts in meal_data.items():
             coeff = portion_coefficients.get(portion_name, _DEFAULT_COEFFICIENT)
             menu_counts = (counts or {}).get("menuCounts") or {}
+            for raw_count in ((counts or {}).get("diets") or {}).values():
+                count = _as_decimal(raw_count)
+                if count > 0:
+                    diet_heads += count
+                    diet_total += count * coeff
             for variant, raw_count in menu_counts.items():
                 count = _as_decimal(raw_count)
                 if count <= 0:
@@ -94,6 +101,8 @@ def meal_items_from_order_data(
                 )
                 menu_totals[variant] = (prev_heads + count, prev_ms + ms)
         item: dict[str, Any] = {"label": label, "heads": heads, "total": total}
+        if diet_heads:
+            item["diets"] = {"heads": diet_heads, "total": diet_total}
         if meal_key in _KUSY_ONLY_MEAL_KEYS:
             item["kusy_only"] = True
         if meal_key == "lunch" and len(menu_totals) > 1:
