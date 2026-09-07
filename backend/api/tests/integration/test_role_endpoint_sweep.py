@@ -70,11 +70,14 @@ CLIENT_READABLE = {
     "/api/admin/portion-types/",
 }
 
-#: Plocha, na ktorú smie kuchyňa — prehľad nakladania a jeho tlač.
+#: Plocha, na ktorú smie kuchyňa — prehľad nakladania, jeho tlač a klikací
+#: zoznam "spolu/zvlášť" diét (#568), ktorý si vyklikáva priamo šéfkuchár.
 KUCHYNA_ALLOWED = {
     "/api/kuchyna/loading/",
     "/api/admin/meal-plans/gramage-dashboard/",
     "/api/admin/meal-plans/gramage-dashboard-pdf/",
+    "/api/admin/diet-component-merge/board/",
+    "/api/admin/diet-component-merge/toggle/",
 }
 
 #: Endpointy, ktoré sú verejné zámerne — prihlasovanie a údaje pre login obrazovku.
