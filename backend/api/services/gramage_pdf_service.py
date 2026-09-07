@@ -47,18 +47,23 @@ def render_gramage_dashboard_pdf(
     show_empty: bool = True,
     show_cluster_summary: bool = True,
     diet_clusters: list[str] | None = None,
+    merge_diets: bool = True,
 ) -> bytes:
     """Zloží PDF gramáže pre daný deň.
 
     Tá istá tabuľka ako na obrazovke: rovnaký spec, rovnaké CSS, len namiesto
     Reactu ju do HTML zloží `gramage_table_html` a WeasyPrint z toho spraví
-    papier. `show_empty`/`show_cluster_summary`/`diet_clusters` zrkadlia
-    "Nastavenia tabuľky" na obrazovke (2.9.2026) — PDF sa má tlačiť presne v
-    tom istom zobrazení, aké má admin práve otvorené.
+    papier. `show_empty`/`show_cluster_summary`/`diet_clusters`/`merge_diets`
+    zrkadlia "Nastavenia tabuľky" na obrazovke (2.9.2026, #568) — PDF sa má
+    tlačiť presne v tom istom zobrazení, aké má admin práve otvorené.
     """
     from weasyprint import HTML  # ťažký import, len keď treba
 
-    data = get_cached_gramage_dashboard_data(date_str)
+    data = (
+        get_cached_gramage_dashboard_data(date_str)
+        if merge_diets
+        else MealPlanService.gramage_dashboard(date_str, merge_diets=False)
+    )
     # #510 — PDF nemá „zbalený" stav, sub-riadky sú vždy vidno, takže
     # medzisúčty za klienta by len duplikovali čísla o riadok vyššie.
     spec = build_table_spec(

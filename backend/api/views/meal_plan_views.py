@@ -370,6 +370,7 @@ class DailyMealPlanViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
         diet_clusters = request.query_params.getlist("diet_cluster") or None
         show_empty = _parse_bool_param(request, "show_empty", True)
         show_cluster_summary = _parse_bool_param(request, "cluster_summary", True)
+        merge_diets = _parse_bool_param(request, "merge_diets", True)
         # "Nastavenia tabuľky" (2.9.2026): ten istý filter, ktorý admin práve
         # vidí na obrazovke, sa má tlačiť aj do PDF — všetko okrem default
         # stavu preto obchádza uzavretého-dňa cache rovnako ako section/vydaj.
@@ -379,6 +380,7 @@ class DailyMealPlanViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
             and not diet_clusters
             and show_empty
             and show_cluster_summary
+            and merge_diets
         )
 
         # Uzavretý deň má PDF predgenerované a nacachované už pri uzavretí
@@ -395,6 +397,7 @@ class DailyMealPlanViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
                 show_empty=show_empty,
                 show_cluster_summary=show_cluster_summary,
                 diet_clusters=diet_clusters,
+                merge_diets=merge_diets,
             )
         response = HttpResponse(pdf_bytes, content_type="application/pdf")
         fname = f"gramaz_{date}.pdf"
