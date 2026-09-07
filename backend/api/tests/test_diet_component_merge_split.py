@@ -6,7 +6,10 @@ zložky, presunuté zložky v ňom ostávajú prázdne ("—").
 
 from decimal import Decimal
 
-from api.services.meal_plan_service import _split_diet_component_grams
+from api.services.meal_plan_service import (
+    _split_diet_component_grams,
+    _translate_merged_indices_by_label,
+)
 
 # Tri stĺpcové skupiny (polievka, Menu A, Menu B) — diétny riadok má dáta
 # len v jednej z nich (presne ako `_col_grams_diet` vracia).
@@ -74,3 +77,40 @@ def test_original_list_is_not_mutated():
     snapshot = [list(g) for g in original]
     _split_diet_component_grams(original, {0})
     assert original == snapshot
+
+
+class TestTranslateMergedIndicesByLabel:
+    """Klik z boardu adresuje zložku podľa mena (Hlavná časť/Príloha/...),
+    nie podľa pozície — katalóg šablón nemá pevné poradie/počet zložiek
+    naprieč receptami (#568 code review)."""
+
+    def test_identical_component_lists_translate_to_the_same_index(self):
+        """Bežný prípad: diéta nemá vlastnú šablónu, obe skupiny sú tá istá
+        šablóna — preklad je identita na oboch stranách."""
+        components = [{"label": "Hlavná časť"}, {"label": "Príloha"}]
+        assert _translate_merged_indices_by_label({0, 1}, components, components) == {
+            0: 0,
+            1: 1,
+        }
+
+    def test_reordered_diet_template_translates_by_name_not_position(self):
+        """Štandard: Hlavná časť(0) + Príloha(1). Diéta má vlastný recept v
+        opačnom poradí: Príloha(0) + Hlavná časť(1) — kliknutá "Hlavná časť"
+        (index 0 v štandarde) sa musí preložiť na index 1 v diéte (odkiaľ sa
+        hodnota vyberie), s väzbou späť na štandardný index 0 (kam sa má
+        pripočítať)."""
+        standard = [{"label": "Hlavná časť"}, {"label": "Príloha"}]
+        diet = [{"label": "Príloha"}, {"label": "Hlavná časť"}]
+        assert _translate_merged_indices_by_label({0}, standard, diet) == {1: 0}
+
+    def test_component_missing_from_the_diet_template_translates_to_nothing(self):
+        """Diétna šablóna nemá zložku rovnakého mena vôbec (úplne iný
+        recept) — nič sa nepresunie, radšej nič než zlá zložka."""
+        standard = [{"label": "Hlavná časť"}, {"label": "Príloha"}]
+        diet = [{"label": "Bezlepková zmes"}]
+        assert _translate_merged_indices_by_label({0, 1}, standard, diet) == {}
+
+    def test_out_of_range_standard_index_is_ignored(self):
+        standard = [{"label": "Hlavná časť"}]
+        diet = [{"label": "Hlavná časť"}]
+        assert _translate_merged_indices_by_label({5}, standard, diet) == {}

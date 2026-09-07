@@ -393,6 +393,47 @@ def _merge_soup_into_main_course(sub_rows: list[dict]) -> list[dict]:
     return result
 
 
+def _translate_merged_indices_by_label(
+    merged_component_indices: set[int],
+    standard_components: list[dict],
+    diet_components: list[dict],
+) -> dict[int, int]:
+    """Prelozí zložky odklikané "spolu" (#568) z indexov v ŠTANDARDNEJ
+    šablóne (tak ich vidí klikací board, viď `diet_component_merge_board`)
+    na indexy v DIÉTNEJ šablóne, podľa `label`, nie podľa pozície.
+
+    Katalóg šablón nemá pevné poradie/počet zložiek naprieč receptami — napr.
+    Hlavný chod má varianty "Hlavná časť + Príloha" aj "Príloha + Omáčka" —
+    takže index `0` znamená v dvoch rôznych šablónach dve rôzne veci. Keď
+    diéta nemá vlastnú šablónu (bežný prípad, #568 v prvom rade rieši práve
+    tento), `diet_components` sú TIE ISTÉ ako `standard_components`, preklad
+    je vtedy identita. Zložka bez rovnomennej náprotivnej v diétnej šablóne sa
+    nikam neprekladá — fyzicky jej niet čo priradiť, radšej sa nepresunie nič
+    než nesprávna zložka pod nesprávnym menom.
+
+    Vracia `{diet_index: standard_index}` — obe smery sú potrebné: diétny
+    index na vybratie/vynulovanie správnej bunky v `_split_diet_component_grams`,
+    štandardný index na to, KAM sa presunutá hodnota má pripočítať (diétna a
+    štandardná šablóna majú zložky na rôznych pozíciách, takže tieto dva
+    indexy sa nesmú zamieňať).
+    """
+    diet_index_by_label: dict[str, int] = {}
+    for index, component in enumerate(diet_components):
+        label = str(component.get("label") or "")
+        if label and label not in diet_index_by_label:
+            diet_index_by_label[label] = index
+
+    translated: dict[int, int] = {}
+    for standard_index in merged_component_indices:
+        if standard_index >= len(standard_components):
+            continue
+        label = str(standard_components[standard_index].get("label") or "")
+        diet_index = diet_index_by_label.get(label)
+        if diet_index is not None:
+            translated[diet_index] = standard_index
+    return translated
+
+
 def _split_diet_component_grams(
     diet_grams: list, merged_component_indices: set[int]
 ) -> tuple[list, int | None, dict[int, Decimal]]:
@@ -1482,11 +1523,36 @@ class MealPlanService:
                                 merged_component_indices
                                 and standard_group_index is not None
                             ):
+                                # Klik z boardu adresuje zložku podľa mena, nie
+                                # pozície (viď `_translate_merged_indices_by_label`)
+                                # — bez tohto by sa pri diéte s vlastnou (inak
+                                # usporiadanou) šablónou presunula nesprávna
+                                # zložka.
+                                raw_diet_group_index = next(
+                                    (i for i, g in enumerate(diet_grams) if g), None
+                                )
+                                # {diet_index: standard_index} — extrakcia
+                                # nižšie beží na diétnych indexoch, pripočítanie
+                                # do štandardu (nižšie, `moved` remap) na
+                                # štandardných - tie sa nesmú zamieňať.
+                                index_map = (
+                                    _translate_merged_indices_by_label(
+                                        merged_component_indices,
+                                        col_groups[standard_group_index]["components"],
+                                        col_groups[raw_diet_group_index]["components"],
+                                    )
+                                    if raw_diet_group_index is not None
+                                    else {}
+                                )
                                 diet_grams, diet_group_index, moved = (
                                     _split_diet_component_grams(
-                                        diet_grams, merged_component_indices
+                                        diet_grams, set(index_map.keys())
                                     )
                                 )
+                                moved = {
+                                    index_map[diet_index]: value
+                                    for diet_index, value in moved.items()
+                                }
                             fully_merged = False
                             if moved and diet_group_index is not None:
                                 remaining = diet_grams[diet_group_index]

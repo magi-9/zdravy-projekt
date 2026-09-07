@@ -182,3 +182,75 @@ def test_merge_only_applies_to_the_configured_diet():
 
     assert diet_rows["Bez lepku"]["col_grams"][0] == ["0.00", "200.00"]
     assert diet_rows["Bez laktózy"]["col_grams"][0] == ["200.00", "100.00"]
+
+
+@pytest.mark.django_db
+def test_merge_matches_by_component_label_not_position():
+    """Diéta má vlastnú šablónu so zložkami v OPAČNOM poradí než štandard
+    (Príloha/Hlavná časť namiesto Hlavná časť/Príloha) — kliknutá "Hlavná
+    časť" (index 0 v štandardnom boarde) sa musí spárovať s "Hlavná časť"
+    v diétnej šablóne (tam na indexe 1), nie s tým, čo je na indexe 0 tam
+    (Príloha) len preto, že čísla sedia."""
+    call_command("init_reference_data")
+    plan = _plan_with_menu_a(datetime.date(2026, 9, 18))
+    diet = Diet.objects.create(name="Bez lepku")
+    MealPlanItem.objects.create(
+        meal_plan=plan,
+        template=MealTemplate.objects.create(
+            name="Obed A bezlepkový",
+            category="main_course",
+            components=[
+                {"label": "Príloha", "grams": "90", "unit": "g"},
+                {"label": "Hlavná časť", "grams": "180", "unit": "g"},
+            ],
+            base_weight_grams="270",
+        ),
+        category="main_course",
+        menu_variant="A",
+        diet=diet,
+    )
+    celok = Celok.objects.create(nazov="MŠ Testovacia")
+    prevadzka = Prevadzka.objects.create(celok=celok, nazov="MŠ Testovacia")
+    user = User.objects.create_user(username="label-match@example.com", password="x")
+    DailyOrder.objects.create(
+        user=user,
+        prevadzka=prevadzka,
+        date=plan.date,
+        data={
+            "lunch": {
+                "Škôlka": {
+                    "menuCounts": {"A": 6},
+                    "diets": {"Bez lepku": 2},
+                }
+            }
+        },
+    )
+    # Klik z boardu je vždy voči štandardnej šablóne: index 0 tam je
+    # "Hlavná časť" (viď MAIN_COURSE_COMPONENTS).
+    DietComponentMerge.objects.create(
+        date=plan.date,
+        meal=MealCategory.MAIN_COURSE,
+        component_index=0,
+        diet=diet,
+    )
+
+    data = MealPlanService.gramage_dashboard(plan.date.isoformat())
+    row = data["rows"][0]
+    standard_group_index = next(
+        i
+        for i, g in enumerate(data["col_groups"])
+        if g["meal"] == "main_course" and not g.get("diet_id")
+    )
+    diet_group_index = next(
+        i
+        for i, g in enumerate(data["col_groups"])
+        if g["meal"] == "main_course" and g.get("diet_id")
+    )
+    standard = next(sr for sr in row["sub_rows"] if sr["type"] == "standard")
+    diet_row = next(sr for sr in row["sub_rows"] if sr["type"] == "diet")
+
+    # 4 čisté hlavy × 200 (800) + 2 diétne hlavy × 180 "Hlavná časť" (360).
+    assert standard["col_grams"][standard_group_index] == ["1160.00", "400.00"]
+    # Diétny riadok si necháva len svoju Prílohu (2 × 90 = 180), Hlavná časť
+    # (na indexe 1 v JEJ VLASTNEJ šablóne) je vynulovaná.
+    assert diet_row["col_grams"][diet_group_index] == ["180.00", "0.00"]
