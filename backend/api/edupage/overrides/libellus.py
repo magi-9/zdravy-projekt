@@ -19,12 +19,12 @@ len na jedno obmedzenie — potvrdené s userom 1.9.2026, `NO EGG – NO PARADAJ
 `sA` nazov="Stomček Klasik" (preklep za "Stromček" v EduPage) — Libellus a
 Stromček zdieľajú jeden EduPage feed, ale Stromček má vlastný celok a
 objednáva cez appku (`zdroj_objednavok=app`), nie cez tento scraper. Bez
-skip pravidla `resolve_menu_variant` chytí substring "klasik" v nazve a
-skratku `sA` tíško zlúči do Libellusovho vlastného "Klasik"/A počtu —
+presmerovania by `resolve_menu_variant` chytil substring "klasik" v nazve a
+skratku `sA` tíško zlúčil do Libellusovho vlastného "Klasik"/A počtu —
 nahlásené 3.9.2026 (živý porovnávací scrape ukázal Škôlka A o 4 vyššie než
-uložená objednávka: 37 vs 33 na obede, 38 vs 34 na raňajkách — presne toľko
-detí je pod `sA`). Appka teda MÁ Libellusov Klasik znížiť o `sA` — Stromček
-si tie počty vedie sám cez appku, appka mu ich z tohto feedu nepridáva.
+uložená objednávka: 37 vs 33 na obede, 38 vs 34 na raňajkách). Pravidlo preto
+vytvorí objednávku Menu A pre Stromček a odoberie `sA` z Libellusu, bez zmeny
+Stromčekovho zdroja objednávok alebo jeho pripojenia k EduPage.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ _RULES: dict[str, LetterRule] = {
     "NENO": LetterRule(diet="NO EGG – NO ORECH"),
     "NMNE": LetterRule(diet="NO MILK/NO EGG"),
     "NENONPARNMAK": LetterRule(diet="NO EGG – NO PARADAJKA – NO ORECH – NO MAK"),
-    "SA": LetterRule(skip=True),
+    "SA": LetterRule(menu="A", redirect_prevadzka="Stromček"),
 }
 
 
