@@ -149,6 +149,7 @@ class TestPrevadzkaEndpoint:
                 "visible_menus": ["A", "B", "V"],
                 "menu_day_restrictions": {},
                 "visible_meals": ["breakfast", "lunch", "olovrant"],
+                "meal_day_restrictions": {},
                 "visible_diets": [],
                 "visible_portion_types": [],
                 "pack_separately_enabled": True,
@@ -168,6 +169,19 @@ class TestPrevadzkaEndpoint:
 
         assert response.status_code == 200
         assert response.json()[0]["menu_day_restrictions"] == {"B": [5]}
+
+    def test_exposes_meal_day_restrictions_when_set(self, api_client, celok):
+        # napr. "raňajky len v piatok"
+        prevadzka = Prevadzka.objects.create(celok=celok, nazov="Jolly 1")
+        prevadzka.meal_day_restrictions = {"breakfast": [5]}
+        prevadzka.save()
+        user, _ = _profile("eva@example.com", celok)
+        api_client.force_authenticate(user=user)
+
+        response = api_client.get("/api/prevadzky/")
+
+        assert response.status_code == 200
+        assert response.json()[0]["meal_day_restrictions"] == {"breakfast": [5]}
 
 
 @pytest.mark.django_db

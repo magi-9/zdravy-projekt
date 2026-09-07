@@ -117,6 +117,31 @@ class MealTemplateSerializer(serializers.ModelSerializer):
     def get_diet_name(self, obj) -> str | None:
         return obj.diet.name if obj.diet_id else None
 
+    def validate_components(self, value: list) -> list:
+        """Normalize decimal commas before component data reaches the dashboard."""
+        normalized = []
+        for component in value:
+            item = dict(component)
+            if item.get("unit", "g") not in _COMPONENT_NUMERIC_UNITS:
+                normalized.append(item)
+                continue
+            grams = item.get("grams")
+            if grams in (None, ""):
+                normalized.append(item)
+                continue
+            text = str(grams).strip().replace(",", ".")
+            try:
+                parsed = Decimal(text)
+            except InvalidOperation as exc:
+                raise serializers.ValidationError(
+                    f"Neplatná gramáž zložky: {grams!r}"
+                ) from exc
+            if not parsed.is_finite():
+                raise serializers.ValidationError(f"Neplatná gramáž zložky: {grams!r}")
+            item["grams"] = text
+            normalized.append(item)
+        return normalized
+
     def validate_unit_exception(self, value: dict | None) -> dict | None:
         # counts_by_portion_type feeds Decimal(str(...)) directly in
         # MealPlanService's gramage calculation (no parsing there) — a stray

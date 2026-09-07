@@ -626,3 +626,105 @@ class TestMenuDayRestriction:
             {"lunch": {"Dospelý (SŠ)": {"menuCounts": {"A": 1, "B": 0}, "diets": {}}}},
         )
         assert response.status_code == status.HTTP_201_CREATED
+
+
+@pytest.mark.django_db
+class TestMealDayRestriction:
+    """DailyOrderSerializer._enforce_meal_day_restrictions ('raňajky len v
+    piatok') — rovnaká sémantika ako menu_day_restrictions, len na úrovni
+    celého jedla (breakfast/lunch/olovrant), nie jednotlivého menu písmena."""
+
+    TUESDAY = DATE  # 2099-03-03
+    FRIDAY = DATE + datetime.timedelta(days=3)  # 2099-03-06
+
+    def _post(self, client, order_date, data):
+        url = reverse("dailyorder-list")
+        return client.post(url, {"date": str(order_date), "data": data}, format="json")
+
+    def test_rejects_the_restricted_meal_on_a_disallowed_day(
+        self, authenticated_client, user
+    ):
+        prevadzka = user.profile.dostupne_prevadzky().get()
+        prevadzka.meal_day_restrictions = {"breakfast": [5]}  # 5 = piatok
+        prevadzka.save(update_fields=["meal_day_restrictions"])
+
+        response = self._post(
+            authenticated_client,
+            self.TUESDAY,
+            {"breakfast": {"Dospelý (SŠ)": {"menuCounts": {"A": 1}, "diets": {}}}},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_accepts_the_restricted_meal_on_its_allowed_day(
+        self, authenticated_client, user
+    ):
+        prevadzka = user.profile.dostupne_prevadzky().get()
+        prevadzka.meal_day_restrictions = {"breakfast": [5]}
+        prevadzka.save(update_fields=["meal_day_restrictions"])
+
+        response = self._post(
+            authenticated_client,
+            self.FRIDAY,
+            {"breakfast": {"Dospelý (SŠ)": {"menuCounts": {"A": 1}, "diets": {}}}},
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+    def test_a_meal_without_a_restriction_is_unaffected(
+        self, authenticated_client, user
+    ):
+        prevadzka = user.profile.dostupne_prevadzky().get()
+        prevadzka.meal_day_restrictions = {"breakfast": [5]}
+        prevadzka.save(update_fields=["meal_day_restrictions"])
+
+        response = self._post(
+            authenticated_client,
+            self.TUESDAY,
+            {"lunch": {"Dospelý (SŠ)": {"menuCounts": {"A": 1}, "diets": {}}}},
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+    def test_no_restrictions_configured_means_every_day_is_allowed(
+        self, authenticated_client, user
+    ):
+        prevadzka = user.profile.dostupne_prevadzky().get()
+        assert prevadzka.meal_day_restrictions == {}
+
+        response = self._post(
+            authenticated_client,
+            self.TUESDAY,
+            {"breakfast": {"Dospelý (SŠ)": {"menuCounts": {"A": 1}, "diets": {}}}},
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+    def test_a_zero_count_on_the_restricted_meal_is_not_rejected(
+        self, authenticated_client, user
+    ):
+        prevadzka = user.profile.dostupne_prevadzky().get()
+        prevadzka.meal_day_restrictions = {"breakfast": [5]}
+        prevadzka.save(update_fields=["meal_day_restrictions"])
+
+        response = self._post(
+            authenticated_client,
+            self.TUESDAY,
+            {"breakfast": {"Dospelý (SŠ)": {"menuCounts": {"A": 0}, "diets": {}}}},
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+    def test_a_positive_diet_count_on_the_restricted_meal_is_rejected(
+        self, authenticated_client, user
+    ):
+        """Nielen menuCounts, aj len 'diets' počet musí spustiť obmedzenie."""
+        prevadzka = user.profile.dostupne_prevadzky().get()
+        prevadzka.meal_day_restrictions = {"breakfast": [5]}
+        prevadzka.save(update_fields=["meal_day_restrictions"])
+
+        response = self._post(
+            authenticated_client,
+            self.TUESDAY,
+            {
+                "breakfast": {
+                    "Dospelý (SŠ)": {"menuCounts": {}, "diets": {"Bez lepku": 1}}
+                }
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST

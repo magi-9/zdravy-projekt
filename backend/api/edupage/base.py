@@ -41,6 +41,21 @@ class LetterRule:
     diet: str | None = None
     flag: str | None = None  # napr. "!" — vyžaduje manuálnu kontrolu
     skip: bool = False
+    # `effective_diet` bežne necháva payer-úrovňovú fuzzy diétu (`payer_diet`,
+    # generický `resolve_payer_diet_name`) doplniť diétu, keď ju písmeno samo
+    # nenesie (presne mechanizmus British "+" skratiek, viď britishschool.py) —
+    # zámerný fallback. Pre VEGE/VEGE1 (British, #531) je to ale chyba: payer
+    # meno pre tie porcie ("MŠ Vege") obsahuje "vege", takže by generický
+    # engine priradil diétu VEGGIE a tá by `menu` z tohto pravidla prebila
+    # (`effective_menu = "A" if effective_diet else menu_variant`) — VEGE by
+    # tak v Cluster C sumári zmizlo pod Menu A (nájdené 4.9.2026). `True`
+    # tento fallback pre daný riadok úplne vypne — `payer_diet` sa neuplatní,
+    # aj keby payer_hook/engine niečo našli.
+    suppress_payer_diet: bool = False
+    # Úzky importný presmerovač pre zdieľaný feed: porcia sa nezapíše
+    # prevádzke feedu, ale priamo pomenovanej inej prevádzke. Neznamená to,
+    # že cieľová prevádzka má EduPage ako vlastný zdroj objednávok.
+    redirect_prevadzka: str | None = None
 
 
 # Hook beží pri parsovaní, na každé menu písmeno pred agregáciou.

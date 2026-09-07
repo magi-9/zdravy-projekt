@@ -180,7 +180,11 @@ describe("PrevadzkaOverview", () => {
 
     expect(await screen.findByLabelText("EduPage: dospelí automaticky zvlášť — zapnuté")).toHaveClass("on");
     expect(screen.getByLabelText("App: zabaliť zvlášť — vypnuté")).toHaveClass("off");
-    expect(screen.getByLabelText("Olovrant sa vozí s obedom")).toHaveTextContent("OL");
+    const olBadge = screen.getByLabelText("Olovrant sa vozí s obedom");
+    expect(olBadge).toHaveTextContent("OL");
+    // Dva príznaky nesmú roztlačiť začiatok názvu prevádzky doprava oproti
+    // riadkom s jedným príznakom — majú spoločný stĺpec a idú pod seba.
+    expect(olBadge.parentElement).toHaveClass("zpa-ovflags--stacked");
     expect(document.querySelector("#prevadzka-row-2 [aria-label='Olovrant sa vozí s obedom']")).toBeNull();
   });
 });

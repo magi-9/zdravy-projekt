@@ -28,6 +28,8 @@ export interface Prevadzka {
     /** {menu písmeno: [ISO deň 1=Po..7=Ne]} — chýbajúci kľúč/prázdny zoznam = každý deň. */
     menu_day_restrictions?: Record<string, number[]> | null;
     visible_meals: string[];
+    /** {jedlo: [ISO deň 1=Po..7=Ne]} — chýbajúci kľúč/prázdny zoznam = každý deň. */
+    meal_day_restrictions?: Record<string, number[]> | null;
     visible_diets: PrevadzkaDiet[];
     visible_portion_types?: PrevadzkaPortionType[] | null;
     pack_separately_enabled: boolean;

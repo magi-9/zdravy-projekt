@@ -60,3 +60,11 @@ class Command(BaseCommand):
             management.call_command(
                 "seed_rozmanita_split_2026_09", verbosity=options.get("verbosity", 1)
             )
+            management.call_command(
+                "seed_nasa_skola_poznania_split_2026_09",
+                verbosity=options.get("verbosity", 1),
+            )
+            management.call_command(
+                "clear_confirmed_edupage_uncertain_flags",
+                verbosity=options.get("verbosity", 1),
+            )

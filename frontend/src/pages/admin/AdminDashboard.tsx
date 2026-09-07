@@ -201,6 +201,7 @@ const AdminDashboard: React.FC = () => {
   const [date, setDate] = useState(() => dashboardDefaultDate());
   const [data, setData] = useState<GramageDashboard | null>(null);
   const [orderReport, setOrderReport] = useState<OrderReport | null>(null);
+  const [dashboardError, setDashboardError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [closedLoading, setClosedLoading] = useState(true);
@@ -273,6 +274,7 @@ const AdminDashboard: React.FC = () => {
     // Tabuľka nižšie tak počas prefiltrovania ukazuje starý obsah, kým
     // nepríde nový — mení sa len ona, modál zostáva na mieste.
     setLoading(true);
+    setDashboardError(null);
     try {
       const refreshParam = refresh ? "&refresh=1" : "";
       const res = await apiFetch(`${API}/admin/meal-plans/gramage-dashboard/?date=${date}${sectionQuery}${refreshParam}`);
@@ -290,10 +292,17 @@ const AdminDashboard: React.FC = () => {
           setOrderReport(null);
         }
       } else {
+        const body: { error?: { message?: string } } | null = await res.json().catch(() => null);
+        setDashboardError(
+          body?.error?.message || "Nepodarilo sa načítať tabuľku gramáže. Skúste ju obnoviť.",
+        );
         setData(null);
         setOrderReport(null);
       }
-    } catch (e) { logger.error(e); }
+    } catch (e) {
+      logger.error(e);
+      setDashboardError("Nepodarilo sa načítať tabuľku gramáže. Skúste ju obnoviť.");
+    }
     finally { setLoading(false); }
   }, [apiFetch, date, sectionQuery]);
 
@@ -543,6 +552,7 @@ const AdminDashboard: React.FC = () => {
             na chvíľu nahradil "Načítavam dáta…" — to by zhodilo scroll aj
             odmountovalo modál nad ňou. Placeholder patrí len prvému načítaniu. */}
         {loading && !data && <Empty>Načítavam dáta…</Empty>}
+        {!loading && dashboardError && <Empty>{dashboardError}</Empty>}
 
         {!loading && data && !hasData && !hasOrderCounts && (
           <Empty icon={<Inbox />}>

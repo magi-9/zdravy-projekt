@@ -90,13 +90,13 @@ def test_route_vydaj_can_be_switched(admin_authenticated_client):
 
     response = admin_authenticated_client.patch(
         f"/api/admin/delivery-routes/{route.id}/",
-        {"vydaj": "B"},
+        {"vydaj": "D"},
         format="json",
     )
 
     assert response.status_code == 200
     route.refresh_from_db()
-    assert route.vydaj == "B"
+    assert route.vydaj == "D"
 
 
 def test_route_can_be_moved_to_another_block(admin_authenticated_client):

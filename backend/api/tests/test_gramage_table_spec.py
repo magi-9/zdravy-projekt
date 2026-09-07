@@ -487,6 +487,52 @@ def test_footer_is_the_cluster_summary_plus_the_grand_total():
     assert spec["footer"][-2]["cells"][0]["text"] == "CELKOM (g / ml)"
 
 
+def test_child_portion_keeps_a_separate_row_and_badge_per_menu_variant():
+    """Aj detská porcia má vlastný riadok a odznak pre každé menu.
+
+    Pri 7 porciách Menu A a 5 porciách Menu B nesmie vzniknúť jeden riadok
+    s počtom 12. Každý variant musí zostať samostatný rovnako ako doteraz
+    „Dospelý (SŠ)".
+    """
+    payload = _payload()
+    standard = payload["rows"][0]["sub_rows"][0]
+    standard["count"] = 7
+    standard["_heads"] = 7
+    standard["_ms_recalc"] = Decimal("7")
+    standard["col_grams"] = [["1400.00"], ["2100.00"], []]
+    payload["rows"][0]["sub_rows"].append(
+        {
+            **standard,
+            "variant": "B",
+            "label": "Škôlka - Obed Menu B",
+            "count": 5,
+            "_heads": 5,
+            "_ms_recalc": Decimal("5"),
+            "col_grams": [[], [], ["1500.00"]],
+        }
+    )
+    payload["rows"][0]["standard_col_grams"] = [
+        ["1400.00"],
+        ["2100.00"],
+        ["1500.00"],
+    ]
+
+    spec = build_table_spec(payload)
+    standard_rows = [
+        row
+        for row in spec["rows"]
+        if row["kind"] == "sub-row" and "diet" not in row["css"]
+    ]
+
+    assert [row["cells"][0]["text"] for row in standard_rows] == [
+        "Škôlka",
+        "Škôlka - Menu B",
+    ]
+    assert [row["cells"][0]["count"] for row in standard_rows] == ["7", "5"]
+    assert standard_rows[0]["cells"][2]["corner_count"] == "7"
+    assert standard_rows[1]["cells"][3]["corner_count"] == "5"
+
+
 def test_footer_diet_breakdown_sums_the_diet_across_all_clients():
     """Sumár dokopy má diétny rozpad sčítaný cez VŠETKÝCH klientov, nie len jedného."""
     payload = _payload()
@@ -557,11 +603,11 @@ def test_totals_row_shows_portion_count_in_the_first_cell_of_each_group():
     # cells[0] = roh „CELKOM (g / ml)"; cells[1] = Polievka, cells[2] = Menu A,
     # cells[3] = Menu B (každá skupina má tu presne 1 zložku).
     assert "count" not in totals_row["cells"][0]
-    assert totals_row["cells"][1]["count"] == format_count(10)
-    assert totals_row["cells"][2]["count"] == format_count(8)
+    assert totals_row["cells"][1]["corner_count"] == format_count(10)
+    assert totals_row["cells"][2]["corner_count"] == format_count(8)
     # Menu B bez objednávok — počet sa nezobrazí, nie "0" (rovnaká konvencia
     # ako pri gramáži, viď `format_count`/`test_count_badge_shows_a_dash_at_zero`).
-    assert "count" not in totals_row["cells"][3]
+    assert "corner_count" not in totals_row["cells"][3]
 
 
 def test_totals_row_count_lands_only_on_the_first_component_of_a_group():
@@ -598,8 +644,8 @@ def test_totals_row_count_lands_only_on_the_first_component_of_a_group():
 
     totals_row = spec["footer"][-2]
     # cells[0] = roh „CELKOM (g / ml)"; cells[1]/[2] = Pečivo/Nátierka (Raňajky).
-    assert totals_row["cells"][1]["count"] == format_count(10)
-    assert "count" not in totals_row["cells"][2]
+    assert totals_row["cells"][1]["corner_count"] == format_count(10)
+    assert "corner_count" not in totals_row["cells"][2]
 
 
 # ── Filter sekcií (verzie tlače aj prehľadu) ─────────────────────────────────
@@ -823,10 +869,8 @@ def test_standard_rows_of_the_same_portion_merge_across_meals():
     assert [c["text"] for c in gram_cells] == ["1600", "2400", "1000"]
 
 
-def test_two_menu_variants_of_the_same_meal_add_up_in_the_merged_count():
-    """Klient objedná tú istú porciu na Menu B aj Menu C obeda plus olovrant —
-    zlúčenie nesmie druhý variant obeda prepísať cez prvý (3.9.2026: Little Big
-    Dospelý SŠ mal v tabuľke "Ob 6" namiesto "Ob 12" pri B:6 + C:6)."""
+def test_child_menu_b_is_not_merged_into_the_menu_a_row():
+    """Menu B má pri detskej porcii vlastný riadok aj popri Menu A a olovrante."""
     payload = _with_breakfast_and_snack_same_portion()
     row = payload["rows"][0]
     main_course_a = next(
@@ -844,11 +888,14 @@ def test_two_menu_variants_of_the_same_meal_add_up_in_the_merged_count():
     row["sub_rows"].append(variant_b)
 
     spec = build_table_spec(payload)
-    standard_row = next(
+    standard_rows = [
         r for r in spec["rows"] if r["kind"] == "sub-row" and "diet" not in r["css"]
-    )
-    # Obed = Menu A (8) + Menu B (3) = 11, nie len posledný variant; Raňajky 0.
-    assert standard_row["cells"][0]["count"] == "0 + 11 + 8"
+    ]
+    assert [r["cells"][0]["text"] for r in standard_rows] == [
+        "Škôlka",
+        "Škôlka - Menu B",
+    ]
+    assert [r["cells"][0]["count"] for r in standard_rows] == ["0 + 8 + 8", "0 + 3 + 0"]
 
 
 def test_adult_portion_keeps_a_separate_row_per_menu_variant():
@@ -1522,7 +1569,12 @@ def _summary_only_vydaj():
         "summary_only": True,
         "british_summary": [
             {"label": "Raňajky", "heads": Decimal("10"), "total": Decimal("10")},
-            {"label": "Desiata", "heads": Decimal("5"), "total": Decimal("5")},
+            {
+                "label": "Snack",
+                "heads": Decimal("5"),
+                "total": Decimal("5"),
+                "kusy_only": True,
+            },
             {
                 "label": "Obed",
                 "heads": Decimal("23"),
@@ -1542,6 +1594,10 @@ def _summary_only_vydaj():
 
 def _payload_with_summary_only_cluster():
     payload = _payload()
+    # `data["rows"]` (nefiltrovaná vetva footeru číta priamo z neho, viď
+    # `build_table_spec`) musí ostať Cluster A riadky — len `summary_only`
+    # klastre (British) sa z neho reálne vynechávajú (MealPlanService), nie
+    # každá prevádzka vo `vydaje`.
     payload["vydaje"] = [
         {
             "key": "A",
@@ -1550,7 +1606,6 @@ def _payload_with_summary_only_cluster():
         },
         _summary_only_vydaj(),
     ]
-    payload["rows"] = []
     payload["unassigned_rows"] = []
     return payload
 
@@ -1572,14 +1627,52 @@ def test_summary_only_cluster_renders_kusy_ms_rows_not_grid():
 
     assert [r["cells"][0]["label"] for r in summary_rows] == [
         "Raňajky:",
-        "Desiata:",
+        "Snack:",
         "Obed:",
         "Menu A:",
         "Menu D:",
         "Olovrant:",
     ]
+    # Snack je čisto kusovo — žiadne "/ MŠ".
+    assert summary_rows[1]["cells"][0]["text"] == "5 ks"
     assert summary_rows[2]["cells"][0]["text"] == "23 ks / 26 MŠ"
     assert summary_rows[4]["cells"][0]["text"] == "3 ks / 6 MŠ"
+
+
+def test_fixed_british_summary_renders_zero_instead_of_hiding_a_missing_part():
+    payload = _payload_with_summary_only_cluster()
+    payload["vydaje"][1]["british_summary"] = [
+        {
+            "label": "Snack (balíček)",
+            "heads": Decimal("0"),
+            "total": Decimal("0"),
+            "kusy_only": True,
+            "show_zero": True,
+        },
+        {
+            "label": "Obed",
+            "heads": Decimal("0"),
+            "total": Decimal("0"),
+            "show_zero": True,
+            "menus": [
+                {
+                    "label": "Menu D",
+                    "heads": Decimal("0"),
+                    "total": Decimal("0"),
+                    "show_zero": True,
+                }
+            ],
+        },
+    ]
+
+    spec = build_table_spec(payload)
+    rows = _rows_for_section(spec["rows"], "SUMÁR CLUSTER C S DIÉTAMI MŠ")
+
+    assert [row["cells"][0]["text"] for row in rows] == [
+        "0 ks",
+        "0 ks / 0 MŠ",
+        "0 ks / 0 MŠ",
+    ]
 
 
 def test_summary_only_cluster_has_no_route_or_client_rows():
@@ -1594,10 +1687,60 @@ def test_summary_only_cluster_has_no_route_or_client_rows():
     assert any(row["kind"] == "client" for row in spec["rows"])  # Cluster A ho má
 
 
-def test_summary_only_cluster_excluded_from_combined_footer_title():
+def test_summary_only_cluster_included_in_combined_footer_title():
+    """Kusy/MŠ z British (Cluster C) sú v ROVNAKÝCH jednotkách ako gram-plánové
+    klastre (obe cez PortionType.coefficient) — footer 'SUMÁR CLUSTER ... S
+    DIÉTAMI MŠ' má C zahŕňať, nie len A/B (user 4.9.2026: "prečo nie je sumár
+    cluster A+B+C")."""
     spec = build_table_spec(_payload_with_summary_only_cluster())
 
-    assert spec["footer"][0]["cells"][0]["text"] == "SUMÁR CLUSTER A S DIÉTAMI MŠ"
+    assert spec["footer"][0]["cells"][0]["text"] == "SUMÁR CLUSTER A + C S DIÉTAMI MŠ"
+
+
+def _footer_ms_rows(spec) -> dict[str, dict]:
+    """{label: row} pre 'cluster-ms-row' riadky priamo pod prvým portion-band
+    pásmom vo footeri (rovnaká štruktúra ako `_rows_for_section`, len na
+    footer namiesto rows)."""
+    out: dict[str, dict] = {}
+    started = False
+    for row in spec["footer"]:
+        if row["kind"] == "portion-band":
+            if started:
+                break
+            started = True
+            continue
+        if not started:
+            continue
+        if row["kind"] != "cluster-ms-row":
+            break
+        out[row["cells"][0]["label"]] = row
+    return out
+
+
+def test_summary_only_cluster_merges_into_footer_totals():
+    """Obed footeru = gram-plánové Cluster A (10 ks: 8 std Menu A + 2 diéta)
+    + British Obed (23 ks) = 33 ks / 36 MŠ. Menu A sa sčíta (8 + 20 = 28),
+    Menu D pribudne ako nové (British-only, 3 ks). Raňajky/Snack/Olovrant
+    existujú len vďaka Britishu — nový band, nie 0. Snack ostáva čisto
+    kusovo aj po zlúčení do footeru."""
+    spec = build_table_spec(_payload_with_summary_only_cluster())
+    footer_rows = _footer_ms_rows(spec)
+
+    assert footer_rows["Obed:"]["cells"][0]["text"] == "33 ks / 36 MŠ"
+    # Diétne porcie sú podmnožinou Menu A, preto 8 štandardných + 2 diétne
+    # porcie klastra A dopĺňajú 20 porcií British Menu A.
+    assert footer_rows["Menu A:"]["cells"][0]["text"] == "30 ks / 30 MŠ"
+    assert footer_rows["Menu D:"]["cells"][0]["text"] == "3 ks / 6 MŠ"
+    assert footer_rows["Raňajky:"]["cells"][0]["text"] == "10 ks / 10 MŠ"
+    assert footer_rows["Snack:"]["cells"][0]["text"] == "5 ks"
+    assert footer_rows["Olovrant:"]["cells"][0]["text"] == "9 ks / 9 MŠ"
+
+
+def test_sum_total_obed_ms_footer_line_includes_summary_only_cluster():
+    spec = build_table_spec(_payload_with_summary_only_cluster())
+
+    total_row = next(r for r in spec["footer"] if r["kind"] == "total-ms-porcie")
+    assert total_row["cells"][0]["text"] == "36"
 
 
 def test_summary_only_cluster_excluded_from_first_two_combination():

@@ -57,6 +57,25 @@ const mockDashboardRequests = (
   });
 };
 
+it("shows the API error when the gramage table cannot be loaded", async () => {
+  mockApiFetch.mockImplementation((url: string) => {
+    if (url.includes("/admin/closed-days/")) {
+      return Promise.resolve(makeMockResponse({ date: "2026-07-03", is_closed: false }));
+    }
+    if (url.includes("/admin/meal-plans/gramage-dashboard/")) {
+      return Promise.resolve(makeMockResponse(
+        { error: { message: "Šablóna ‚Hlavný chod + vajce‘ má neplatnú gramáž." } },
+        false,
+      ));
+    }
+    throw new Error(`Unexpected URL ${url}`);
+  });
+
+  render(<MemoryRouter><AdminDashboard /></MemoryRouter>);
+
+  expect(await screen.findByText("Šablóna ‚Hlavný chod + vajce‘ má neplatnú gramáž.")).toBeInTheDocument();
+});
+
 // "Nastavenia tabuľky" je v DOM (teda nájditeľné cez `findByRole`) hneď od
 // prvého renderu, ale ostáva `disabled`, kým sa dáta nenačítajú (`hasData`) —
 // klik naň skôr je no-op a modal sa nikdy neotvorí. Lokálne to prejde skoro

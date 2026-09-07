@@ -125,7 +125,7 @@ const FacilityFlags: React.FC<{ row: OverviewRow; source: "edupage" | "app" }> =
     : `App: zabaliť zvlášť — ${separatePackingEnabled ? "zapnuté" : "vypnuté"}`;
 
   return (
-    <div className="zpa-ovflags">
+    <div className={`zpa-ovflags${row.olovrant_s_obedom ? " zpa-ovflags--stacked" : ""}`}>
       <span className={`zpa-ovflag zv ${separatePackingEnabled ? "on" : "off"}`} aria-label={zvLabel} title={zvLabel}>ZV</span>
       {row.olovrant_s_obedom && (
         <span className="zpa-ovflag ol" aria-label="Olovrant sa vozí s obedom" title="Olovrant sa vozí s obedom">OL</span>

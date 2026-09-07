@@ -721,6 +721,73 @@ class DailyOrderSerializer(serializers.ModelSerializer):
                             }
                         )
 
+    @staticmethod
+    def _enforce_meal_day_restrictions(
+        prevadzka: Prevadzka, order_date: datetime.date, data: Dict[str, Any]
+    ) -> None:
+        """Odmietni jedlo (raňajky/obed/olovrant) v deň, na ktorý ho prevádzka
+        neobmedzila.
+
+        `meal_day_restrictions` je `{jedlo: [ISO deň, 1=pondelok..7=nedeľa]}`
+        — napr. `{"breakfast": [5]}` = raňajky len v piatok. Chýbajúci kľúč
+        alebo prázdny zoznam = každý deň — rovnaká sémantika ako
+        `menu_day_restrictions`/`_enforce_menu_day_restrictions` a
+        `filterMealsByDay` na frontende (`useOrder.ts`).
+        """
+        restrictions = prevadzka.meal_day_restrictions or {}
+        if not restrictions:
+            return
+        weekday = order_date.isoweekday()
+        for meal_key, meal in data.items():
+            if meal_key == DailyOrderSerializer._SPECIAL_DIET_NOTE_KEY:
+                continue
+            allowed_days = restrictions.get(meal_key)
+            if not allowed_days or weekday in allowed_days:
+                continue
+            if not isinstance(
+                meal, dict
+            ) or not DailyOrderSerializer._meal_has_positive_count(meal):
+                continue
+            raise serializers.ValidationError(
+                {
+                    "data": (
+                        f"Prevádzka '{prevadzka.nazov}' má jedlo '{meal_key}' "
+                        "povolené len v iný deň v týždni."
+                    )
+                }
+            )
+
+    @staticmethod
+    def _meal_has_positive_count(meal: Dict[str, Any]) -> bool:
+        """Walk the meal/category/sub-category shape looking for any positive
+        count in menuCounts or diets, anywhere under this meal."""
+        if DailyOrderSerializer._is_leaf_payload(meal):
+            return DailyOrderSerializer._leaf_has_positive_count(meal)
+        for cat_data in meal.values():
+            if not isinstance(cat_data, dict):
+                continue
+            if DailyOrderSerializer._is_leaf_payload(cat_data):
+                if DailyOrderSerializer._leaf_has_positive_count(cat_data):
+                    return True
+                continue
+            for sub_data in cat_data.values():
+                if isinstance(
+                    sub_data, dict
+                ) and DailyOrderSerializer._leaf_has_positive_count(sub_data):
+                    return True
+        return False
+
+    @staticmethod
+    def _leaf_has_positive_count(leaf: Dict[str, Any]) -> bool:
+        for key in ("menuCounts", "diets"):
+            counts = leaf.get(key)
+            if isinstance(counts, dict) and any(
+                isinstance(value, int) and not isinstance(value, bool) and value > 0
+                for value in counts.values()
+            ):
+                return True
+        return False
+
     def create(self, validated_data: Dict[str, Any]) -> DailyOrder:
         """
         Upsert a DailyOrder for (user, date).
@@ -756,6 +823,9 @@ class DailyOrderSerializer(serializers.ModelSerializer):
             order_data = validated_data.get("data", {})
             self._enforce_portion_types(prevadzka, order_data)
             self._enforce_menu_day_restrictions(
+                prevadzka, validated_data["date"], order_data
+            )
+            self._enforce_meal_day_restrictions(
                 prevadzka, validated_data["date"], order_data
             )
 
@@ -901,6 +971,9 @@ class DailyOrderSerializer(serializers.ModelSerializer):
             self._enforce_menu_day_restrictions(
                 instance.prevadzka, instance.date, new_data
             )
+            self._enforce_meal_day_restrictions(
+                instance.prevadzka, instance.date, new_data
+            )
 
         if input_status == "draft":
             prevadzka = instance.prevadzka
@@ -1036,6 +1109,7 @@ class PrevadzkaSerializer(serializers.ModelSerializer):
             "visible_menus",
             "menu_day_restrictions",
             "visible_meals",
+            "meal_day_restrictions",
             "visible_diets",
             "visible_portion_types",
             "pack_separately_enabled",
