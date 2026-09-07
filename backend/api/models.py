@@ -1286,3 +1286,44 @@ class PrevadzkaLoadingConfirmation(models.Model):
 
     def __str__(self) -> str:
         return f"{self.date} {self.prevadzka}: naložené"
+
+
+class DietComponentMerge(models.Model):
+    """Šéfkuchár per deň/jedlo/zložku odklikáva, že sa diéta v tú zložku
+    pripraví spolu so štandardným jedlom, nie samostatne (#568).
+
+    Existuje len riadok pre VÝNIMKU "spolu" — default (žiadny riadok) je
+    "zvlášť", šéfkuchár označuje len tie zložky, čo môžu ísť spolu. Pri
+    obede sa `component_index` viaže výhradne na **Menu A** danéh dňa
+    (jediný variant, ktorý táto funkcia rieši), pri raňajkách/olovrante na
+    jediný template toho jedla — index je pozícia v `MealTemplate.components`
+    tak, ako ju vidí gramážová tabuľka (`col_groups[i]["components"]`).
+
+    `component_label` je denormalizovaný text pre čitateľnosť v adminovi/DB
+    (šablóny sa môžu meniť deň čo deň, index sám o sebe nič nehovorí).
+    """
+
+    date = models.DateField(db_index=True)
+    meal = models.CharField(max_length=20, choices=MealCategory.choices)
+    component_index = models.PositiveSmallIntegerField()
+    component_label = models.CharField(max_length=100, blank=True, default="")
+    diet = models.ForeignKey(
+        Diet, on_delete=models.CASCADE, related_name="component_merges"
+    )
+    updated_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["date", "meal", "component_index", "diet"],
+                name="unique_diet_component_merge_slot",
+            )
+        ]
+        indexes = [models.Index(fields=["date", "meal"])]
+        ordering = ["date", "meal", "component_index"]
+
+    def __str__(self) -> str:
+        return f"{self.date} {self.meal}[{self.component_index}] {self.diet} — spolu"

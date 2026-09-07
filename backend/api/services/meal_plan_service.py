@@ -12,6 +12,7 @@ from django.db import transaction
 from ..models import (
     DailyMealPlan,
     Diet,
+    DietComponentMerge,
     EnrolledCount,
     MealCategory,
     MealPlanItem,
@@ -67,6 +68,33 @@ def resolve_diet_menu_variants(date: datetime.date) -> dict[str, str]:
         diet.name: overrides.get(diet.id, "A")
         for diet in Diet.objects.filter(is_active=True)
     }
+
+
+# Jedlá, kde má zlúčenie diétnych zložiek (#568) zmysel — pri obede sa vždy
+# viaže výhradne na Menu A (viď `DietComponentMerge` docstring), polievka nie
+# je samostatná "zložka" zo šéfkuchárskeho pohľadu (patrí pod obed).
+DIET_COMPONENT_MERGE_MEALS = (
+    MealCategory.BREAKFAST_SNACK,
+    MealCategory.MAIN_COURSE,
+    MealCategory.AFTERNOON_SNACK,
+)
+
+
+def resolve_diet_component_merges(date_str: str) -> dict[tuple[str, str], set[int]]:
+    """Ktoré (jedlo, diéta) zložky sú pre daný deň označené ako "spolu" (#568).
+
+    Vracia `{(meal, diet_name): {component_index, ...}}` — kľúč sa priamo
+    použije v `gramage_dashboard` na rozhodnutie, ktoré zložky diétneho
+    riadku sa majú pripočítať k štandardnému riadku namiesto vlastného
+    (`_split_diet_component_grams`). Chýbajúci kľúč = žiadna zložka daného
+    jedla/diéty nie je označená (default "zvlášť", viď model).
+    """
+    merges: dict[tuple[str, str], set[int]] = {}
+    rows = DietComponentMerge.objects.filter(date=date_str).select_related("diet")
+    for row in rows:
+        key = (row.meal, row.diet.name)
+        merges.setdefault(key, set()).add(row.component_index)
+    return merges
 
 
 def _normalize_portion_name(value: object) -> str:
@@ -217,6 +245,49 @@ def _merge_soup_into_main_course(sub_rows: list[dict]) -> list[dict]:
             # polievkový riadok už neexistuje.
             target.setdefault("absorbed_meals", []).append(sub_row["meal"])
     return result
+
+
+def _split_diet_component_grams(
+    diet_grams: list, merged_component_indices: set[int]
+) -> tuple[list, int | None, dict[int, Decimal]]:
+    """Vyberie zo serializovanej gramáže diétneho riadku zložky označené ako
+    "spolu" (`DietComponentMerge`, #568), aby ich volajúci mohol pripočítať
+    k štandardnému riadku.
+
+    `diet_grams` je gramáž presne v tvare, aký vracia `_col_grams_diet` —
+    zoznam skupín (jedna na stĺpcovú skupinu tabuľky), pričom dáta má
+    populované presne v JEDNEJ z nich. Vráti (nová gramáž diétneho riadku s
+    "spolu" zložkami vynulovanými, index tej jednej skupiny — `None` keď sa
+    nemá čo presúvať, presunuté hodnoty podľa indexu zložky). Vstup sa
+    nemení, vracia sa nová štruktúra (rovnaký vzor ako iné `_col_grams*`
+    helpery v tomto module).
+    """
+    if not merged_component_indices:
+        return diet_grams, None, {}
+    group_index = next((i for i, group in enumerate(diet_grams) if group), None)
+    if group_index is None:
+        return diet_grams, None, {}
+
+    moved: dict[int, Decimal] = {}
+    new_group = list(diet_grams[group_index])
+    for component_index in merged_component_indices:
+        if component_index >= len(new_group):
+            continue
+        raw = new_group[component_index]
+        if raw in (None, ""):
+            continue
+        value = Decimal(str(raw))
+        if value <= 0:
+            continue
+        moved[component_index] = value
+        new_group[component_index] = "0.00"
+
+    if not moved:
+        return diet_grams, None, {}
+
+    new_diet_grams = list(diet_grams)
+    new_diet_grams[group_index] = new_group
+    return new_diet_grams, group_index, moved
 
 
 def _extract_pack_counts(raw_value: Any) -> dict[str, int]:
@@ -709,6 +780,90 @@ class MealPlanService:
         # so those meals pool all order variants into one column — same as soup,
         # breakfast_snack, and afternoon_snack always have.
         variant_meals = {cg["meal"] for cg in col_groups if cg["variant"]}
+
+        # ── Zlúčenie diétnych zložiek so štandardom (#568) ──────────────────────
+        # `diet_component_merges`: (jedlo, meno diéty) → indexy zložiek
+        # označených ako "spolu". `standard_group_index_by_meal`: kam v
+        # `col_groups` patrí ŠTANDARDNÝ (bezdiétny) riadok toho jedla — pri
+        # obede vždy Menu A (variant), inak jediná bezdiétna skupina toho
+        # jedla. Diétny riadok môže mať dáta v INEJ skupine (vlastný
+        # explicitný template), preto sa čítanie (z diétnej skupiny) a zápis
+        # (do štandardnej skupiny) musia robiť na dvoch rôznych indexoch.
+        diet_component_merges = resolve_diet_component_merges(date_str)
+        standard_group_index_by_meal: dict[str, int] = {}
+        for group_index, cg in enumerate(col_groups):
+            if cg.get("diet_id"):
+                continue
+            cg_meal = cg["meal"]
+            if (
+                cg_meal == MealCategory.MAIN_COURSE
+                and _normalize_variant(cg.get("variant")) != "A"
+            ):
+                continue
+            if cg_meal not in standard_group_index_by_meal:
+                standard_group_index_by_meal[cg_meal] = group_index
+
+        def _add_merged_grams_to_standard_row(
+            sub_rows: list[dict],
+            meal: str,
+            portion_name: str,
+            group_index: int,
+            addition: dict[int, Decimal],
+            extra_count: int | Decimal = 0,
+            extra_heads: int | Decimal = 0,
+            extra_ms_recalc: Decimal = Decimal("0"),
+        ) -> None:
+            """Pripočíta presunuté zložky (#568) do štandardného sub-riadku
+            danej porcie/jedla (a do dňových/klientskych súčtov `totals`/
+            `client_standard_totals`) — vytvorí riadok (count 0, len
+            gramáž), ak ešte neexistuje (rovnaký vzor ako "Gramážna
+            korekcia" nižšie). `extra_count`/`extra_heads`/`extra_ms_recalc`
+            nesú aj počet hláv — len keď je diéta v danom jedle zlúčená
+            CELÁ (žiadny vlastný riadok jej neostáva, viď volanie nižšie)."""
+            group_addition = _empty_group_totals()
+            for component_index, value in addition.items():
+                group_addition[group_index][component_index] = value
+            _merge_group_totals(totals, group_addition)
+            _merge_group_totals(client_standard_totals, group_addition)
+            serialized = _serialize_group_totals(group_addition)
+            standard_variant = "A" if meal == MealCategory.MAIN_COURSE else ""
+            target = next(
+                (
+                    sr
+                    for sr in sub_rows
+                    if sr.get("type") == "standard"
+                    and sr.get("meal") == meal
+                    and (sr.get("variant") or "") == standard_variant
+                ),
+                None,
+            )
+            if target is None:
+                label = (
+                    f"{portion_name} - Menu {standard_variant}"
+                    if standard_variant
+                    else f"{portion_name} - {MEAL_LABELS.get(meal, meal)}"
+                )
+                sub_rows.append(
+                    {
+                        "type": "standard",
+                        "meal": meal,
+                        "variant": standard_variant,
+                        "portion_name": portion_name,
+                        "label": label,
+                        "count": extra_count,
+                        "_heads": extra_heads,
+                        "_ms_recalc": extra_ms_recalc,
+                        "col_grams": serialized,
+                    }
+                )
+                return
+            target["col_grams"] = _sum_col_grams(target["col_grams"], serialized)
+            if extra_count:
+                target["count"] = (target.get("count") or 0) + extra_count
+                target["_heads"] = (target.get("_heads") or 0) + extra_heads
+                target["_ms_recalc"] = (
+                    target.get("_ms_recalc") or Decimal("0")
+                ) + extra_ms_recalc
 
         # ── Portion types by name ────────────────────────────────────────────────
         active_portion_types = list(PortionType.objects.filter(is_active=True))
@@ -1204,6 +1359,69 @@ class MealPlanService:
                                 meal, diet_name, coeff, diet_count, portion_name
                             )
                             billed_diet_count = _billed_count(diet_count, billing_coeff)
+
+                            # Zlúčenie diétnych zložiek so štandardom (#568) —
+                            # zložky označené ako "spolu" (šéfkuchár) sa
+                            # vynulujú v diétnom riadku a ich gramáž sa
+                            # pripočíta k štandardnému riadku toho jedla.
+                            # Keď sú "spolu" VŠETKY zložky diéty v tomto
+                            # jedle, diéta sa v ňom od štandardu nedá
+                            # rozoznať — nedostane vlastný riadok vôbec, jej
+                            # počet (hlavy aj gramáž) sa celý presunie na
+                            # štandardný riadok, aby "spolu porcií" nestratilo
+                            # tieto deti (prázdny gramový riadok by ich inak
+                            # tichým filtrom v `gramage_table_spec` zmizol).
+                            standard_group_index = standard_group_index_by_meal.get(
+                                meal
+                            )
+                            merged_component_indices = (
+                                diet_component_merges.get((meal, diet_name), set())
+                                if meal in DIET_COMPONENT_MERGE_MEALS
+                                else set()
+                            )
+                            moved: dict[int, Decimal] = {}
+                            diet_group_index = None
+                            if (
+                                merged_component_indices
+                                and standard_group_index is not None
+                            ):
+                                diet_grams, diet_group_index, moved = (
+                                    _split_diet_component_grams(
+                                        diet_grams, merged_component_indices
+                                    )
+                                )
+                            fully_merged = False
+                            if moved and diet_group_index is not None:
+                                remaining = diet_grams[diet_group_index]
+                                fully_merged = bool(remaining) and all(
+                                    raw in (None, "") or Decimal(str(raw)) <= 0
+                                    for raw in remaining
+                                )
+
+                            if fully_merged and standard_group_index is not None:
+                                _add_merged_grams_to_standard_row(
+                                    sub_rows,
+                                    meal,
+                                    display_portion_name,
+                                    standard_group_index,
+                                    moved,
+                                    extra_count=billed_diet_count,
+                                    extra_heads=diet_count,
+                                    extra_ms_recalc=Decimal(diet_count) * coeff,
+                                )
+                                if count_towards_summary:
+                                    client_total_count += billed_diet_count
+                                continue
+
+                            if moved and standard_group_index is not None:
+                                _add_merged_grams_to_standard_row(
+                                    sub_rows,
+                                    meal,
+                                    display_portion_name,
+                                    standard_group_index,
+                                    moved,
+                                )
+
                             sub_rows.append(
                                 {
                                     "type": "diet",
