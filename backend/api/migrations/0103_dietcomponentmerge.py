@@ -8,7 +8,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("api", "0099_diet_text_and_background_color"),
+        ("api", "0102_prevadzka_meal_day_restrictions"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
