@@ -70,6 +70,7 @@ def test_seed_operations_calls_data_seeds_in_order(monkeypatch):
         call("seed_skolicka_zs_2026_09", verbosity=2),
         call("seed_rozmanita_split_2026_09", verbosity=2),
         call("seed_nasa_skola_poznania_split_2026_09", verbosity=2),
+        call("clear_confirmed_edupage_uncertain_flags", verbosity=2),
     ]
 
 

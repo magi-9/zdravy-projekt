@@ -3,7 +3,35 @@ from io import StringIO
 import pytest
 from django.core.management import call_command
 
-from api.models import Celok, Prevadzka
+from api.models import Celok, Diet, Prevadzka
+
+
+@pytest.mark.django_db
+def test_seed_abcclub_switches_existing_facility_to_edupage_without_resetting_visibility():
+    celok = Celok.objects.create(nazov="ABC")
+    nono = Diet.objects.create(name="NONO")
+    prevadzka = Prevadzka.objects.create(
+        celok=celok,
+        nazov="ABC",
+        visible_menus=["A", "B", "C"],
+        visible_meals=["breakfast", "lunch", "olovrant"],
+    )
+    prevadzka.visible_diets.add(nono)
+    menus_before = prevadzka.visible_menus
+    meals_before = prevadzka.visible_meals
+
+    call_command("seed_abcclub_edupage")
+
+    celok.refresh_from_db()
+    prevadzka.refresh_from_db()
+    assert celok.zdroj_objednavok == Celok.ZdrojObjednavok.EDUPAGE
+    assert prevadzka.edupage_connection.mealsguest_url == (
+        "https://abcclub.edupage.org/menu/mealsGuest?id=RV2L4bx"
+    )
+    assert prevadzka.edupage_match == ""
+    assert prevadzka.visible_menus == menus_before
+    assert prevadzka.visible_meals == meals_before
+    assert list(prevadzka.visible_diets.values_list("name", flat=True)) == ["NONO"]
 
 
 @pytest.mark.django_db

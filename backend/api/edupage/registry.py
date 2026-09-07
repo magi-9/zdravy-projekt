@@ -13,6 +13,7 @@ from __future__ import annotations
 from urllib.parse import urlparse
 
 from .base import OlovrantMode, PrevadzkaConfig
+from .overrides.abcclub import abcclub_payer_hook
 from .overrides.britishschool import (
     british_school_letter_hook,
     british_school_payer_hook,
@@ -43,6 +44,17 @@ from .overrides.zdravebrusko import (
 _C = OlovrantMode.EDUPAGE
 
 _CONFIGS: tuple[PrevadzkaConfig, ...] = (
+    PrevadzkaConfig(
+        subdomena="abcclub",
+        ucty=("ABC",),
+        olovrant_mode=_C,
+        poznamka=(
+            "Onboarding 7.9.2026. Feed má vlastné jidy pre raňajky, obed aj "
+            "olovrant. Payer skupina 'NoNo dieťa s dotáciou' = diéta NONO "
+            "podľa doterajších objednávok ABC."
+        ),
+        payer_hook=abcclub_payer_hook,
+    ),
     PrevadzkaConfig(
         subdomena="skolkapramienok",
         ucty=("Pramienok",),
