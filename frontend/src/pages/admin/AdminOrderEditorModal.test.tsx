@@ -324,6 +324,30 @@ describe('AdminOrderEditorModal', () => {
         expect(screen.queryByText('Olovrant')).not.toBeInTheDocument();
     });
 
+    it('hides a meal restricted to another day of the week (raňajky, piatok only, on a Tuesday)', () => {
+        render(
+            <AdminOrderEditorModal
+                {...BASE_PROPS}
+                mealDayRestrictions={{ breakfast: [5] }}
+                existingOrder={{ id: 1, date: '2099-03-03', data: {} }}
+            />,
+        );
+        expect(screen.queryByText('Raňajky')).not.toBeInTheDocument();
+        expect(screen.getByText('Obed')).toBeInTheDocument();
+        expect(screen.getByText('Olovrant')).toBeInTheDocument();
+    });
+
+    it('shows the restricted meal on the day it is allowed (raňajky, piatok only, on a Friday)', () => {
+        render(
+            <AdminOrderEditorModal
+                {...BASE_PROPS}
+                mealDayRestrictions={{ breakfast: [5] }}
+                existingOrder={{ id: 1, date: '2099-03-06', data: {} }}
+            />,
+        );
+        expect(screen.getByText('Raňajky')).toBeInTheDocument();
+    });
+
     it('renders a category present in the order but absent from the hardcoded list and preserves it in the PATCH payload', async () => {
         mockApiFetch.mockResolvedValueOnce(makeMockResponse({ id: 7 }, true));
 

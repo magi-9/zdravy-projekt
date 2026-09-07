@@ -647,6 +647,16 @@ class Prevadzka(models.Model):
         blank=True,
         help_text="Chody dostupné pre objednávky tejto prevádzky.",
     )
+    meal_day_restrictions = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            "{jedlo: [ISO deň v týždni, 1=pondelok..7=nedeľa]} — obmedzenie, "
+            "kedy sa dané jedlo (z visible_meals) dá objednať, napr. raňajky len "
+            'v piatok = {"breakfast": [5]}. Chýbajúci kľúč alebo prázdny zoznam = '
+            "každý deň."
+        ),
+    )
     visible_diets = models.ManyToManyField(
         Diet,
         through="PrevadzkaDiet",

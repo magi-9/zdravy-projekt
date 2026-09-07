@@ -361,6 +361,28 @@ describe("ClientDetail facility & login management", () => {
     });
   });
 
+  it("restricts a meal to a chosen weekday and saves it, without touching other meals", async () => {
+    mockApiFetch.mockImplementation(buildFetchMock());
+    const user = userEvent.setup();
+    renderClientDetail();
+
+    await user.click(await screen.findByRole("button", { name: "Objednávanie" }));
+    await user.click(screen.getByRole("button", { name: "Raňajky - Pi" }));
+    await user.click(screen.getByRole("button", { name: "Uložiť nastavenia" }));
+
+    await waitFor(() => {
+      const patchCall = mockApiFetch.mock.calls.find(
+        ([url, init]) => String(url).includes("/admin/facility-prevadzky/7/")
+          && init?.method === "PATCH",
+      );
+      expect(patchCall).toBeDefined();
+      const body = JSON.parse(String(patchCall?.[1]?.body));
+      expect(body.meal_day_restrictions).toEqual({ breakfast: [5] });
+      // Ostatné jedlá (obed, olovrant) sú stále bez obmedzenia — každý deň.
+      expect(body.visible_meals).toEqual(["breakfast", "lunch", "olovrant"]);
+    });
+  });
+
   it("deletes the facility and navigates back to facilities", async () => {
     mockApiFetch.mockImplementation(buildFetchMock());
     const user = userEvent.setup();

@@ -5,7 +5,7 @@ import OrderFormBody from '../client/components/order/OrderFormBody';
 import OrderSummary from '../client/components/order/OrderSummary';
 import PackSeparatelySelector from '../client/components/order/PackSeparatelySelector';
 import OrderService, { DailyOrder, MealData, PackTarget } from '../client/services/OrderService';
-import { filterMenusByDay, getVisibleMenusForMeal as resolveVisibleMenusForMeal } from '../client/hooks/useOrder';
+import { filterMealsByDay, filterMenusByDay, getVisibleMenusForMeal as resolveVisibleMenusForMeal } from '../client/hooks/useOrder';
 import { CATEGORIES } from '../client/config/constants';
 import { useAuth } from '../../context/auth';
 import { useToast } from '../../context/ToastContext';
@@ -32,6 +32,8 @@ interface Props {
     /** `{menu písmeno: [ISO deň, 1=pondelok..7=nedeľa]}` — napr. Menu B len v piatok. */
     menuDayRestrictions?: Record<string, number[]> | null;
     visibleMeals: string[];
+    /** `{jedlo: [ISO deň, 1=pondelok..7=nedeľa]}` — napr. raňajky len v piatok. */
+    mealDayRestrictions?: Record<string, number[]> | null;
     visibleDiets: number[];
     portionTypeNames: string[];
     packSeparatelyEnabled: boolean;
@@ -159,6 +161,7 @@ const AdminOrderEditorModal: React.FC<Props> = ({
     visibleMenus,
     menuDayRestrictions,
     visibleMeals,
+    mealDayRestrictions,
     visibleDiets,
     portionTypeNames,
     packSeparatelyEnabled,
@@ -176,20 +179,25 @@ const AdminOrderEditorModal: React.FC<Props> = ({
         [portionTypeNames, existingOrder],
     );
     const emptyMeal = useMemo(() => OrderService.createEmptyMealFor(categories), [categories]);
+    const [date, setDate] = useState<string>(existingOrder?.date ?? OrderService.toLocalDateString(new Date()));
+    const dateLabel = useMemo(() => OrderService.formatRelativeDayLabel(date), [date]);
+    // Raňajky napr. "len v piatok" (#meal_day_restrictions) — editor predtým
+    // toto obmedzenie vôbec nepoznal, takže admin vedel zapísať zakázaný deň
+    // aj tam, kde ho klientský OrderPage už dávno skrýva.
+    const visibleMealsForDay = useMemo(
+        () => filterMealsByDay(visibleMeals, mealDayRestrictions, date),
+        [visibleMeals, mealDayRestrictions, date],
+    );
     const visibleMealsList = useMemo(
-        () => MEAL_CONFIG.filter((m) => visibleMeals.length === 0 || visibleMeals.includes(m.key)),
-        [visibleMeals],
+        () => MEAL_CONFIG.filter((m) => visibleMealsForDay.length === 0 || visibleMealsForDay.includes(m.key)),
+        [visibleMealsForDay],
     );
     const firstVisibleMealKey = visibleMealsList[0]?.key;
     const enabledDietNames = useMemo(
         () => allDiets.filter((d) => visibleDiets.includes(d.id)).map((d) => d.name),
         [allDiets, visibleDiets],
     );
-    const [date, setDate] = useState<string>(existingOrder?.date ?? OrderService.toLocalDateString(new Date()));
-    const dateLabel = useMemo(() => OrderService.formatRelativeDayLabel(date), [date]);
-    // Menu B napr. "len v piatok" (#menu_day_restrictions) — editor predtým
-    // toto obmedzenie vôbec nepoznal, takže admin vedel zapísať zakázaný deň
-    // aj tam, kde ho klientský OrderPage už dávno skrýva.
+    // Menu B napr. "len v piatok" (#menu_day_restrictions) — rovnaká logika.
     const visibleMenusForMeal = (meal: MealKey) =>
         filterMenusByDay(resolveVisibleMenusForMeal(meal, visibleMenus), menuDayRestrictions, date);
     const [order, setOrder] = useState<DailyOrder>(() => buildInitialOrder(categories, existingOrder));
