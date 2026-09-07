@@ -47,6 +47,7 @@ from .loading_views import LoadingViewSet
 # Meal plan views
 from .meal_plan_views import (
     DailyMealPlanViewSet,
+    DietComponentMergeViewSet,
     MealTemplateViewSet,
     PortionTypeViewSet,
 )
@@ -126,6 +127,7 @@ __all__ = [
     "DailyMealPlanViewSet",
     "PortionTypeViewSet",
     "MealTemplateViewSet",
+    "DietComponentMergeViewSet",
     # Push notifications
     "VapidPublicKeyView",
     "PushSubscribeView",

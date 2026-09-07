@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+import re as _re
 import unicodedata
 from decimal import Decimal, InvalidOperation
 from typing import Any, List
@@ -74,9 +75,9 @@ def resolve_diet_menu_variants(date: datetime.date) -> dict[str, str]:
 # viaže výhradne na Menu A (viď `DietComponentMerge` docstring), polievka nie
 # je samostatná "zložka" zo šéfkuchárskeho pohľadu (patrí pod obed).
 DIET_COMPONENT_MERGE_MEALS = (
-    MealCategory.BREAKFAST_SNACK,
-    MealCategory.MAIN_COURSE,
-    MealCategory.AFTERNOON_SNACK,
+    "breakfast_snack",
+    "main_course",
+    "afternoon_snack",
 )
 
 
@@ -95,6 +96,151 @@ def resolve_diet_component_merges(date_str: str) -> dict[tuple[str, str], set[in
         key = (row.meal, row.diet.name)
         merges.setdefault(key, set()).add(row.component_index)
     return merges
+
+
+def parse_meal_template_components(
+    name: str, components: list, weight_label: str, unit_exception: dict | None
+) -> list:
+    """Zložky `MealTemplate` do tvaru, ktorý gramáž aj deň-na-deň klikací
+    zoznam (`diet_component_merge_board`, #568) zdieľajú — pôvodne vnorená
+    funkcia v `gramage_dashboard`, vytiahnutá von, aby si oba spotrebitelia
+    nemuseli udržiavať dve kópie tej istej fallback logiky (legacy šablóny
+    bez štruktúrovaných `components`, viď nižšie)."""
+    numeric_components = [
+        {
+            "label": c.get("label", ""),
+            "base_grams": str(c["grams"]),
+            "unit": c.get("unit", "g"),
+        }
+        for c in components
+        if c.get("grams") not in (None, "") and c.get("unit", "g") in ("g", "ml")
+    ]
+    if not numeric_components:
+        # Fallback for templates without structured components (legacy data)
+        ws = _re.findall(
+            r"(\d+(?:[.,]\d+)?)\s*g(?![a-z])", weight_label, _re.IGNORECASE
+        )
+        weights = [Decimal(w.replace(",", ".")) for w in ws]
+        name_parts = [p.strip() for p in name.split(" + ")]
+        labels = (
+            name_parts
+            if len(name_parts) == len(weights)
+            else [f"Zložka {i + 1}" for i in range(len(weights))]
+        )
+        numeric_components = [
+            {"label": lbl, "base_grams": str(w), "unit": "g"}
+            for lbl, w in zip(labels, weights)
+        ]
+    if unit_exception:
+        numeric_components.append(
+            {
+                "label": unit_exception.get("component_label", ""),
+                "base_grams": None,
+                "unit": unit_exception.get("unit", "ks"),
+                "is_exception": True,
+                "counts_by_portion_type": unit_exception.get(
+                    "counts_by_portion_type", {}
+                ),
+            }
+        )
+    return numeric_components
+
+
+def collapse_breakfast_snack_components(components: list) -> list:
+    """Raňajky/desiata majú v gramážovej tabuľke jeden súhrnný stĺpec, nie
+    zložku za zložkou (kuchyňa chce "spolu", nie rozpis) — výnimka sú
+    kusové zložky (vajce/guľka), tie ostávajú vlastné. Rovnaká logika ako
+    predtým vnorená v `gramage_dashboard`, teraz zdieľaná aj s
+    `diet_component_merge_board` (#568)."""
+    if len(components) <= 1:
+        return components
+    exception_components = [c for c in components if c.get("is_exception")]
+    total_base = sum(
+        (
+            Decimal(str(c.get("base_grams") or "0"))
+            for c in components
+            if not c.get("is_exception")
+        ),
+        Decimal("0"),
+    )
+    return [
+        {"label": "Raňajky-desiata spolu", "base_grams": str(total_base), "unit": "g"},
+        *exception_components,
+    ]
+
+
+def diet_component_merge_board(date_str: str) -> dict:
+    """Dáta pre klikací zoznam "spolu/zvlášť" (#568) — pre daný deň zoznam
+    zložiek raňajok/desiaty, obeda (len Menu A) a olovrantu (odvodené z
+    denného jedálničku), zoznam aktívnych diét a aktuálny stav zlúčenia
+    (`resolve_diet_component_merges`).
+
+    Meal bez vybraného templatu (jedálniček ešte nenastavený) v odpovedi
+    jednoducho chýba — frontend to má zobraziť ako "jedálniček zatiaľ nie
+    je nastavený", nie ako prázdny grid.
+    """
+    meal_plan = (
+        DailyMealPlan.objects.filter(date=date_str)
+        .prefetch_related("items__template", "items__diet")
+        .first()
+    )
+    meals: list[dict] = []
+    if meal_plan:
+        by_meal: dict[str, MealPlanItem] = {}
+        for item in meal_plan.items.all():
+            if item.diet_id:
+                continue
+            if (
+                item.category == MealCategory.MAIN_COURSE
+                and (item.menu_variant or "").strip().upper() != "A"
+            ):
+                continue
+            # Prvý nájdený vyhráva (deterministicky podľa id) — jeden
+            # bezdiétny riadok na jedlo je bežný prípad; viac ich znamená
+            # nekonzistentné dáta, nie niečo, čo má tento board riešiť.
+            existing = by_meal.get(item.category)
+            if existing is None or item.id < existing.id:
+                by_meal[item.category] = item
+        for meal in DIET_COMPONENT_MERGE_MEALS:
+            item = by_meal.get(meal)
+            if item is None:
+                continue
+            t = item.template
+            components = parse_meal_template_components(
+                t.name, t.components, t.weight_label, t.unit_exception
+            )
+            if meal == MealCategory.BREAKFAST_SNACK:
+                components = collapse_breakfast_snack_components(components)
+            meals.append(
+                {
+                    "meal": meal,
+                    "label": dict(MealCategory.choices).get(meal, meal),
+                    "template_name": t.name,
+                    "components": [
+                        {
+                            "index": index,
+                            "label": c.get("label") or f"Zložka {index + 1}",
+                        }
+                        for index, c in enumerate(components)
+                    ],
+                }
+            )
+
+    merges = resolve_diet_component_merges(date_str)
+    diets = [
+        {"id": diet.id, "name": diet.name}
+        for diet in Diet.objects.filter(is_active=True)
+    ]
+    return {
+        "date": date_str,
+        "meals": meals,
+        "diets": diets,
+        "merged": [
+            {"meal": meal, "diet_name": diet_name, "component_index": index}
+            for (meal, diet_name), indices in merges.items()
+            for index in sorted(indices)
+        ],
+    }
 
 
 def _normalize_portion_name(value: object) -> str:
@@ -541,15 +687,21 @@ class MealPlanService:
         return [MealPlanService.calculate_gramage(p) for p in plans]
 
     @staticmethod
-    def gramage_dashboard(date_str: str) -> dict:
+    def gramage_dashboard(date_str: str, merge_diets: bool = True) -> dict:
         """
         Aggregate orders × meal plan templates × portion type coefficients.
         Rows are grouped by client; each client contains standard menu rows and
         optional diet sub-rows.
         Returns structured data for the gramage dashboard table.
-        """
-        import re as _re
 
+        `merge_diets=False` (dashboard prepínač "Použiť zlúčenie diét", #568)
+        vypne `DietComponentMerge` úplne — tabuľka sa vykreslí presne tak, ako
+        keby žiadna zložka nebola označená "spolu" (zachytené dáta ostávajú,
+        len sa v tomto volaní ignorujú). Táto vetva sa nekešuje (viď
+        `gramage_pdf_service.get_cached_gramage_dashboard_data` — kešuje sa
+        len default `merge_diets=True`), je to zámerne zriedkavý, explicitný
+        admin klik, nie hot path.
+        """
         from ..models import (
             DailyMealPlan,
             DailyOrder,
@@ -656,48 +808,11 @@ class MealPlanService:
             plan = None
             plan_id = None
 
-        def parse_components(
-            name: str, components: list, weight_label: str, unit_exception: dict | None
-        ) -> list:
-            numeric_components = [
-                {
-                    "label": c.get("label", ""),
-                    "base_grams": str(c["grams"]),
-                    "unit": c.get("unit", "g"),
-                }
-                for c in components
-                if c.get("grams") not in (None, "")
-                and c.get("unit", "g") in ("g", "ml")
-            ]
-            if not numeric_components:
-                # Fallback for templates without structured components (legacy data)
-                ws = _re.findall(
-                    r"(\d+(?:[.,]\d+)?)\s*g(?![a-z])", weight_label, _re.IGNORECASE
-                )
-                weights = [Decimal(w.replace(",", ".")) for w in ws]
-                name_parts = [p.strip() for p in name.split(" + ")]
-                labels = (
-                    name_parts
-                    if len(name_parts) == len(weights)
-                    else [f"Zložka {i + 1}" for i in range(len(weights))]
-                )
-                numeric_components = [
-                    {"label": lbl, "base_grams": str(w), "unit": "g"}
-                    for lbl, w in zip(labels, weights)
-                ]
-            if unit_exception:
-                numeric_components.append(
-                    {
-                        "label": unit_exception.get("component_label", ""),
-                        "base_grams": None,
-                        "unit": unit_exception.get("unit", "ks"),
-                        "is_exception": True,
-                        "counts_by_portion_type": unit_exception.get(
-                            "counts_by_portion_type", {}
-                        ),
-                    }
-                )
-            return numeric_components
+        # Tvorba zložiek (fallback na legacy dáta bez structured `components`,
+        # kusové výnimky vajce/guľka) žije v module-level
+        # `parse_meal_template_components` — zdieľa ju aj
+        # `diet_component_merge_board` (#568), aby sa nemali ako rozísť.
+        parse_components = parse_meal_template_components
 
         col_groups: list[dict] = []
         if plan:
@@ -735,28 +850,8 @@ class MealPlanService:
                 components = parse_components(
                     t.name, t.components, t.weight_label, t.unit_exception
                 )
-                if (
-                    item.category == MealCategory.BREAKFAST_SNACK
-                    and len(components) > 1
-                ):
-                    exception_components = [
-                        component
-                        for component in components
-                        if component.get("is_exception")
-                    ]
-                    total_base = sum(
-                        Decimal(str(component.get("base_grams") or "0"))
-                        for component in components
-                        if not component.get("is_exception")
-                    )
-                    components = [
-                        {
-                            "label": "Raňajky-desiata spolu",
-                            "base_grams": str(total_base),
-                            "unit": "g",
-                        },
-                        *exception_components,
-                    ]
+                if item.category == MealCategory.BREAKFAST_SNACK:
+                    components = collapse_breakfast_snack_components(components)
                 col_groups.append(
                     {
                         "key": key,
@@ -789,7 +884,9 @@ class MealPlanService:
         # jedla. Diétny riadok môže mať dáta v INEJ skupine (vlastný
         # explicitný template), preto sa čítanie (z diétnej skupiny) a zápis
         # (do štandardnej skupiny) musia robiť na dvoch rôznych indexoch.
-        diet_component_merges = resolve_diet_component_merges(date_str)
+        diet_component_merges = (
+            resolve_diet_component_merges(date_str) if merge_diets else {}
+        )
         standard_group_index_by_meal: dict[str, int] = {}
         for group_index, cg in enumerate(col_groups):
             if cg.get("diet_id"):

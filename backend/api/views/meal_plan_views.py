@@ -12,7 +12,14 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from ..cache_service import get_cached, get_closed_day_pdf_cache_key
-from ..models import DailyMealPlan, MealPlanItem, MealTemplate, PortionType
+from ..models import (
+    DailyMealPlan,
+    Diet,
+    DietComponentMerge,
+    MealPlanItem,
+    MealTemplate,
+    PortionType,
+)
 from ..order_data import OrderData, safe_count
 from ..permissions import IsAdminOrAbove, IsKuchynaOrAbove
 from ..roles import is_admin_or_above
@@ -27,7 +34,11 @@ from ..services.gramage_pdf_service import (
 from ..services.gramage_pdf_service import (
     render_gramage_dashboard_pdf,
 )
-from ..services.meal_plan_service import MealPlanService
+from ..services.meal_plan_service import (
+    DIET_COMPONENT_MERGE_MEALS,
+    MealPlanService,
+    diet_component_merge_board,
+)
 from ..utils import parse_date_param
 from .audit_mixins import AuditedModelViewSetMixin
 
@@ -317,7 +328,16 @@ class DailyMealPlanViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
             from ..cache_service import clear_gramage_dashboard_cache
 
             clear_gramage_dashboard_cache(date.isoformat())
-        data = _cached_gramage_dashboard_data(date.isoformat())
+        # Prepínač "Použiť zlúčenie diét" (#568) — default zapnutý (kešovaná
+        # vetva). Vypnutý je zámerne nekešovaný, prepočíta sa nanovo — je to
+        # zriedkavý explicitný klik, nie niečo, čo treba škálovať.
+        merge_diets = _parse_bool_param(request, "merge_diets", True)
+        if merge_diets:
+            data = _cached_gramage_dashboard_data(date.isoformat())
+        else:
+            data = MealPlanService.gramage_dashboard(
+                date.isoformat(), merge_diets=False
+            )
         # Hotový popis tabuľky — obrazovka aj PDF ho renderujú z rovnakého spec-u,
         # aby sa nemali ako rozísť (viď gramage_table_spec).
         from ..exporters.gramage_table_spec import build_table_spec
@@ -404,3 +424,82 @@ class DailyMealPlanViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
         fname = f"jedalnícek_{from_date}_{to_date}.xlsx"
         response["Content-Disposition"] = f"attachment; filename*=UTF-8''{quote(fname)}"
         return response
+
+
+class DietComponentMergeViewSet(viewsets.ViewSet):
+    """Klikací zoznam "spolu/zvlášť" (#568) — kuchyňa aj admin.
+
+    Nie `ModelViewSet` — frontend nepozná/nepotrebuje id jednotlivých
+    `DietComponentMerge` riadkov, pracuje len s (deň, jedlo, index zložky,
+    diéta). `toggle` je preto upsert/delete podľa tejto štvorice, nie CRUD
+    nad primárnym kľúčom.
+    """
+
+    permission_classes = [IsKuchynaOrAbove]
+
+    @action(detail=False, methods=["get"])
+    def board(self, request):
+        """GET /api/admin/diet-component-merge/board/?date=YYYY-MM-DD"""
+        date_str = request.query_params.get("date")
+        if not date_str:
+            return Response(
+                {"error": "date required"}, status=status.HTTP_400_BAD_REQUEST
+            )
+        date = parse_date_param(date_str)
+        return Response(diet_component_merge_board(date.isoformat()))
+
+    @action(detail=False, methods=["post"])
+    def toggle(self, request):
+        """POST /api/admin/diet-component-merge/toggle/
+
+        Body: {date, meal, component_index, diet_id, merged, component_label?}.
+        `merged=true` vytvorí/aktualizuje riadok "spolu", `merged=false` ho
+        zmaže (default "zvlášť" — viď model). Vracia prečerstvený `board`,
+        nech frontend nemusí robiť druhý request len na prekreslenie.
+        """
+        date_str = request.data.get("date")
+        meal = request.data.get("meal")
+        component_index = request.data.get("component_index")
+        diet_id = request.data.get("diet_id")
+        if not date_str or not meal or component_index is None or not diet_id:
+            return Response(
+                {"error": "date, meal, component_index and diet_id required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if meal not in DIET_COMPONENT_MERGE_MEALS:
+            return Response(
+                {"error": f"unsupported meal: {meal}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        date = parse_date_param(date_str)
+        try:
+            diet = Diet.objects.get(pk=diet_id)
+        except Diet.DoesNotExist:
+            return Response(
+                {"error": "diet not found"}, status=status.HTTP_404_NOT_FOUND
+            )
+        try:
+            component_index = int(component_index)
+        except (TypeError, ValueError):
+            return Response(
+                {"error": "component_index must be an integer"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if request.data.get("merged"):
+            DietComponentMerge.objects.update_or_create(
+                date=date,
+                meal=meal,
+                component_index=component_index,
+                diet=diet,
+                defaults={
+                    "updated_by": request.user,
+                    "component_label": str(request.data.get("component_label") or ""),
+                },
+            )
+        else:
+            DietComponentMerge.objects.filter(
+                date=date, meal=meal, component_index=component_index, diet=diet
+            ).delete()
+
+        return Response(diet_component_merge_board(date.isoformat()))

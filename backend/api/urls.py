@@ -21,6 +21,7 @@ from .views import (
     DailyOrderViewSet,
     DeliveryBlockViewSet,
     DeliveryRouteViewSet,
+    DietComponentMergeViewSet,
     DietViewSet,
     EmailTokenObtainPairView,
     GlobalSettingsViewSet,
@@ -100,6 +101,11 @@ router.register(r"admin/closed-days", ClosedDayViewSet, basename="closed-day")
 router.register(r"admin/meal-plans", DailyMealPlanViewSet, basename="meal-plan")
 router.register(r"admin/portion-types", PortionTypeViewSet, basename="portion-type")
 router.register(r"admin/meal-templates", MealTemplateViewSet, basename="meal-template")
+router.register(
+    r"admin/diet-component-merge",
+    DietComponentMergeViewSet,
+    basename="diet-component-merge",
+)
 router.register(r"meal-plans", DailyMealPlanViewSet, basename="client-meal-plan")
 router.register(r"admin/holidays", AdminHolidayViewSet, basename="admin-holiday")
 router.register(r"holidays", HolidayListViewSet, basename="holiday")
