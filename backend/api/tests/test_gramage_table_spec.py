@@ -1639,6 +1639,42 @@ def test_summary_only_cluster_renders_kusy_ms_rows_not_grid():
     assert summary_rows[4]["cells"][0]["text"] == "3 ks / 6 MŠ"
 
 
+def test_fixed_british_summary_renders_zero_instead_of_hiding_a_missing_part():
+    payload = _payload_with_summary_only_cluster()
+    payload["vydaje"][1]["british_summary"] = [
+        {
+            "label": "Snack (balíček)",
+            "heads": Decimal("0"),
+            "total": Decimal("0"),
+            "kusy_only": True,
+            "show_zero": True,
+        },
+        {
+            "label": "Obed",
+            "heads": Decimal("0"),
+            "total": Decimal("0"),
+            "show_zero": True,
+            "menus": [
+                {
+                    "label": "Menu D",
+                    "heads": Decimal("0"),
+                    "total": Decimal("0"),
+                    "show_zero": True,
+                }
+            ],
+        },
+    ]
+
+    spec = build_table_spec(payload)
+    rows = _rows_for_section(spec["rows"], "SUMÁR CLUSTER C S DIÉTAMI MŠ")
+
+    assert [row["cells"][0]["text"] for row in rows] == [
+        "0 ks",
+        "0 ks / 0 MŠ",
+        "0 ks / 0 MŠ",
+    ]
+
+
 def test_summary_only_cluster_has_no_route_or_client_rows():
     """Cluster A si svoju trasu/klienta necháva (bežná mriežka) — British
     (Cluster C, summary_only) nedostane ani jedno z toho, len sumár."""

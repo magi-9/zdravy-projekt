@@ -136,6 +136,43 @@ class TestMealItemsFromOrderData:
         items = meal_items_from_order_data(order_data, {"Škôlka": Decimal("1")})
         assert [item["label"] for item in items] == ["Obed"]
 
+    def test_british_fixed_layout_keeps_all_meals_and_menu_variants_at_zero(self):
+        """Cluster C má stálu osnovu, aby sa žiadna British položka nestratila.
+
+        Bežné clustre túto osnovu nemajú: nevedia pripraviť Snack (balíček)
+        ani Menu D/V1. Pri British objednávke s jediným Menu A sa však musia
+        aj nulové položky jasne vrátiť do sumáru.
+        """
+        items = meal_items_from_order_data(
+            {"lunch": {"Škôlka": {"menuCounts": {"A": 5}, "diets": {}}}},
+            {"Škôlka": Decimal("1")},
+            fixed_british_layout=True,
+        )
+
+        assert [item["label"] for item in items] == [
+            "Raňajky",
+            "Snack (balíček)",
+            "Obed",
+            "Olovrant",
+        ]
+        assert items[1] == {
+            "label": "Snack (balíček)",
+            "heads": Decimal("0"),
+            "total": Decimal("0"),
+            "kusy_only": True,
+            "show_zero": True,
+        }
+        assert [menu["label"] for menu in items[2]["menus"]] == [
+            "Menu A",
+            "Menu B",
+            "Menu C",
+            "Menu D",
+            "Menu V",
+            "Menu V1",
+        ]
+        assert items[2]["menus"][3]["heads"] == Decimal("0")
+        assert items[2]["menus"][5]["heads"] == Decimal("0")
+
     def test_unknown_portion_defaults_to_coefficient_one(self):
         order_data = {"breakfast": {"Neznáma": {"menuCounts": {"A": 4}, "diets": {}}}}
         items = meal_items_from_order_data(order_data, {})

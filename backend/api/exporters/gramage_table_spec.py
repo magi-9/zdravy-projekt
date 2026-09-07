@@ -1515,15 +1515,18 @@ def _render_ms_rows(meal_items: list[dict], total_columns: int) -> list[dict]:
     položky rovnakého tvaru, len z iného zdroja."""
     rows: list[dict] = []
     for item in meal_items:
+
+        def count_text(value: object) -> str:
+            if item.get("show_zero") and _as_decimal(value) == 0:
+                return "0"
+            return format_count(value)
+
         # "Snack" (British desiata) je ČISTO kusovo — žiadny prepočet na MŠ
         # porcie (user 4.9.2026: "nemá prepočet na ms, je to iba kusovo").
         text = (
-            f"{format_count(item['heads'])} ks"
+            f"{count_text(item['heads'])} ks"
             if item.get("kusy_only")
-            else (
-                f"{format_count(item['heads'])} ks / "
-                f"{format_count(item['total'])} MŠ"
-            )
+            else f"{count_text(item['heads'])} ks / {count_text(item['total'])} MŠ"
         )
         rows.append(
             {
@@ -1554,8 +1557,8 @@ def _render_ms_rows(meal_items: list[dict], total_columns: int) -> list[dict]:
                         {
                             "label": f"{menu['label']}:",
                             "text": (
-                                f"{format_count(menu['heads'])} ks / "
-                                f"{format_count(menu['total'])} MŠ"
+                                f"{count_text(menu['heads'])} ks / "
+                                f"{count_text(menu['total'])} MŠ"
                             ),
                             "colspan": total_columns,
                         }
