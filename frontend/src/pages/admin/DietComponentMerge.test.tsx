@@ -43,10 +43,23 @@ describe("DietComponentMergePage", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders one column per component and one row per diet, unchecked by default", async () => {
+  it("collapses a meal section by default when it has no merges today", async () => {
     mockApiFetch.mockResolvedValue({ ok: true, json: async () => boardWithMainCourse });
 
     render(<MemoryRouter><DietComponentMergePage /></MemoryRouter>);
+
+    expect(await screen.findByText("Hlavný chod")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /rozbaliť/i })).toBeInTheDocument();
+    expect(screen.queryByText("Hlavná časť")).not.toBeInTheDocument();
+    expect(screen.queryByText("Bez lepku")).not.toBeInTheDocument();
+  });
+
+  it("expands a collapsed meal section on click, revealing the grid unchecked by default", async () => {
+    mockApiFetch.mockResolvedValue({ ok: true, json: async () => boardWithMainCourse });
+
+    render(<MemoryRouter><DietComponentMergePage /></MemoryRouter>);
+
+    fireEvent.click(await screen.findByRole("button", { name: /rozbaliť/i }));
 
     expect(await screen.findByText("Hlavná časť")).toBeInTheDocument();
     expect(screen.getByText("Príloha")).toBeInTheDocument();
@@ -55,7 +68,7 @@ describe("DietComponentMergePage", () => {
     expect(screen.queryByText("spolu")).not.toBeInTheDocument();
   });
 
-  it("shows already-merged components as checked", async () => {
+  it("expands a meal section by default when it already has a merge today", async () => {
     mockApiFetch.mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -66,9 +79,26 @@ describe("DietComponentMergePage", () => {
 
     render(<MemoryRouter><DietComponentMergePage /></MemoryRouter>);
 
-    await screen.findByText("Hlavná časť");
-    expect(screen.getByText("spolu")).toBeInTheDocument();
+    expect(await screen.findByText("spolu")).toBeInTheDocument();
     expect(screen.getByText("zvlášť")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /zbaliť/i })).toBeInTheDocument();
+  });
+
+  it("highlights a merged cell with a distinct background from a separate one", async () => {
+    mockApiFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        ...boardWithMainCourse,
+        merged: [{ meal: "main_course", diet_name: "Bez lepku", component_index: 0 }],
+      }),
+    });
+
+    render(<MemoryRouter><DietComponentMergePage /></MemoryRouter>);
+
+    const mergedCell = (await screen.findByText("spolu")).closest("td");
+    const separateCell = screen.getByText("zvlášť").closest("td");
+    expect(mergedCell?.style.background).not.toBe("");
+    expect(mergedCell?.style.background).not.toBe(separateCell?.style.background);
   });
 
   it("clicking a cell POSTs a toggle with the right key and applies the refreshed board", async () => {
@@ -83,6 +113,7 @@ describe("DietComponentMergePage", () => {
 
     render(<MemoryRouter><DietComponentMergePage /></MemoryRouter>);
 
+    fireEvent.click(await screen.findByRole("button", { name: /rozbaliť/i }));
     const buttons = await screen.findAllByText("zvlášť");
     fireEvent.click(buttons[0]);
 
