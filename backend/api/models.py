@@ -622,18 +622,54 @@ class Prevadzka(models.Model):
         return [part.strip() for part in self.edupage_match.split(";") if part.strip()]
 
     sort_order = models.PositiveSmallIntegerField(default=0)
-    delivery_route = models.ForeignKey(
+    # Raňajky/obed/olovrant majú vlastné, na sebe nezávislé trasy aj poradie
+    # (#dashboard-per-meal-routes) — kuchyňa vydáva každé jedlo inak zoradené
+    # a inou trasou, tabuľka na /dashboard sa preto delí na 3 samostatné.
+    delivery_route_breakfast = models.ForeignKey(
         "DeliveryRoute",
         on_delete=models.SET_NULL,
-        related_name="prevadzky",
+        related_name="prevadzky_breakfast",
         null=True,
         blank=True,
-        help_text="Rozvozová trasa používaná v admin Prehľade.",
+        help_text="Rozvozová trasa pre raňajky, používaná v admin Prehľade.",
     )
-    delivery_sort_order = models.PositiveSmallIntegerField(
+    delivery_sort_order_breakfast = models.PositiveSmallIntegerField(
         default=0,
-        help_text="Poradie prevádzky v rámci rozvozovej trasy.",
+        help_text="Poradie prevádzky v rámci raňajkovej rozvozovej trasy.",
     )
+    delivery_route_lunch = models.ForeignKey(
+        "DeliveryRoute",
+        on_delete=models.SET_NULL,
+        related_name="prevadzky_lunch",
+        null=True,
+        blank=True,
+        help_text="Rozvozová trasa pre obed, používaná v admin Prehľade.",
+    )
+    delivery_sort_order_lunch = models.PositiveSmallIntegerField(
+        default=0,
+        help_text="Poradie prevádzky v rámci obedovej rozvozovej trasy.",
+    )
+    delivery_route_olovrant = models.ForeignKey(
+        "DeliveryRoute",
+        on_delete=models.SET_NULL,
+        related_name="prevadzky_olovrant",
+        null=True,
+        blank=True,
+        help_text="Rozvozová trasa pre olovrant, používaná v admin Prehľade.",
+    )
+    delivery_sort_order_olovrant = models.PositiveSmallIntegerField(
+        default=0,
+        help_text="Poradie prevádzky v rámci olovrantovej rozvozovej trasy.",
+    )
+
+    def delivery_route_for(self, meal_type: str) -> "DeliveryRoute | None":
+        """Rozvozová trasa prevádzky pre dané jedlo (`breakfast`/`lunch`/`olovrant`)."""
+        return getattr(self, f"delivery_route_{meal_type}", None)
+
+    def delivery_sort_order_for(self, meal_type: str) -> int:
+        """Poradie prevádzky v rámci jej trasy pre dané jedlo."""
+        return getattr(self, f"delivery_sort_order_{meal_type}", 0)
+
     report_alias = models.CharField(
         max_length=255,
         blank=True,
@@ -851,10 +887,30 @@ class ProfilePrevadzkaAccess(models.Model):
         ]
 
 
+class DeliveryMealType(models.TextChoices):
+    """Jedlo, ktorému blok/trasa patrí — raňajky/obed/olovrant majú úplne
+
+    oddelené hierarchie blok→trasa→prevádzky (#dashboard-per-meal-routes),
+    takže rovnaký názov bloku ("Bežné trasy") môže existovať v každom jedle
+    zvlášť.
+    """
+
+    BREAKFAST = "breakfast", "Raňajky"
+    LUNCH = "lunch", "Obed"
+    OLOVRANT = "olovrant", "Olovrant"
+
+
 class DeliveryBlock(models.Model):
     """Hlavný blok rozvozového prehľadu, napr. bežné trasy alebo extra trasy."""
 
-    name = models.CharField(max_length=120, unique=True)
+    meal_type = models.CharField(
+        max_length=20,
+        choices=DeliveryMealType.choices,
+        default=DeliveryMealType.LUNCH,
+        db_index=True,
+        help_text="Jedlo, ktorému blok patrí — raňajky/obed/olovrant majú vlastné stromy blokov.",
+    )
+    name = models.CharField(max_length=120)
     sort_order = models.PositiveSmallIntegerField(default=0)
     include_in_main_summary = models.BooleanField(default=True)
     include_in_extra_summary = models.BooleanField(default=False)
@@ -862,9 +918,14 @@ class DeliveryBlock(models.Model):
 
     class Meta:
         ordering = ["sort_order", "name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["meal_type", "name"], name="unique_delivery_block_name_per_meal"
+            )
+        ]
 
     def __str__(self) -> str:
-        return self.name
+        return f"{self.name} ({self.get_meal_type_display()})"
 
 
 class DeliveryRoute(models.Model):

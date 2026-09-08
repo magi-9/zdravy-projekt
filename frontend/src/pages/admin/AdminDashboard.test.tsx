@@ -607,7 +607,7 @@ describe("Filter sekcií", () => {
     await waitFor(() => {
       expect(mockApiFetch).toHaveBeenCalledWith(
         expect.stringMatching(
-          /gramage-dashboard\/\?date=[\d-]+&section=soup&section=main_course_A$/,
+          /gramage-dashboard\/\?date=[\d-]+&meal_type=lunch&section=soup&section=main_course_A$/,
         ),
       );
     });
@@ -621,7 +621,7 @@ describe("Filter sekcií", () => {
     await waitFor(() => {
       expect(mockApiFetch).toHaveBeenCalledWith(
         expect.stringMatching(
-          /gramage-dashboard-pdf\/\?date=[\d-]+&section=soup&section=main_course_A$/,
+          /gramage-dashboard-pdf\/\?date=[\d-]+&meal_type=lunch&section=soup&section=main_course_A$/,
         ),
       );
     });
@@ -651,7 +651,7 @@ describe("Filter sekcií", () => {
 
     await waitFor(() => {
       expect(mockApiFetch).toHaveBeenCalledWith(
-        expect.stringMatching(/gramage-dashboard\/\?date=[\d-]+&vydaj=B$/),
+        expect.stringMatching(/gramage-dashboard\/\?date=[\d-]+&meal_type=lunch&vydaj=B$/),
       );
     });
 
@@ -660,7 +660,7 @@ describe("Filter sekcií", () => {
     fireEvent.click(pdfButton);
     await waitFor(() => {
       expect(mockApiFetch).toHaveBeenCalledWith(
-        expect.stringMatching(/gramage-dashboard-pdf\/\?date=[\d-]+&vydaj=B$/),
+        expect.stringMatching(/gramage-dashboard-pdf\/\?date=[\d-]+&meal_type=lunch&vydaj=B$/),
       );
     });
   });
@@ -679,7 +679,7 @@ describe("Filter sekcií", () => {
     fireEvent.click(olovrant);
     await waitFor(() => {
       expect(mockApiFetch).toHaveBeenCalledWith(
-        expect.stringMatching(/gramage-dashboard\/\?date=[\d-]+$/),
+        expect.stringMatching(/gramage-dashboard\/\?date=[\d-]+&meal_type=lunch$/),
       );
     });
   });
@@ -699,7 +699,7 @@ describe("Nastavenia tabuľky (2.9.2026)", () => {
 
     await waitFor(() => {
       expect(mockApiFetch).toHaveBeenCalledWith(
-        expect.stringMatching(/gramage-dashboard\/\?date=[\d-]+&show_empty=0$/),
+        expect.stringMatching(/gramage-dashboard\/\?date=[\d-]+&meal_type=lunch&show_empty=0$/),
       );
     });
   });
@@ -724,7 +724,7 @@ describe("Nastavenia tabuľky (2.9.2026)", () => {
 
     await waitFor(() => {
       expect(mockApiFetch).toHaveBeenCalledWith(
-        expect.stringMatching(/gramage-dashboard\/\?date=[\d-]+&cluster_summary=0$/),
+        expect.stringMatching(/gramage-dashboard\/\?date=[\d-]+&meal_type=lunch&cluster_summary=0$/),
       );
     });
     expect(screen.queryByText("Diéty v sumári klastra")).not.toBeInTheDocument();
@@ -743,7 +743,7 @@ describe("Nastavenia tabuľky (2.9.2026)", () => {
 
     await waitFor(() => {
       expect(mockApiFetch).toHaveBeenCalledWith(
-        expect.stringMatching(/gramage-dashboard\/\?date=[\d-]+&expanded=1$/),
+        expect.stringMatching(/gramage-dashboard\/\?date=[\d-]+&meal_type=lunch&expanded=1$/),
       );
     });
     // Bez klikania na žiadneho klienta — všetci sú rovno rozbalení (#format ako v PDF).
@@ -758,7 +758,7 @@ describe("Nastavenia tabuľky (2.9.2026)", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Zobraziť prázdne prevádzky" }));
     await waitFor(() => {
       expect(mockApiFetch).toHaveBeenCalledWith(
-        expect.stringMatching(/gramage-dashboard\/\?date=[\d-]+&show_empty=0$/),
+        expect.stringMatching(/gramage-dashboard\/\?date=[\d-]+&meal_type=lunch&show_empty=0$/),
       );
     });
 
@@ -772,7 +772,7 @@ describe("Nastavenia tabuľky (2.9.2026)", () => {
 
     await waitFor(() => {
       expect(mockApiFetch).toHaveBeenCalledWith(
-        expect.stringMatching(/gramage-dashboard\/\?date=[\d-]+&show_empty=0$/),
+        expect.stringMatching(/gramage-dashboard\/\?date=[\d-]+&meal_type=lunch&show_empty=0$/),
       );
     });
     await openTableSettings();
@@ -790,14 +790,14 @@ describe("Nastavenia tabuľky (2.9.2026)", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Zobraziť prázdne prevádzky" }));
     await waitFor(() => {
       expect(mockApiFetch).toHaveBeenCalledWith(
-        expect.stringMatching(/gramage-dashboard\/\?date=[\d-]+&show_empty=0$/),
+        expect.stringMatching(/gramage-dashboard\/\?date=[\d-]+&meal_type=lunch&show_empty=0$/),
       );
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Obnoviť predvolené" }));
     await waitFor(() => {
       expect(mockApiFetch).toHaveBeenCalledWith(
-        expect.stringMatching(/gramage-dashboard\/\?date=[\d-]+$/),
+        expect.stringMatching(/gramage-dashboard\/\?date=[\d-]+&meal_type=lunch$/),
       );
     });
   });

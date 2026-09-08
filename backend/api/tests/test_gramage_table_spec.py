@@ -56,6 +56,7 @@ def _payload(**overrides):
                         "count": 2,
                         "color": "#F59E0B",
                         "col_grams": [["400.00"], ["600.00"], []],
+                        "meal_counts": {"main_course": 2},
                     }
                 ],
                 "admin_order_note": "bez cibule",
@@ -315,16 +316,18 @@ def test_prevadzka_diet_note_is_absent_without_one():
 
 def test_empty_routes_are_skipped():
     payload = _payload(
-        vydaje=[
-            {
-                "key": "A",
-                "name": "Cluster A",
-                "routes": [
-                    {"id": 1, "name": "Prázdna trasa", "rows": []},
-                    {"id": 2, "name": "Plná trasa", "rows": _payload()["rows"]},
-                ],
-            }
-        ],
+        vydaje_by_meal={
+            "lunch": [
+                {
+                    "key": "A",
+                    "name": "Cluster A",
+                    "routes": [
+                        {"id": 1, "name": "Prázdna trasa", "rows": []},
+                        {"id": 2, "name": "Plná trasa", "rows": _payload()["rows"]},
+                    ],
+                }
+            ]
+        },
         rows=[],
     )
     spec = build_table_spec(payload)
@@ -545,6 +548,7 @@ def test_footer_diet_breakdown_sums_the_diet_across_all_clients():
             "count": 3,
             "color": "#F59E0B",
             "col_grams": [["300.00"], ["450.00"], []],
+            "meal_counts": {"main_course": 3},
         }
     ]
     payload["rows"].append(second_client)
@@ -641,7 +645,7 @@ def test_totals_row_count_lands_only_on_the_first_component_of_a_group():
             }
         ],
     )
-    spec = build_table_spec(payload)
+    spec = build_table_spec(payload, meal_type="breakfast")
 
     totals_row = spec["footer"][-2]
     # cells[0] = roh „CELKOM (g / ml)"; cells[1]/[2] = Pečivo/Nátierka (Raňajky).
@@ -695,13 +699,22 @@ def _group_labels(spec):
     return [group["text"] for group in spec["header"]["groups"]]
 
 
-def test_no_filter_means_the_complete_table():
-    assert _group_labels(build_table_spec(_with_breakfast_and_snack())) == [
+def test_no_filter_means_the_complete_table_for_its_own_meal():
+    """Raňajky/obed/olovrant sú od #dashboard-per-meal-routes samostatné
+    tabuľky — bez `sections` filtra ukáže každá presne svoje stĺpce, nikdy
+    stĺpce iného jedla."""
+    payload = _with_breakfast_and_snack()
+
+    assert _group_labels(build_table_spec(payload, meal_type="lunch")) == [
         "Polievka",
         "Menu A",
         "Menu B",
-        "Raňajky",
-        "Olovrant",
+    ]
+    assert _group_labels(build_table_spec(payload, meal_type="breakfast")) == [
+        "Raňajky"
+    ]
+    assert _group_labels(build_table_spec(payload, meal_type="olovrant")) == [
+        "Olovrant"
     ]
 
 
@@ -710,20 +723,33 @@ def test_sections_select_exactly_what_was_ticked():
     payload = _with_breakfast_and_snack()
 
     assert _group_labels(
-        build_table_spec(payload, sections=["soup", "main_course_A"])
+        build_table_spec(payload, meal_type="lunch", sections=["soup", "main_course_A"])
     ) == [
         "Polievka",
         "Menu A",
     ]
-    assert _group_labels(build_table_spec(payload, sections=["breakfast_snack"])) == [
-        "Raňajky"
-    ]
-    assert _group_labels(build_table_spec(payload, sections=["afternoon_snack"])) == [
-        "Olovrant"
-    ]
     assert _group_labels(
-        build_table_spec(payload, sections=["main_course_A", "main_course_B"])
+        build_table_spec(payload, meal_type="breakfast", sections=["breakfast_snack"])
+    ) == ["Raňajky"]
+    assert _group_labels(
+        build_table_spec(payload, meal_type="olovrant", sections=["afternoon_snack"])
+    ) == ["Olovrant"]
+    assert _group_labels(
+        build_table_spec(
+            payload, meal_type="lunch", sections=["main_course_A", "main_course_B"]
+        )
     ) == ["Menu A", "Menu B"]
+
+
+def test_sections_cannot_reach_across_into_another_meal():
+    """`sections` je vždy podmnožina stĺpcov AKTUÁLNEHO `meal_type` — kľúč z
+    iného jedla (napr. zabudnutá voľba z raňajkového tabu) sa ignoruje, tabuľka
+    padne späť na kompletné stĺpce svojho jedla, nie na prázdnu stranu."""
+    payload = _with_breakfast_and_snack()
+
+    spec = build_table_spec(payload, meal_type="lunch", sections=["breakfast_snack"])
+
+    assert _group_labels(spec) == ["Polievka", "Menu A", "Menu B"]
 
 
 def test_filter_also_trims_the_cluster_summary():
@@ -747,8 +773,11 @@ def test_filter_drops_rows_that_lose_all_their_numbers():
     """Olovrantový riadok pri tlači obeda nemá čo ukázať — nepatrí tam."""
     payload = _with_breakfast_and_snack()
 
-    complete = [row["cells"][0]["text"] for row in build_table_spec(payload)["rows"]]
-    assert "Škôlka - Olovrant" in complete
+    olovrant = [
+        row["cells"][0]["text"]
+        for row in build_table_spec(payload, meal_type="olovrant")["rows"]
+    ]
+    assert "Škôlka - Olovrant" in olovrant
 
     lunch = [
         row["cells"][0]["text"]
@@ -760,41 +789,35 @@ def test_filter_drops_rows_that_lose_all_their_numbers():
     assert "Škôlka" in lunch
 
 
-def test_spec_lists_every_section_with_its_state():
-    """Prepínače musia obsahovať aj odškrtnuté, inak sa už nedajú zapnúť späť."""
-    spec = build_table_spec(_with_breakfast_and_snack(), sections=["main_course_A"])
+def test_spec_lists_every_section_of_its_own_meal_with_its_state():
+    """Prepínače musia obsahovať aj odškrtnuté, inak sa už nedajú zapnúť späť
+    — no len prepínače VLASTNÉHO jedla, obedový tab nemá ponúkať "Raňajky"."""
+    spec = build_table_spec(
+        _with_breakfast_and_snack(), meal_type="lunch", sections=["main_course_A"]
+    )
 
     assert [(s["key"], s["selected"]) for s in spec["sections"]] == [
         ("soup", False),
         ("main_course_A", True),
         ("main_course_B", False),
-        ("breakfast_snack", False),
-        ("afternoon_snack", False),
     ]
 
 
 def test_unknown_or_empty_selection_falls_back_to_everything():
-    """Preklep v URL nesmie vrátiť prázdnu stranu."""
+    """Preklep v URL nesmie vrátiť prázdnu stranu — padne na kompletnú
+    tabuľku toho istého jedla, nie na cudzie stĺpce."""
     payload = _with_breakfast_and_snack()
 
-    assert len(_group_labels(build_table_spec(payload, sections=["nezmysel"]))) == 5
-    assert len(_group_labels(build_table_spec(payload, sections=[]))) == 5
+    assert len(_group_labels(build_table_spec(payload, sections=["nezmysel"]))) == 3
+    assert len(_group_labels(build_table_spec(payload, sections=[]))) == 3
 
 
-def test_subtotals_count_only_the_visible_sections():
-    """Na obedovom hárku nesmie „Súčet bez diét" rátať raňajky a olovrant."""
+def test_subtotals_count_only_the_current_meals_table():
+    """Obedová tabuľka nesmie do „Súčet bez diét" počítať raňajky ani
+    olovrant — to sú od #dashboard-per-meal-routes úplne iné tabuľky."""
     payload = _with_breakfast_and_snack()
 
-    complete = build_table_spec(payload)
-    std = next(r for r in complete["rows"] if r["kind"] == "summary-std")
-    # 8 obedov (Menu A) + 8 olovrantov, 0 raňajok — tabuľka má všetky 3 pásy.
-    assert std["cells"][0]["count"] == "0 + 8 + 8"
-    assert (
-        next(r for r in complete["rows"] if r["kind"] == "client")["cells"][0]["meta"]
-        == "štandard 16, diéty 2"
-    )
-
-    lunch = build_table_spec(payload, sections=["soup", "main_course_A"])
+    lunch = build_table_spec(payload, meal_type="lunch")
     std = next(r for r in lunch["rows"] if r["kind"] == "summary-std")
     assert std["cells"][0]["count"] == "8"
     assert (
@@ -802,15 +825,26 @@ def test_subtotals_count_only_the_visible_sections():
         == "štandard 8, diéty 2"
     )
 
+    olovrant = build_table_spec(payload, meal_type="olovrant")
+    std = next(r for r in olovrant["rows"] if r["kind"] == "summary-std")
+    assert std["cells"][0]["count"] == "8"
+    # Žiadna diéta na olovrante v tejto fixture — "diéty 0" sa vôbec
+    # nevypisuje (rovnaké chovanie ako predtým, meta text diéty s nulou
+    # vynecháva).
+    assert (
+        next(r for r in olovrant["rows"] if r["kind"] == "client")["cells"][0]["meta"]
+        == "štandard 8"
+    )
+
 
 def test_a_diet_absent_from_the_visible_sections_is_not_summarised():
     """Diéta bez viditeľného riadku nemá čo sumarizovať."""
     payload = _with_breakfast_and_snack()
 
-    lunch = build_table_spec(payload, sections=["afternoon_snack"])
-    assert not [r for r in lunch["rows"] if r["kind"] == "summary-diet"]
+    olovrant = build_table_spec(payload, meal_type="olovrant")
+    assert not [r for r in olovrant["rows"] if r["kind"] == "summary-diet"]
     # Poznámky sú na prevádzku, nie na jedlo — tie tam ostávajú.
-    assert [r["kind"] for r in lunch["rows"]] == [
+    assert [r["kind"] for r in olovrant["rows"]] == [
         "client",
         "sub-row",
         "note-delivery",
@@ -823,16 +857,12 @@ def test_a_diet_absent_from_the_visible_sections_is_not_summarised():
 
 
 def test_meal_band_merges_soup_with_main_course():
-    """Polievka a menu tvoria jeden „Obed"; raňajky a olovrant vlastné pásy."""
-    spec = build_table_spec(_with_breakfast_and_snack())
+    """Polievka a menu tvoria jeden „Obed" pás v hlavičke obedovej tabuľky."""
+    spec = build_table_spec(_with_breakfast_and_snack(), meal_type="lunch")
 
     bands = [(band["text"], band["colspan"]) for band in spec["header"]["meals"]]
-    assert [text for text, _ in bands] == [
-        "Obed",
-        "Raňajky / desiata",
-        "Olovrant",
-    ]
-    # Šírka pásov spolu sedí s počtom zložiek v hlavičke.
+    assert [text for text, _ in bands] == ["Obed"]
+    # Šírka pásu sedí s počtom zložiek v hlavičke.
     assert sum(span for _, span in bands) == len(spec["header"]["components"])
 
 
@@ -852,8 +882,10 @@ def _with_breakfast_and_snack_same_portion():
 
 
 def test_standard_rows_of_the_same_portion_merge_across_meals():
-    """#527 — jedna porcia, tri jedlá → jeden riadok, nie tri."""
-    spec = build_table_spec(_with_breakfast_and_snack_same_portion())
+    """#527 — jedna porcia, tri jedlá → jeden zlúčený riadok naprieč jedlami
+    (merge beží pred filtrom stĺpcov, #dashboard-per-meal-routes), no
+    obedová tabuľka ukáže z neho len svoj vlastný (obedový) počet a stĺpce."""
+    spec = build_table_spec(_with_breakfast_and_snack_same_portion(), meal_type="lunch")
 
     standard_rows = [
         r for r in spec["rows"] if r["kind"] == "sub-row" and "diet" not in r["css"]
@@ -862,13 +894,13 @@ def test_standard_rows_of_the_same_portion_merge_across_meals():
     row = standard_rows[0]
     # Meno jedla mizne z labelu — nesie ho count-odznak nižšie.
     assert row["cells"][0]["text"] == "Škôlka"
-    # Obed (8) + Olovrant (8), Raňajky 0 — všetky 3 pásy tabuľky, bez
-    # R/Ob/Ol skratky pred číslom.
-    assert row["cells"][0]["count"] == "0 + 8 + 8"
+    # Len obedový počet — olovrant je iná tabuľka.
+    assert row["cells"][0]["count"] == "8"
     # Gramáž zostáva rozpísaná do svojich (disjunktných) stĺpcov jedla —
-    # zlúčenie nesmie nič sčítať do jedného čísla.
+    # zlúčenie nesmie nič sčítať do jedného čísla; olovrantový stĺpec sa v
+    # obedovej tabuľke vôbec nezobrazuje.
     gram_cells = [c for c in row["cells"][1:] if "cell-num" in c["css"]]
-    assert [c["text"] for c in gram_cells] == ["1600", "2400", "1000"]
+    assert [c["text"] for c in gram_cells] == ["1600", "2400"]
 
 
 def test_child_menu_b_is_not_merged_into_the_menu_a_row():
@@ -889,7 +921,7 @@ def test_child_menu_b_is_not_merged_into_the_menu_a_row():
     variant_b["col_grams"] = list(main_course_a["col_grams"])
     row["sub_rows"].append(variant_b)
 
-    spec = build_table_spec(payload)
+    spec = build_table_spec(payload, meal_type="lunch")
     standard_rows = [
         r for r in spec["rows"] if r["kind"] == "sub-row" and "diet" not in r["css"]
     ]
@@ -897,7 +929,7 @@ def test_child_menu_b_is_not_merged_into_the_menu_a_row():
         "Škôlka",
         "Škôlka - Menu B",
     ]
-    assert [r["cells"][0]["count"] for r in standard_rows] == ["0 + 8 + 8", "0 + 3 + 0"]
+    assert [r["cells"][0]["count"] for r in standard_rows] == ["8", "3"]
 
 
 def test_adult_portion_keeps_a_separate_row_per_menu_variant():
@@ -938,13 +970,13 @@ def test_adult_portion_without_a_menu_variant_still_merges_across_meals():
         sub_row["portion_name"] = "Dospelý (SŠ)"
         sub_row["variant"] = ""
 
-    spec = build_table_spec(payload)
+    spec = build_table_spec(payload, meal_type="lunch")
     standard_rows = [
         r for r in spec["rows"] if r["kind"] == "sub-row" and "diet" not in r["css"]
     ]
     assert len(standard_rows) == 1
     assert standard_rows[0]["cells"][0]["text"] == "Dospelý (SŠ)"
-    assert standard_rows[0]["cells"][0]["count"] == "0 + 8 + 8"
+    assert standard_rows[0]["cells"][0]["count"] == "8"
 
 
 def test_a_single_meal_portion_keeps_a_plain_count():
@@ -985,13 +1017,17 @@ def test_pack_separately_rows_are_not_merged_across_meals():
             }
         )
 
-    spec = build_table_spec(payload)
-    zvlast_labels = [
-        r["cells"][0]["text"]
-        for r in spec["rows"]
-        if r["kind"] == "sub-row" and r["cells"][0]["text"].endswith("zvlášť")
-    ]
-    assert zvlast_labels == ["Škôlka - Raňajky - zvlášť", "Škôlka - Olovrant - zvlášť"]
+    def _zvlast_labels(meal_type):
+        return [
+            r["cells"][0]["text"]
+            for r in build_table_spec(payload, meal_type=meal_type)["rows"]
+            if r["kind"] == "sub-row" and r["cells"][0]["text"].endswith("zvlášť")
+        ]
+
+    # Každý zostáva vo svojej vlastnej (jedno-jedlovej) tabuľke, nikdy oba
+    # naraz — inak by to bolo dôkazom zlúčenia naprieč jedlami.
+    assert _zvlast_labels("breakfast") == ["Škôlka - Raňajky - zvlášť"]
+    assert _zvlast_labels("olovrant") == ["Škôlka - Olovrant - zvlášť"]
 
 
 def test_pack_separately_row_count_survives_the_multi_band_composite_format():
@@ -1016,16 +1052,16 @@ def test_pack_separately_row_count_survives_the_multi_band_composite_format():
             }
         )
 
-    spec = build_table_spec(payload)
+    spec = build_table_spec(payload, meal_type="breakfast")
     zvlast_row = next(
         r
         for r in spec["rows"]
         if r["kind"] == "sub-row"
         and r["cells"][0]["text"] == "Škôlka - Raňajky - zvlášť"
     )
-    # Tabuľka má 3 pásy (Raňajky/Obed/Olovrant); tento riadok patrí len k
-    # raňajkám — "1 + 0 + 0", nie "0 + 0 + 0".
-    assert zvlast_row["cells"][0]["count"] == "1 + 0 + 0"
+    # Raňajková tabuľka má jediný pás — "1", nie "0" (chýbajúci fallback by
+    # composite formátovanie počítalo z prázdneho `_meal_counts`).
+    assert zvlast_row["cells"][0]["count"] == "1"
 
 
 def test_long_portion_names_are_abbreviated():
@@ -1047,20 +1083,22 @@ def _two_vydaje_payload():
     """Dva výdajné body, každý s jednou prevádzkou — kuchyňa vydáva z dvoch miest."""
     rows = _payload()["rows"]
     return _payload(
-        vydaje=[
-            {
-                "key": "A",
-                "name": "Cluster A",
-                "routes": [{"id": 1, "name": "Trasa 1", "rows": rows}],
-            },
-            {
-                "key": "B",
-                "name": "Cluster B",
-                "routes": [{"id": 2, "name": "Trasa extra 1", "rows": rows}],
-            },
-        ],
+        vydaje_by_meal={
+            "lunch": [
+                {
+                    "key": "A",
+                    "name": "Cluster A",
+                    "routes": [{"id": 1, "name": "Trasa 1", "rows": rows}],
+                },
+                {
+                    "key": "B",
+                    "name": "Cluster B",
+                    "routes": [{"id": 2, "name": "Trasa extra 1", "rows": rows}],
+                },
+            ]
+        },
         rows=[],
-        unassigned_rows=[],
+        unassigned_rows_by_meal={"lunch": []},
     )
 
 
@@ -1115,7 +1153,7 @@ def test_filtered_vydaj_totals_ignore_the_other_vydaj():
 
 def test_unassigned_prevadzky_stay_out_of_a_filtered_print():
     payload = _two_vydaje_payload()
-    payload["unassigned_rows"] = _payload()["rows"]
+    payload["unassigned_rows_by_meal"] = {"lunch": _payload()["rows"]}
 
     assert "Nepriradené prevádzky" in _band_texts(build_table_spec(payload))
     assert "Nepriradené prevádzky" not in _band_texts(
@@ -1130,25 +1168,27 @@ def _three_vydaje_payload():
     """Tri výdajné body — British School je prvý reálny 3. klaster."""
     rows = _payload()["rows"]
     return _payload(
-        vydaje=[
-            {
-                "key": "A",
-                "name": "Cluster A",
-                "routes": [{"id": 1, "name": "Trasa 1", "rows": rows}],
-            },
-            {
-                "key": "B",
-                "name": "Cluster B",
-                "routes": [{"id": 2, "name": "Trasa extra 1", "rows": rows}],
-            },
-            {
-                "key": "C",
-                "name": "Cluster C",
-                "routes": [{"id": 3, "name": "British School", "rows": rows}],
-            },
-        ],
+        vydaje_by_meal={
+            "lunch": [
+                {
+                    "key": "A",
+                    "name": "Cluster A",
+                    "routes": [{"id": 1, "name": "Trasa 1", "rows": rows}],
+                },
+                {
+                    "key": "B",
+                    "name": "Cluster B",
+                    "routes": [{"id": 2, "name": "Trasa extra 1", "rows": rows}],
+                },
+                {
+                    "key": "C",
+                    "name": "Cluster C",
+                    "routes": [{"id": 3, "name": "British School", "rows": rows}],
+                },
+            ]
+        },
         rows=[],
-        unassigned_rows=[],
+        unassigned_rows_by_meal={"lunch": []},
     )
 
 
@@ -1327,36 +1367,51 @@ def test_cluster_summary_shows_diets_under_their_meal_and_menu_v_from_orders():
         }
     )
 
-    spec = build_table_spec(payload)
-    section = _rows_for_section(spec["footer"], "SUMÁR S DIÉTAMI MŠ")
-
-    assert [(row["cells"][0]["label"], row["cells"][0]["text"]) for row in section] == [
-        ("Raňajky:", "4 ks / 4 MŠ"),
-        ("z toho diéty:", "4 ks / 4 MŠ"),
+    # Raňajky/obed/olovrant sú od #dashboard-per-meal-routes samostatné
+    # tabuľky — každá vidí vo footeri len svoj vlastný rozpis.
+    lunch_section = _rows_for_section(
+        build_table_spec(payload, meal_type="lunch")["footer"], "SUMÁR S DIÉTAMI MŠ"
+    )
+    assert [
+        (row["cells"][0]["label"], row["cells"][0]["text"]) for row in lunch_section
+    ] == [
         ("Obed:", "13 ks / 13 MŠ"),
         ("Menu A:", "10 ks / 10 MŠ"),
         ("z toho diéty:", "2 ks / 2 MŠ"),
         ("Menu B:", "— ks / — MŠ"),
         ("Menu V:", "3 ks / 3 MŠ"),
-        ("Olovrant:", "5 ks / 5 MŠ"),
-        ("z toho diéty:", "5 ks / 5 MŠ"),
     ]
+
+    breakfast_section = _rows_for_section(
+        build_table_spec(payload, meal_type="breakfast")["footer"],
+        "SUMÁR S DIÉTAMI MŠ",
+    )
+    assert [
+        (row["cells"][0]["label"], row["cells"][0]["text"]) for row in breakfast_section
+    ] == [("Raňajky:", "4 ks / 4 MŠ"), ("z toho diéty:", "4 ks / 4 MŠ")]
+
+    olovrant_section = _rows_for_section(
+        build_table_spec(payload, meal_type="olovrant")["footer"],
+        "SUMÁR S DIÉTAMI MŠ",
+    )
+    assert [
+        (row["cells"][0]["label"], row["cells"][0]["text"]) for row in olovrant_section
+    ] == [("Olovrant:", "5 ks / 5 MŠ"), ("z toho diéty:", "5 ks / 5 MŠ")]
 
 
 def test_breakfast_and_snack_summary_rows_get_no_menu_breakdown():
-    """Menu varianty existujú len na obede — riadky Raňajky/Olovrant v súhrne
-    nesmú dostať žiadny rozpis, aj keď tabuľka Menu A/B stĺpce má."""
-    spec = build_table_spec(_with_breakfast_and_snack())
+    """Menu varianty existujú len na obede — footer je od
+    #dashboard-per-meal-routes vždy jedno-jedlový, takže Raňajky/Olovrant sa v
+    obedovom súhrne vôbec nezobrazia (vlastnú tabuľku majú v svojom `meal_type`)."""
+    spec = build_table_spec(_with_breakfast_and_snack(), meal_type="lunch")
 
     section = _rows_for_section(spec["footer"], "SUMÁR S DIÉTAMI MŠ")
     labels = [row["cells"][0]["label"] for row in section]
     assert labels == [
-        "Raňajky:",
         "Obed:",
         "Menu A:",
         "z toho diéty:",
         "Menu B:",
-        "Olovrant:",
     ]
 
 
@@ -1419,7 +1474,8 @@ def _snack_cell_css(spec):
 
 
 def test_snack_column_uses_the_normal_hue_by_default():
-    spec = build_table_spec(_with_breakfast_and_snack())
+    # Olovrant je od #dashboard-per-meal-routes vlastná tabuľka.
+    spec = build_table_spec(_with_breakfast_and_snack(), meal_type="olovrant")
 
     assert "mh-snack-cell" in _snack_cell_css(spec)
     assert "mh-snacklunch-cell" not in _snack_cell_css(spec)
@@ -1428,11 +1484,11 @@ def test_snack_column_uses_the_normal_hue_by_default():
 def test_snack_with_lunch_flag_recolours_only_the_snack_column():
     payload = _with_breakfast_and_snack()
     payload["rows"][0]["snack_with_lunch"] = True
-    spec = build_table_spec(payload)
+    spec = build_table_spec(payload, meal_type="olovrant")
 
     assert "mh-snacklunch-cell" in _snack_cell_css(spec)
-    # Ostatné jedlá (Polievka/Menu A/B) musia ostať v pôvodných farbách —
-    # príznak sa týka výlučne stĺpca "Olovrant".
+    # Ostatné riadky (napr. diétne sub-riadky) musia ostať v pôvodných
+    # farbách — príznak sa týka výlučne stĺpca "Olovrant".
     for row in spec["rows"]:
         if row.get("kind") != "sub-row":
             continue
@@ -1455,7 +1511,7 @@ def test_snack_with_lunch_flag_is_per_row_not_global():
     payload["rows"][0]["snack_with_lunch"] = True
     payload["rows"].append(second)
 
-    spec = build_table_spec(payload)
+    spec = build_table_spec(payload, meal_type="olovrant")
     snack_sub_rows = [
         row
         for row in spec["rows"]
@@ -1479,20 +1535,24 @@ def test_snack_with_lunch_flag_is_per_row_not_global():
 def _payload_with_empty_route():
     """Cluster A má reálne dáta, Cluster B má trasu úplne bez riadkov."""
     return _payload(
-        vydaje=[
-            {
-                "key": "A",
-                "name": "Cluster A",
-                "routes": [{"id": 1, "name": "Trasa 1", "rows": _payload()["rows"]}],
-            },
-            {
-                "key": "B",
-                "name": "Cluster B",
-                "routes": [{"id": 2, "name": "Trasa prázdna", "rows": []}],
-            },
-        ],
+        vydaje_by_meal={
+            "lunch": [
+                {
+                    "key": "A",
+                    "name": "Cluster A",
+                    "routes": [
+                        {"id": 1, "name": "Trasa 1", "rows": _payload()["rows"]}
+                    ],
+                },
+                {
+                    "key": "B",
+                    "name": "Cluster B",
+                    "routes": [{"id": 2, "name": "Trasa prázdna", "rows": []}],
+                },
+            ]
+        },
         rows=[],
-        unassigned_rows=[],
+        unassigned_rows_by_meal={"lunch": []},
     )
 
 
@@ -1600,15 +1660,17 @@ def _payload_with_summary_only_cluster():
     # `build_table_spec`) musí ostať Cluster A riadky — len `summary_only`
     # klastre (British) sa z neho reálne vynechávajú (MealPlanService), nie
     # každá prevádzka vo `vydaje`.
-    payload["vydaje"] = [
-        {
-            "key": "A",
-            "name": "Cluster A",
-            "routes": [{"id": 1, "name": "Trasa 1", "rows": payload["rows"]}],
-        },
-        _summary_only_vydaj(),
-    ]
-    payload["unassigned_rows"] = []
+    payload["vydaje_by_meal"] = {
+        "lunch": [
+            {
+                "key": "A",
+                "name": "Cluster A",
+                "routes": [{"id": 1, "name": "Trasa 1", "rows": payload["rows"]}],
+            },
+            _summary_only_vydaj(),
+        ]
+    }
+    payload["unassigned_rows_by_meal"] = {"lunch": []}
     return payload
 
 
@@ -1643,7 +1705,7 @@ def test_summary_only_cluster_renders_kusy_ms_rows_not_grid():
 
 def test_fixed_british_summary_renders_zero_instead_of_hiding_a_missing_part():
     payload = _payload_with_summary_only_cluster()
-    payload["vydaje"][1]["british_summary"] = [
+    payload["vydaje_by_meal"]["lunch"][1]["british_summary"] = [
         {
             "label": "Snack (balíček)",
             "heads": Decimal("0"),
@@ -1750,21 +1812,23 @@ def test_summary_only_cluster_excluded_from_first_two_combination():
     "Cluster A + B" medzisúčte — ten číta gram-plánové sub_rows, ktoré
     British nemá."""
     payload = _payload()
-    payload["vydaje"] = [
-        {
-            "key": "A",
-            "name": "Cluster A",
-            "routes": [{"id": 1, "name": "Trasa 1", "rows": payload["rows"]}],
-        },
-        _summary_only_vydaj(),
-        {
-            "key": "B",
-            "name": "Cluster B",
-            "routes": [{"id": 2, "name": "Trasa 2", "rows": payload["rows"]}],
-        },
-    ]
+    payload["vydaje_by_meal"] = {
+        "lunch": [
+            {
+                "key": "A",
+                "name": "Cluster A",
+                "routes": [{"id": 1, "name": "Trasa 1", "rows": payload["rows"]}],
+            },
+            _summary_only_vydaj(),
+            {
+                "key": "B",
+                "name": "Cluster B",
+                "routes": [{"id": 2, "name": "Trasa 2", "rows": payload["rows"]}],
+            },
+        ]
+    }
     payload["rows"] = []
-    payload["unassigned_rows"] = []
+    payload["unassigned_rows_by_meal"] = {"lunch": []}
 
     spec = build_table_spec(payload)
 
