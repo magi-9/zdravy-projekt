@@ -628,9 +628,11 @@ class TestZdravebruskoLetterHook(unittest.TestCase):
         self.assertEqual(self._rule("dsbNO").diet, "NO ORECH")
 
     def test_dsb_triple_combo_confirmed(self):
-        """'dsbNNN SJ' bol uncertain fuzzy match (len NO SOJA) — potvrdené na
-        plnú kombináciu (user 1.9.2026)."""
-        self.assertEqual(self._rule("dsbNNN SJ").diet, "NONONO – NO SOJA")
+        """'dsbNNN SJ' je potvrdená kompletná kombinácia obmedzení."""
+        self.assertEqual(
+            self._rule("dsbNNN SJ").diet,
+            "NoNoNo - No Soja - No Jablko - No Telacie",
+        )
 
     def test_heyrovskeho_gluten_confirmed(self):
         self.assertEqual(self._rule("mšHey. NG").diet, "NO GLUTEN")
