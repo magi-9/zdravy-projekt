@@ -1,5 +1,27 @@
 # Changelog
 
+## [3.0.0](https://github.com/tomag-9/zdravy-projekt/compare/v2.12.0...v3.0.0) (2026-09-08)
+
+
+### ⚠ BREAKING CHANGES
+
+* diet-component merge — zlučovanie diétnych zložiek so štandardným menu ([#568](https://github.com/tomag-9/zdravy-projekt/issues/568)) (#610)
+
+### Features
+
+* add scheduled maintenance mode ([51f2e93](https://github.com/tomag-9/zdravy-projekt/commit/51f2e933cfe73f36dda8e85da83acb6e91ca983a))
+* **admin:** auto-collapse diet-component-merge sekcie bez výnimiek ([6fee8e5](https://github.com/tomag-9/zdravy-projekt/commit/6fee8e54b91bc347f261fe3cc13b1319cdcd982b))
+* diet-component merge — zlučovanie diétnych zložiek so štandardným menu ([#568](https://github.com/tomag-9/zdravy-projekt/issues/568)) ([#610](https://github.com/tomag-9/zdravy-projekt/issues/610)) ([2533037](https://github.com/tomag-9/zdravy-projekt/commit/2533037a33081d1bab745d52abb7970c668b80d0))
+* **gramage:** kaskáda zlúčenia pre kombinované diéty + presné farby diét ([#568](https://github.com/tomag-9/zdravy-projekt/issues/568)) ([a51b7c8](https://github.com/tomag-9/zdravy-projekt/commit/a51b7c8c6ab01f93ae948fe4a6b0eaa72d88780a))
+* manage scheduled maintenance ([4075ae0](https://github.com/tomag-9/zdravy-projekt/commit/4075ae06ccad93daf1ca8f4a4e61d4d7b70a59a5))
+
+
+### Bug Fixes
+
+* **edupage:** desiata (British snack) prežije meal-type filter pri scrape ([19b4807](https://github.com/tomag-9/zdravy-projekt/commit/19b48070628c7f8545d3b9c83f8fa58d6fa2184a))
+* **edupage:** sčítaj presmerovaný sA scrape s appkovými objednávkami Stromčeka ([3b09d72](https://github.com/tomag-9/zdravy-projekt/commit/3b09d72f51816588429275d6accfdf3101d0d52b))
+* **test:** update Deutsche Schule diet expectation ([127cbd7](https://github.com/tomag-9/zdravy-projekt/commit/127cbd7b1ed2266b8408ed2976ced230a0d69f26))
+
 ## [2.12.0](https://github.com/tomag-9/zdravy-projekt/compare/v2.11.1...v2.12.0) (2026-09-07)
 
 
