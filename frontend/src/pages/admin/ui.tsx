@@ -359,12 +359,12 @@ export const Toggle: React.FC<
 };
 
 export const Checkbox: React.FC<
-    { on: boolean; onChange: (v: boolean) => void; children?: React.ReactNode } & ReadOnlyAware
-> = ({ on, onChange, children, allowReadOnly }) => (
+    { on: boolean; onChange: (v: boolean) => void; children?: React.ReactNode; disabled?: boolean } & ReadOnlyAware
+> = ({ on, onChange, children, allowReadOnly, disabled }) => (
     <button
         type="button"
         className={`zpa-check${on ? ' on' : ''}`}
-        disabled={useDisabled(undefined, allowReadOnly)}
+        disabled={useDisabled(disabled, allowReadOnly)}
         onClick={() => onChange(!on)}
     >
         <span className="box">{on && <CheckMark />}</span>

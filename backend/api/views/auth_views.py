@@ -18,7 +18,7 @@ from api.management.commands.init_roles import DEMO_ADMIN_EMAIL, DEMO_OPERATION_
 
 from ..exceptions import InvalidCredentialsError, MissingRequiredFieldError
 from ..metrics import login_attempts_total
-from ..roles import role_of
+from ..roles import is_admin_or_above, role_of
 from ..throttles import LoginRateThrottle
 
 logger = logging.getLogger(__name__)
@@ -134,6 +134,15 @@ class EmailTokenObtainPairSerializer(TokenObtainPairSerializer):
             raise InvalidCredentialsError()
 
         user = self._find_user_for_login(email=email, password=password)
+
+        from ..cached_settings_service import get_global_settings
+
+        if get_global_settings().maintenance_is_active() and not is_admin_or_above(
+            user
+        ):
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("Aplikácia je počas údržby dočasne nedostupná.")
 
         lifetime = (
             _ADMIN_REFRESH_LIFETIME if user.is_staff else _CLIENT_REFRESH_LIFETIME

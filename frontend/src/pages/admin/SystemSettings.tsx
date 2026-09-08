@@ -6,13 +6,14 @@ import { logger } from '../../lib/logger';
 import { SECTION, canRead } from '../../lib/sections';
 import { PageHead, Card, CardHead, Button, Field, Input, Toggle } from './ui';
 
-type SettingsTab = 'deadlines' | 'edupage' | 'contact' | 'report';
+type SettingsTab = 'deadlines' | 'edupage' | 'contact' | 'report' | 'maintenance';
 
 const TABS: { key: SettingsTab; label: string }[] = [
     { key: 'deadlines', label: 'Časy' },
     { key: 'edupage', label: 'EduPage' },
     { key: 'contact', label: 'Kontakt' },
     { key: 'report', label: 'Denný report' },
+    { key: 'maintenance', label: 'Údržba' },
 ];
 
 // Priateľský slovenský názov pre needitovateľný prehľad automatických behov
@@ -57,6 +58,9 @@ interface ScrapeResult {
 }
 
 interface GlobalSettings {
+    maintenance_enabled: boolean;
+    maintenance_starts_at: string | null;
+    maintenance_ends_at: string | null;
     deadline_breakfast: string;
     deadline_breakfast_is_day_before: boolean;
     deadline_lunch: string;
@@ -88,6 +92,9 @@ const SystemSettings: React.FC = () => {
     const [automation, setAutomation] = useState<UpcomingEventEntry[]>([]);
     const [automationLoading, setAutomationLoading] = useState(true);
     const [settings, setSettings] = useState<GlobalSettings>({
+        maintenance_enabled: false,
+        maintenance_starts_at: null,
+        maintenance_ends_at: null,
         deadline_breakfast: '10:00',
         deadline_breakfast_is_day_before: false,
         deadline_lunch: '10:00',
@@ -241,7 +248,51 @@ const SystemSettings: React.FC = () => {
         }
     };
 
+    const clearMaintenance = async () => {
+        const cleared = {
+            ...settings,
+            maintenance_enabled: false,
+            maintenance_starts_at: null,
+            maintenance_ends_at: null,
+        };
+        setSettings(cleared);
+        try {
+            const res = await apiFetch(`${import.meta.env.VITE_API_URL || '/api'}/admin/global-settings/`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    maintenance_enabled: false,
+                    maintenance_starts_at: null,
+                    maintenance_ends_at: null,
+                }),
+            });
+            if (res.ok) success('Údržba bola zmazaná');
+            else {
+                setSettings(settings);
+                error('Údržbu sa nepodarilo zmazať');
+            }
+        } catch (e) {
+            logger.error(e);
+            setSettings(settings);
+            error('Chyba pripojenia');
+        }
+    };
+
     if (loading) return <div className="zpa-empty">Načítavam…</div>;
+
+    const maintenanceConfigured = Boolean(
+        settings.maintenance_enabled || settings.maintenance_starts_at || settings.maintenance_ends_at,
+    );
+    const maintenanceActive = Boolean(
+        settings.maintenance_enabled
+        && settings.maintenance_starts_at
+        && settings.maintenance_ends_at
+        && new Date(settings.maintenance_starts_at).getTime() <= Date.now()
+        && Date.now() < new Date(settings.maintenance_ends_at).getTime(),
+    );
+    const formatMaintenanceDate = (value: string | null) => value
+        ? new Intl.DateTimeFormat('sk-SK', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
+        : 'nezadané';
 
     const isValidEmail = (value: string): boolean => {
         const input = document.createElement('input');
@@ -666,6 +717,38 @@ const SystemSettings: React.FC = () => {
                             ))}
                         </ul>
                     )}
+                </Card>
+                )}
+
+                {activeTab === 'maintenance' && (
+                <Card pad>
+                    <CardHead title="Plánovaná údržba" desc="Počas aktívneho intervalu klienti uvidia oznam s odpočtom a nemôžu sa prihlásiť ani odosielať objednávky. Admin a superadmin majú prístup ďalej." />
+                    <div style={{ marginTop: 16, padding: '14px 16px', borderRadius: 'var(--radius-md)', background: 'var(--bg-cream-soft)', border: '1px solid var(--line-soft)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+                            <strong style={{ fontSize: 14, color: 'var(--green-900)' }}>Aktuálna údržba</strong>
+                            <span className={`zpa-badge zpa-badge--${maintenanceActive ? 'coral' : maintenanceConfigured ? 'honey' : 'gray'}`}>
+                                {maintenanceActive ? 'Aktívna' : maintenanceConfigured ? 'Naplánovaná' : 'Nie je nastavená'}
+                            </span>
+                        </div>
+                        {maintenanceConfigured && <p style={{ margin: '9px 0 0', fontSize: 13, color: 'var(--ink-3)' }}>
+                            {formatMaintenanceDate(settings.maintenance_starts_at)} — {formatMaintenanceDate(settings.maintenance_ends_at)}
+                        </p>}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 24, marginTop: 12 }}>
+                        <div>
+                            <p style={{ fontSize: 14, color: 'var(--ink-3)', margin: 0 }}>Zapnúť režim údržby</p>
+                            <p style={{ fontSize: 12.5, color: 'var(--ink-mute)', marginTop: 6 }}>Oznam sa zobrazí automaticky medzi časmi nižšie.</p>
+                        </div>
+                        <Toggle on={settings.maintenance_enabled ?? false} onChange={(value) => setSettings({ ...settings, maintenance_enabled: value })} ariaLabel="Zapnúť režim údržby" />
+                    </div>
+                    <div className="zpa-grid-2" style={{ marginTop: 20 }}>
+                        <Field label="Začiatok údržby"><Input type="datetime-local" value={settings.maintenance_starts_at ? settings.maintenance_starts_at.slice(0, 16) : ''} onChange={(e) => setSettings({ ...settings, maintenance_starts_at: e.target.value || null })} /></Field>
+                        <Field label="Koniec údržby — objednávky budú opäť dostupné"><Input type="datetime-local" value={settings.maintenance_ends_at ? settings.maintenance_ends_at.slice(0, 16) : ''} onChange={(e) => setSettings({ ...settings, maintenance_ends_at: e.target.value || null })} /></Field>
+                    </div>
+                    <div style={{ paddingTop: 24, display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                        {maintenanceConfigured ? <Button type="button" variant="danger" onClick={clearMaintenance}>Zmazať údržbu</Button> : <span />}
+                        <Button type="button" onClick={saveSettings}>Uložiť údržbu</Button>
+                    </div>
                 </Card>
                 )}
 
