@@ -237,6 +237,12 @@ def _default_visible_menus() -> List[str]:
 
 
 class GlobalSettings(models.Model):
+    maintenance_enabled = models.BooleanField(
+        default=False,
+        help_text="Temporarily blocks client access during a scheduled update.",
+    )
+    maintenance_starts_at = models.DateTimeField(null=True, blank=True)
+    maintenance_ends_at = models.DateTimeField(null=True, blank=True)
     deadline_breakfast = models.TimeField(
         default=datetime.time(10, 0), help_text="Deadline for breakfast orders"
     )
@@ -363,6 +369,16 @@ class GlobalSettings(models.Model):
             )
         return getattr(self, f"deadline_{meal_type}"), getattr(
             self, f"deadline_{meal_type}_is_day_before", False
+        )
+
+    def maintenance_is_active(self) -> bool:
+        """Whether the configured maintenance window is in progress right now."""
+        now = timezone.now()
+        return bool(
+            self.maintenance_enabled
+            and self.maintenance_starts_at
+            and self.maintenance_ends_at
+            and self.maintenance_starts_at <= now < self.maintenance_ends_at
         )
 
     def save(self, *args: Any, **kwargs: Any) -> None:

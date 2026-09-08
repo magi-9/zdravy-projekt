@@ -1010,6 +1010,9 @@ class GlobalSettingsSerializer(serializers.ModelSerializer):
 
         model = GlobalSettings
         fields = [
+            "maintenance_enabled",
+            "maintenance_starts_at",
+            "maintenance_ends_at",
             "deadline_breakfast",
             "deadline_breakfast_is_day_before",
             "deadline_lunch",
@@ -1032,6 +1035,27 @@ class GlobalSettingsSerializer(serializers.ModelSerializer):
             "client_contact_email",
             "client_contact_phone",
         ]
+
+    def validate(self, attrs: Dict[str, Any]) -> Dict[str, Any]:
+        """An enabled maintenance notice must always have a real end time."""
+        enabled = attrs.get("maintenance_enabled", self.instance.maintenance_enabled)
+        starts_at = attrs.get(
+            "maintenance_starts_at", self.instance.maintenance_starts_at
+        )
+        ends_at = attrs.get("maintenance_ends_at", self.instance.maintenance_ends_at)
+        if enabled:
+            errors = {}
+            if not starts_at:
+                errors["maintenance_starts_at"] = "Zadajte začiatok údržby."
+            if not ends_at:
+                errors["maintenance_ends_at"] = "Zadajte koniec údržby."
+            elif starts_at and ends_at <= starts_at:
+                errors["maintenance_ends_at"] = (
+                    "Koniec údržby musí byť po jej začiatku."
+                )
+            if errors:
+                raise serializers.ValidationError(errors)
+        return attrs
 
     def to_representation(self, instance: Any) -> Dict[str, Any]:
         """Strip ``report_email_recipients`` for non-admin callers."""

@@ -4,8 +4,9 @@ import {
   Route,
   Navigate,
   Outlet,
+  useLocation,
 } from "react-router-dom";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import { AppProvider } from "./pages/client/context/AppContext";
 import { AuthProvider, useAuth } from "./context/auth";
@@ -23,6 +24,8 @@ import NotificationGuard from "./components/NotificationGuard";
 import PWAInstallBanner from "./components/PWAInstallBanner";
 import PWAUpdateBanner from "./components/PWAUpdateBanner";
 import AppLoadingScreen from "./components/AppLoadingScreen";
+import MaintenanceScreen from "./components/MaintenanceScreen";
+import { shouldShowMaintenance, type MaintenanceSettings } from "./lib/maintenance";
 import HomePage from "./pages/client/pages/HomePage";
 import OrderPage from "./pages/client/pages/OrderPage";
 import SuccessPage from "./pages/client/pages/SuccessPage";
@@ -218,8 +221,29 @@ export function ClientInstallPrompt() {
  * fire-and-forget (page reloads when ready; no risk of blocking the UI).
  */
 function AppContent({ children }: { children: React.ReactNode }) {
-  const { isLoading } = useAuth();
+  const location = useLocation();
+  const { isLoading, user } = useAuth();
   const { updateAvailable, applyUpdate, isStandalone } = usePWA();
+  const [maintenance, setMaintenance] = useState<MaintenanceSettings | null>(null);
+  const [now, setNow] = useState(Date.now);
+
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const response = await fetch(`${import.meta.env.VITE_API_URL || '/api'}/admin/global-settings/`, { cache: 'no-store' });
+        if (response.ok && alive) setMaintenance(await response.json());
+      } catch { /* Network failure is not a planned maintenance window. */ }
+    };
+    void load();
+    const interval = window.setInterval(() => void load(), 60_000);
+    return () => { alive = false; window.clearInterval(interval); };
+  }, []);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   // Fire-and-forget: no state involved, so a stuck loading screen is impossible
   if (updateAvailable && isStandalone) {
@@ -228,6 +252,10 @@ function AppContent({ children }: { children: React.ReactNode }) {
 
   if (isLoading) {
     return <AppLoadingScreen status="Načítavam..." />;
+  }
+
+  if (location.pathname !== '/admin-login' && maintenance && shouldShowMaintenance(maintenance, user, now)) {
+    return <MaintenanceScreen endsAt={maintenance.maintenance_ends_at} />;
   }
 
   return <>{children}</>;
@@ -247,6 +275,7 @@ export default function App() {
               <PWAUpdateBanner />
               <Routes>
               <Route path="/login" element={<LoginPage />} />
+              <Route path="/admin-login" element={<LoginPage adminLogin />} />
               <Route path="/verify-email/:token" element={<Navigate to="/login" replace />} />
               <Route path="/resend-verification" element={<Navigate to="/login" replace />} />
               <Route path="/forgot-password" element={<ForgotPasswordPage />} />

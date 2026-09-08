@@ -16,7 +16,7 @@ const DEV_LOGIN_USERS = [
   { label: "Prevádzka", email: "prevadzka@example.com", password: "prevadzka" },
 ];
 
-const LoginPage: React.FC = () => {
+const LoginPage: React.FC<{ adminLogin?: boolean }> = ({ adminLogin = false }) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -67,6 +67,12 @@ const LoginPage: React.FC = () => {
       });
 
       if (!response.ok) {
+        const responseData = await response.json().catch(() => ({}));
+        const responseMessage = responseData?.detail ?? responseData?.error?.message;
+        if (response.status === 403 && responseMessage) {
+          setError(responseMessage);
+          return;
+        }
         if (response.status === 401 || response.status === 403) {
           setError("Nesprávne meno alebo heslo");
         } else if (response.status >= 500) {
@@ -109,8 +115,8 @@ const LoginPage: React.FC = () => {
 
   const loginForm = (
     <>
-      <h2>Vitajte späť</h2>
-      <p className="sub">Prihláste sa, prosím, do svojho účtu.</p>
+      <h2>{adminLogin ? 'Prihlásenie administrátora' : 'Vitajte späť'}</h2>
+      <p className="sub">{adminLogin ? 'Počas údržby je prístup povolený len administrátorom.' : 'Prihláste sa, prosím, do svojho účtu.'}</p>
 
       <div className="zp-field">
         <label className="zp-label">Email alebo login</label>
