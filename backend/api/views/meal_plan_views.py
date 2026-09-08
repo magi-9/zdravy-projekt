@@ -322,11 +322,17 @@ class DailyMealPlanViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
         # aby sa nemali ako rozísť (viď gramage_table_spec).
         from ..exporters.gramage_table_spec import build_table_spec
 
+        meal_type = request.query_params.get("meal_type", "lunch")
+        if meal_type not in ("breakfast", "lunch", "olovrant"):
+            return Response(
+                {"error": "invalid meal_type"}, status=status.HTTP_400_BAD_REQUEST
+            )
         sections = request.query_params.getlist("section") or None
         vydaje = request.query_params.getlist("vydaj") or None
         diet_clusters = request.query_params.getlist("diet_cluster") or None
         data["spec"] = build_table_spec(
             data,
+            meal_type=meal_type,
             sections=sections,
             vydaje=vydaje,
             include_summary_rows=not _parse_bool_param(request, "expanded", False),
@@ -345,6 +351,11 @@ class DailyMealPlanViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
                 {"error": "date required"}, status=status.HTTP_400_BAD_REQUEST
             )
         date = parse_date_param(date_str)
+        meal_type = request.query_params.get("meal_type", "lunch")
+        if meal_type not in ("breakfast", "lunch", "olovrant"):
+            return Response(
+                {"error": "invalid meal_type"}, status=status.HTTP_400_BAD_REQUEST
+            )
         sections = request.query_params.getlist("section") or None
         vydaje = request.query_params.getlist("vydaj") or None
         diet_clusters = request.query_params.getlist("diet_cluster") or None
@@ -363,13 +374,17 @@ class DailyMealPlanViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
 
         # Uzavretý deň má PDF predgenerované a nacachované už pri uzavretí
         # (#528, viď closed_day_views) — ale len pre neprefiltrovaný export,
-        # presne taký, aký sa vtedy predgeneroval.
+        # presne taký, aký sa vtedy predgeneroval, a zvlášť per jedlo
+        # (#dashboard-per-meal-routes).
         pdf_bytes = None
         if is_default_view:
-            pdf_bytes = get_cached(get_closed_day_pdf_cache_key(date.isoformat()))
+            pdf_bytes = get_cached(
+                get_closed_day_pdf_cache_key(date.isoformat(), meal_type)
+            )
         if pdf_bytes is None:
             pdf_bytes = render_gramage_dashboard_pdf(
                 date.isoformat(),
+                meal_type=meal_type,
                 sections=sections,
                 vydaje=vydaje,
                 show_empty=show_empty,
@@ -377,7 +392,12 @@ class DailyMealPlanViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
                 diet_clusters=diet_clusters,
             )
         response = HttpResponse(pdf_bytes, content_type="application/pdf")
-        fname = f"gramaz_{date}.pdf"
+        meal_type_slug = {
+            "breakfast": "ranajky",
+            "lunch": "obed",
+            "olovrant": "olovrant",
+        }[meal_type]
+        fname = f"gramaz_{meal_type_slug}_{date}.pdf"
         response["Content-Disposition"] = f"attachment; filename*=UTF-8''{quote(fname)}"
         return response
 

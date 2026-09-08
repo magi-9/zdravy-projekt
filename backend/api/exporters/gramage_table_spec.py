@@ -130,6 +130,29 @@ def _filter_col_groups(col_groups: list[dict], sections: list[str] | None) -> li
     return keep or list(range(len(col_groups)))
 
 
+# Ktoré stĺpcové skupiny (podľa `col_group["meal"]`) patria pod ktorý meal_type
+# trasy — rovnaká trojica ako `Prevadzka.delivery_route_{meal_type}`
+# (#dashboard-per-meal-routes). Inverzia `_MEAL_BANDS` vyššie, len klasifikuje
+# podľa jedla-trasy, nie podľa zobrazovaného pásu v hlavičke.
+_MEAL_TYPE_TO_PLAN_MEALS: dict[str, tuple[str, ...]] = {
+    "breakfast": ("breakfast_snack",),
+    "lunch": ("soup", "main_course"),
+    "olovrant": ("afternoon_snack",),
+}
+
+
+def _filter_col_groups_by_meal_type(
+    col_groups: list[dict], meal_type: str
+) -> list[int]:
+    """Indexy stĺpcových skupín patriacich danému `meal_type` (trase)."""
+    wanted_meals = _MEAL_TYPE_TO_PLAN_MEALS.get(meal_type, ())
+    return [
+        index
+        for index, group in enumerate(col_groups)
+        if group.get("meal") in wanted_meals
+    ]
+
+
 def _gram_cells(
     col_grams: list,
     groups: list[dict],
@@ -540,7 +563,7 @@ def _diet_name_rows(
         # "0 + x + y" ukáže reálny počet za každý pás zvlášť (aj nulový,
         # keď ho tabuľka má, len táto diéta ho neobjednala).
         meal_counts = diet.get("meal_counts") or {}
-        if len(visible_bands) > 1:
+        if visible_bands:
             label_cell["count"] = _composite_meal_count_text(meal_counts, visible_bands)
         diet_rows.append(
             {
@@ -557,6 +580,7 @@ def _diet_name_rows(
 
 def build_table_spec(
     data: dict,
+    meal_type: str = "lunch",
     sections: list[str] | None = None,
     vydaje: list[str] | None = None,
     include_summary_rows: bool = True,
@@ -565,6 +589,12 @@ def build_table_spec(
     diet_clusters: list[str] | None = None,
 ) -> dict:
     """Prevedie payload z `gramage_dashboard()` na hotový popis tabuľky.
+
+    `meal_type` (`"breakfast"`/`"lunch"`/`"olovrant"`) vyberá JEDNU zo
+    samostatných tabuliek (#dashboard-per-meal-routes) — stĺpce sa obmedzia na
+    dané jedlo a riadky sa zoberú z `data["vydaje_by_meal"][meal_type]`
+    (vlastný strom blok→trasa→prevádzky pre toto jedlo). `sections`, ak je
+    zadané, musí byť podmnožinou stĺpcov tohto jedla — inak sa ignoruje.
 
     `include_summary_rows=False` vynechá per-klientske "Súčet bez diét" a
     diétne súhrnné riadky (`summary-std`/`summary-diet`). Na obrazovke majú
@@ -595,7 +625,14 @@ def build_table_spec(
         return any(key in diet_cluster_keys for key in keys)
 
     all_groups = data.get("col_groups") or []
-    keep = _filter_col_groups(all_groups, sections)
+    meal_type_keep = set(_filter_col_groups_by_meal_type(all_groups, meal_type))
+    keep = [
+        index
+        for index in _filter_col_groups(all_groups, sections)
+        if index in meal_type_keep
+    ]
+    if not keep:
+        keep = sorted(meal_type_keep)
     groups = [(index, all_groups[index]) for index in keep]
     hues = [meal_hue(g.get("meal"), g.get("variant")) for _, g in groups]
 
@@ -606,7 +643,7 @@ def build_table_spec(
     header = _build_header(groups, hues)
     rows: list[dict] = []
 
-    all_vydaje = data.get("vydaje") or []
+    all_vydaje = (data.get("vydaje_by_meal") or {}).get(meal_type) or []
     keep_vydaje = _filter_vydaje(all_vydaje, vydaje)
     shown_vydaje = [all_vydaje[index] for index in keep_vydaje]
     # Filter na konkrétny výdajný bod je „vytlač túto tabuľku" — nepriradené
@@ -712,7 +749,11 @@ def build_table_spec(
                         include_diets=_cluster_shows_diets(*first_two_keys),
                     )
                 )
-        unassigned = [] if filtered else (data.get("unassigned_rows") or [])
+        unassigned = (
+            []
+            if filtered
+            else ((data.get("unassigned_rows_by_meal") or {}).get(meal_type) or [])
+        )
         if unassigned:
             rows.append(
                 _band(
@@ -825,8 +866,9 @@ def build_table_spec(
         "header": header,
         "rows": rows,
         "footer": footer,
-        # Prepínače pre UI — zo VŠETKÝCH skupín, nie z filtrovaných, inak by
-        # sa odškrtnutá sekcia už nedala zapnúť späť.
+        # Prepínače pre UI — zo VŠETKÝCH skupín TOHTO jedla (nie z `sections`
+        # filtra, inak by sa odškrtnutá sekcia už nedala zapnúť späť; nie ani
+        # z iných jedál — raňajkový tab nemá čo ponúkať prepínač "Polievka").
         "sections": [
             {
                 "key": str(group.get("key") or ""),
@@ -834,6 +876,7 @@ def build_table_spec(
                 "selected": index in set(keep),
             }
             for index, group in enumerate(all_groups)
+            if index in meal_type_keep
         ],
         # Prepínače výdajných bodov — tiež zo VŠETKÝCH, nech sa odfiltrovaný dá
         # zapnúť späť.
@@ -1115,7 +1158,7 @@ def _client_rows(
         meal_counts = sub_row.get("_meal_counts") or {
             sub_row.get("meal"): sub_row.get("count")
         }
-        if len(visible_bands) > 1:
+        if visible_bands:
             cell["count"] = _composite_meal_count_text(meal_counts, visible_bands)
         text_hex = background_hex = None
         if is_diet:
@@ -1162,7 +1205,12 @@ def _client_rows(
         # "0 + 12 + 8" namiesto plochých "20" — kuchyňa vidí rozpad po pásoch
         # jedla hneď na tomto (vždy viditeľnom, aj zbalenom) riadku klienta,
         # rovnaký princíp ako composite count nižšie na sub-riadkoch/diétach.
-        if len(visible_bands) > 1:
+        # Aj pri PRESNE jednom viditeľnom páse (raňajková/olovrantová tabuľka,
+        # #dashboard-per-meal-routes) musí ísť cez composite, nie cez plochý
+        # `standard_count` — ten sčítava zlúčený riadok naprieč VŠETKÝMI
+        # jedlami klienta (merge beží pred filtrom stĺpcov), čo by v
+        # jednomiestnej tabuľke ukázalo cudzí súčet z iných jedál.
+        if visible_bands:
             std_label_cell["count"] = _composite_meal_count_text(
                 standard_meal_counts, visible_bands
             )
@@ -1208,7 +1256,7 @@ def _client_rows(
         # to isté dieťa na raňajkách/obede/olovrante viackrát, rozpis
         # "0 + x + y" ukáže reálny počet za každý pás zvlášť.
         meal_counts = diet_meal_counts.get(name) or {}
-        if len(visible_bands) > 1:
+        if visible_bands:
             label_cell["count"] = _composite_meal_count_text(meal_counts, visible_bands)
         out.append(
             {

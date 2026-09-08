@@ -42,13 +42,14 @@ def get_cached_gramage_dashboard_data(date_str: str) -> dict:
 def render_gramage_dashboard_pdf(
     date_str: str,
     *,
+    meal_type: str = "lunch",
     sections: list[str] | None = None,
     vydaje: list[str] | None = None,
     show_empty: bool = True,
     show_cluster_summary: bool = True,
     diet_clusters: list[str] | None = None,
 ) -> bytes:
-    """Zloží PDF gramáže pre daný deň.
+    """Zloží PDF gramáže pre daný deň a jedno jedlo (raňajky/obed/olovrant).
 
     Tá istá tabuľka ako na obrazovke: rovnaký spec, rovnaké CSS, len namiesto
     Reactu ju do HTML zloží `gramage_table_html` a WeasyPrint z toho spraví
@@ -63,6 +64,7 @@ def render_gramage_dashboard_pdf(
     # medzisúčty za klienta by len duplikovali čísla o riadok vyššie.
     spec = build_table_spec(
         data,
+        meal_type=meal_type,
         sections=sections,
         vydaje=vydaje,
         include_summary_rows=False,

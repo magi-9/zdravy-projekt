@@ -19,7 +19,16 @@ const API = import.meta.env.VITE_API_URL || "/api";
 // prevádzky ani celku, len osobná preferencia toho, kto tabuľku pozerá —
 // preto localStorage, nie backend.
 const TABLE_PREFS_KEY = "zpa-gramage-table-prefs";
+// Raňajky/obed/olovrant majú vlastné, na sebe nezávislé trasy aj tabuľky
+// (#dashboard-per-meal-routes) — `mealType` si pamätá posledný otvorený tab.
+type MealType = "breakfast" | "lunch" | "olovrant";
+const MEAL_TYPES: { key: MealType; label: string }[] = [
+  { key: "breakfast", label: "Raňajky" },
+  { key: "lunch", label: "Obed" },
+  { key: "olovrant", label: "Olovrant" },
+];
 interface TablePrefs {
+  mealType: MealType;
   sections: string[];
   selectedVydaje: string[];
   showEmpty: boolean;
@@ -220,6 +229,7 @@ const AdminDashboard: React.FC = () => {
   // cez Nastavenia prevádzky, keď treba škôlke rýchlo niečo odkázať.
   const [noteEdit, setNoteEdit] = useState<{ prevadzkaId: number; text: string } | null>(null);
   const [savingNote, setSavingNote] = useState(false);
+  const [mealType, setMealType] = useState<MealType>(() => loadTablePrefs().mealType ?? "lunch");
   const [sections, setSections] = useState<string[]>(() => loadTablePrefs().sections ?? []);
   // Prázdny výber = všetky výdajné body; inak môže byť vybratých aj viac
   // (napr. Cluster A + B naraz).
@@ -241,8 +251,18 @@ const AdminDashboard: React.FC = () => {
   // Zapamätanie "Nastavenia tabuľky" (viď loadTablePrefs vyššie) — uloží sa
   // pri každej zmene, nech admin po návrate zo škôlky vidí presne to, čo mal.
   useEffect(() => {
-    saveTablePrefs({ sections, selectedVydaje, showEmpty, clusterSummary, dietClusters, expanded });
-  }, [sections, selectedVydaje, showEmpty, clusterSummary, dietClusters, expanded]);
+    saveTablePrefs({ mealType, sections, selectedVydaje, showEmpty, clusterSummary, dietClusters, expanded });
+  }, [mealType, sections, selectedVydaje, showEmpty, clusterSummary, dietClusters, expanded]);
+
+  // Prepnutie tabu jedla mení celú množinu stĺpcov/trás pod sebou — staré
+  // "sections"/"selectedVydaje" (napr. "len Menu A") takmer isto nesedia na
+  // nové jedlo, tabuľka pri prepnutí radšej naskočí kompletná ako by mala
+  // ticho spadnúť na fallback (rovnaké chovanie ako neznámy filter v URL).
+  const handleMealTypeChange = useCallback((next: MealType) => {
+    setMealType(next);
+    setSections([]);
+    setSelectedVydaje([]);
+  }, []);
 
   // Ktoré sekcie (raňajky / polievka / menu / olovrant), výdajné body a
   // ostatné "Nastavenia tabuľky" sa zobrazujú. Prázdny výber = kompletná
@@ -250,6 +270,7 @@ const AdminDashboard: React.FC = () => {
   // to, čo vidíš.
   const sectionQuery = useMemo(() => {
     const parts = [
+      `&meal_type=${mealType}`,
       ...sections.map((key) => `&section=${encodeURIComponent(key)}`),
       ...selectedVydaje.map((key) => `&vydaj=${encodeURIComponent(key)}`),
       ...dietClusters.map((key) => `&diet_cluster=${encodeURIComponent(key)}`),
@@ -258,7 +279,7 @@ const AdminDashboard: React.FC = () => {
     if (!clusterSummary) parts.push("&cluster_summary=0");
     if (expanded) parts.push("&expanded=1");
     return parts.join("");
-  }, [sections, selectedVydaje, dietClusters, showEmpty, clusterSummary, expanded]);
+  }, [mealType, sections, selectedVydaje, dietClusters, showEmpty, clusterSummary, expanded]);
 
   const fetchData = useCallback(async (refresh = false) => {
     // Zámerne NEnulujeme `data`/`orderReport` pred fetchom — Nastavenia
@@ -362,14 +383,14 @@ const AdminDashboard: React.FC = () => {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `gramaz_${date}.${fmt}`;
+      a.download = `gramaz_${mealType}_${date}.${fmt}`;
       document.body.appendChild(a);
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
     } catch (e) { logger.error(e); toastError("Chyba pri generovaní súboru."); }
     finally { setFmt(false); }
-  }, [apiFetch, date, sectionQuery, toastError]);
+  }, [apiFetch, date, mealType, sectionQuery, toastError]);
 
   const submitClosedDayAction = useCallback(
     async (
@@ -459,6 +480,24 @@ const AdminDashboard: React.FC = () => {
           Dátum a search sú vľavo, akčné tlačidlá pevne vpravo (zpa-toolbar
           justify-content: space-between), nech pri zmene stavu (napr.
           "Deň je uzavretý") neposkakuje nič okrem tejto pravej skupiny. */}
+      {/* Raňajky/obed/olovrant sú od #dashboard-per-meal-routes samostatné
+          tabuľky (vlastné trasy aj poradie) — tab prepína, ktorú z troch
+          práve vidno; nikdy sa nezlievajú do jednej. */}
+      <div className="zpa-tabs" role="tablist" aria-label="Jedlo">
+        {MEAL_TYPES.map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            role="tab"
+            aria-selected={mealType === item.key}
+            onClick={() => handleMealTypeChange(item.key)}
+            className={`zpa-tab${mealType === item.key ? " active" : ""}`}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+
       <div className="zpa-toolbar">
         <div className="zpa-toolbar-left">
           <AdminDateNav date={date} onChange={setDate} maxDate={maxDate} disabled={closing || unlocking} compact />

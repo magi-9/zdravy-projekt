@@ -29,5 +29,5 @@ def test_delivery_layout_does_not_resurrect_retired_edulienka_default():
     assert prevadzky["MŠ Edulienka"].is_active is False
     assert prevadzky["Palisády"].is_active is True
     assert prevadzky["Stupava"].is_active is True
-    assert prevadzky["Palisády"].delivery_route is not None
-    assert prevadzky["Stupava"].delivery_route is not None
+    assert prevadzky["Palisády"].delivery_route_lunch is not None
+    assert prevadzky["Stupava"].delivery_route_lunch is not None
