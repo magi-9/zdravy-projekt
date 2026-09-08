@@ -15,7 +15,6 @@ from ..cache_service import get_cached, get_closed_day_pdf_cache_key
 from ..models import (
     DailyMealPlan,
     Diet,
-    DietComponentMerge,
     MealPlanItem,
     MealTemplate,
     PortionType,
@@ -37,6 +36,7 @@ from ..services.gramage_pdf_service import (
 from ..services.meal_plan_service import (
     DIET_COMPONENT_MERGE_MEALS,
     MealPlanService,
+    apply_diet_component_merge_toggle,
     diet_component_merge_board,
 )
 from ..utils import parse_date_param
@@ -489,20 +489,16 @@ class DietComponentMergeViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if request.data.get("merged"):
-            DietComponentMerge.objects.update_or_create(
-                date=date,
-                meal=meal,
-                component_index=component_index,
-                diet=diet,
-                defaults={
-                    "updated_by": request.user,
-                    "component_label": str(request.data.get("component_label") or ""),
-                },
-            )
-        else:
-            DietComponentMerge.objects.filter(
-                date=date, meal=meal, component_index=component_index, diet=diet
-            ).delete()
+        error = apply_diet_component_merge_toggle(
+            date,
+            meal,
+            component_index,
+            diet,
+            merged=bool(request.data.get("merged")),
+            updated_by=request.user,
+            component_label=str(request.data.get("component_label") or ""),
+        )
+        if error:
+            return Response({"error": error}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response(diet_component_merge_board(date.isoformat()))

@@ -98,6 +98,87 @@ def resolve_diet_component_merges(date_str: str) -> dict[tuple[str, str], set[in
     return merges
 
 
+def _all_composites_of(diet: Diet) -> set[Diet]:
+    """Všetky kombinácie, ktoré `diet` obsahujú ako (priamu alebo nepriamu)
+    základnú zložku — BFS cez `composite_of`, nech to funguje aj keby raz
+    pribudla kombinácia-z-kombinácie (dnes v dátach nie je, ale funkcia sa
+    tým nepokazí)."""
+    result: set[Diet] = set()
+    frontier = list(diet.composite_of.all())
+    while frontier:
+        d = frontier.pop()
+        if d in result:
+            continue
+        result.add(d)
+        frontier.extend(d.composite_of.all())
+    return result
+
+
+def apply_diet_component_merge_toggle(
+    date: datetime.date,
+    meal: str,
+    component_index: int,
+    diet: Diet,
+    merged: bool,
+    *,
+    updated_by=None,
+    component_label: str = "",
+) -> str | None:
+    """Toggle "spolu/zvlášť" pre jednu bunku, vrátane kaskády pre kombinované
+    diéty (#568 nadväzba na diet-component-merge).
+
+    Admin najprv odklikáva jednozložkové (základné) diéty — kombinovaná
+    diéta (`Diet.base_diets`) sa podľa nich riadi:
+    - kombinácia môže byť "spolu" len keď sú "spolu" VŠETKY jej základné
+      diéty pre tú istú (deň, jedlo, zložku) — inak sa požiadavka zamietne
+      (vráti sa chybové hlásenie, DB sa nezmení),
+    - nastavenie základnej diéty na "zvlášť" naopak automaticky vynúti
+      "zvlášť" aj vo všetkých kombináciách, ktoré ju obsahujú (aj keby už
+      boli explicitne "spolu" — nemá zmysel čakať na ďalší klik, keď jednej
+      zo zložiek chýba spoločná príprava).
+    Opačný smer (základná diéta -> spolu) sa NEPREPÍNA automaticky do
+    kombinácií — tie môžu mať aj ďalšie základné diéty, čo ešte "spolu"
+    nie sú, admin ich musí odkliknúť sám, až keď sú všetky pripravené.
+
+    Vracia chybové hlásenie (str), ak sa má požiadavka zamietnuť, inak None.
+    """
+    if merged:
+        base_diets = list(diet.base_diets.all())
+        if base_diets:
+            already_merged = set(
+                DietComponentMerge.objects.filter(
+                    date=date,
+                    meal=meal,
+                    component_index=component_index,
+                    diet__in=base_diets,
+                ).values_list("diet_id", flat=True)
+            )
+            missing = [b.name for b in base_diets if b.id not in already_merged]
+            if missing:
+                return (
+                    f"Kombinovaná diéta „{diet.name}“ môže byť spolu, až keď sú "
+                    f"spolu všetky jej zložky: {', '.join(missing)}."
+                )
+        DietComponentMerge.objects.update_or_create(
+            date=date,
+            meal=meal,
+            component_index=component_index,
+            diet=diet,
+            defaults={"updated_by": updated_by, "component_label": component_label},
+        )
+        return None
+
+    DietComponentMerge.objects.filter(
+        date=date, meal=meal, component_index=component_index, diet=diet
+    ).delete()
+    composites = _all_composites_of(diet)
+    if composites:
+        DietComponentMerge.objects.filter(
+            date=date, meal=meal, component_index=component_index, diet__in=composites
+        ).delete()
+    return None
+
+
 def parse_meal_template_components(
     name: str, components: list, weight_label: str, unit_exception: dict | None
 ) -> list:
@@ -231,8 +312,22 @@ def diet_component_merge_board(date_str: str) -> dict:
 
     merges = resolve_diet_component_merges(date_str)
     diets = [
-        {"id": diet.id, "name": diet.name}
-        for diet in Diet.objects.filter(is_active=True)
+        {
+            "id": diet.id,
+            "name": diet.name,
+            # Kombinovaná diéta (napr. "NoMilk+NoGluten") vypisuje mená
+            # svojich základných diét — frontend podľa nich vie zablokovať
+            # "spolu", kým nie sú "spolu" všetky (kaskáda, viď
+            # `apply_diet_component_merge_toggle`). Prázdne pre jednozložkovú.
+            "base_diet_names": [b.name for b in diet.base_diets.all()],
+            # Presne tak, ako sú nastavené v Správe diét — žiadny blend/odvodený
+            # fallback (ten rieši gramážna tabuľka/PDF inak, viď
+            # `gramage_table_spec._resolve_diet_colors`), tu má admin vidieť
+            # svoju vlastnú farbu 1:1, prázdne keď žiadnu nenastavil.
+            "text_color": diet.text_color,
+            "background_color": diet.background_color,
+        }
+        for diet in Diet.objects.filter(is_active=True).prefetch_related("base_diets")
     ]
     return {
         "date": date_str,

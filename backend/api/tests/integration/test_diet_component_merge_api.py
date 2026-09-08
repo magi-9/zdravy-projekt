@@ -69,8 +69,29 @@ class DietComponentMergeApiTest(APITestCase):
             {"index": 0, "label": "Hlavná časť"},
             {"index": 1, "label": "Príloha"},
         ]
-        assert {"id": self.diet.id, "name": "Bez lepku"} in data["diets"]
+        assert {
+            "id": self.diet.id,
+            "name": "Bez lepku",
+            "base_diet_names": [],
+            "text_color": "",
+            "background_color": "",
+        } in data["diets"]
         assert data["merged"] == []
+
+    def test_board_lists_the_diets_own_explicit_colors(self):
+        self.diet.text_color = "#123456"
+        self.diet.background_color = "#ABCDEF"
+        self.diet.save()
+
+        response = self.client.get(
+            "/api/admin/diet-component-merge/board/",
+            {"date": self.plan.date.isoformat()},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        by_id = {d["id"]: d for d in response.json()["diets"]}
+        assert by_id[self.diet.id]["text_color"] == "#123456"
+        assert by_id[self.diet.id]["background_color"] == "#ABCDEF"
 
     def test_client_cannot_read_the_board(self):
         self.client.force_authenticate(user=self.client_user)
@@ -151,6 +172,72 @@ class DietComponentMergeApiTest(APITestCase):
             format="json",
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_board_lists_base_diet_names_for_composites(self):
+        milk = Diet.objects.create(name="NoMilk")
+        combo = Diet.objects.create(name="NoMilk+Bez lepku")
+        combo.base_diets.set([milk, self.diet])
+
+        response = self.client.get(
+            "/api/admin/diet-component-merge/board/",
+            {"date": self.plan.date.isoformat()},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        by_id = {d["id"]: d for d in response.json()["diets"]}
+        assert by_id[self.diet.id]["base_diet_names"] == []
+        assert set(by_id[combo.id]["base_diet_names"]) == {"NoMilk", "Bez lepku"}
+
+    def test_toggling_a_base_diet_to_separate_cascades_to_its_composites(self):
+        milk = Diet.objects.create(name="NoMilk")
+        combo = Diet.objects.create(name="NoMilk+Bez lepku")
+        combo.base_diets.set([milk, self.diet])
+        for d in (milk, self.diet, combo):
+            DietComponentMerge.objects.create(
+                date=self.plan.date,
+                meal=MealCategory.MAIN_COURSE,
+                component_index=0,
+                diet=d,
+            )
+
+        response = self.client.post(
+            "/api/admin/diet-component-merge/toggle/",
+            {
+                "date": self.plan.date.isoformat(),
+                "meal": MealCategory.MAIN_COURSE,
+                "component_index": 0,
+                "diet_id": milk.id,
+                "merged": False,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        merged_names = {m["diet_name"] for m in response.json()["merged"]}
+        assert merged_names == {"Bez lepku"}
+
+    def test_toggling_a_composite_to_together_is_rejected_while_a_base_is_separate(
+        self,
+    ):
+        milk = Diet.objects.create(name="NoMilk")
+        combo = Diet.objects.create(name="NoMilk+Bez lepku")
+        combo.base_diets.set([milk, self.diet])
+
+        response = self.client.post(
+            "/api/admin/diet-component-merge/toggle/",
+            {
+                "date": self.plan.date.isoformat(),
+                "meal": MealCategory.MAIN_COURSE,
+                "component_index": 0,
+                "diet_id": combo.id,
+                "merged": True,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "NoMilk" in response.json()["error"]
+        assert DietComponentMerge.objects.count() == 0
 
 
 class GramageDashboardMergeDietsToggleApiTest(APITestCase):

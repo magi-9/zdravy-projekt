@@ -101,6 +101,98 @@ describe("DietComponentMergePage", () => {
     expect(mergedCell?.style.background).not.toBe(separateCell?.style.background);
   });
 
+  it("shows the diet name in its own configured text/background color", async () => {
+    mockApiFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        ...boardWithMainCourse,
+        diets: [
+          {
+            id: 1,
+            name: "Bez lepku",
+            base_diet_names: [],
+            text_color: "#123456",
+            background_color: "#abcdef",
+          },
+        ],
+      }),
+    });
+
+    render(<MemoryRouter><DietComponentMergePage /></MemoryRouter>);
+
+    fireEvent.click(await screen.findByRole("button", { name: /rozbaliť/i }));
+    const nameCell = (await screen.findByText("Bez lepku")).closest("td");
+    expect(nameCell?.style.color).toBe("rgb(18, 52, 86)");
+    expect(nameCell?.style.background).toBe("rgb(171, 205, 239)");
+  });
+
+  it("locks a composite diet's cell until every one of its base diets is merged there", async () => {
+    mockApiFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        ...boardWithMainCourse,
+        diets: [
+          { id: 1, name: "NoMilk", base_diet_names: [] },
+          { id: 2, name: "NoMilk+Bez lepku", base_diet_names: ["NoMilk", "Bez lepku"] },
+        ],
+        merged: [],
+      }),
+    });
+
+    render(<MemoryRouter><DietComponentMergePage /></MemoryRouter>);
+
+    fireEvent.click(await screen.findByRole("button", { name: /rozbaliť/i }));
+    await screen.findByText("NoMilk+Bez lepku");
+    const buttons = screen.getAllByText("zvlášť").map((el) => el.closest("button"));
+    // Riadok NoMilk (bez base) je klikateľný, riadok kombinácie (chýbajú obe
+    // základné diéty) je uzamknutý — celý riadok kombinácie má disabled tlačidlá.
+    const noMilkButtons = buttons.slice(0, 2);
+    const comboButtons = buttons.slice(2, 4);
+    expect(noMilkButtons.every((b) => !b?.disabled)).toBe(true);
+    expect(comboButtons.every((b) => b?.disabled)).toBe(true);
+  });
+
+  it("unlocks a composite diet's cell once all its base diets are merged there", async () => {
+    mockApiFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        ...boardWithMainCourse,
+        diets: [
+          { id: 1, name: "NoMilk", base_diet_names: [] },
+          { id: 2, name: "Bez lepku", base_diet_names: [] },
+          { id: 3, name: "NoMilk+Bez lepku", base_diet_names: ["NoMilk", "Bez lepku"] },
+        ],
+        merged: [
+          { meal: "main_course", diet_name: "NoMilk", component_index: 0 },
+          { meal: "main_course", diet_name: "Bez lepku", component_index: 0 },
+        ],
+      }),
+    });
+
+    render(<MemoryRouter><DietComponentMergePage /></MemoryRouter>);
+
+    await screen.findByText("NoMilk+Bez lepku");
+    const comboRow = screen.getByText("NoMilk+Bez lepku").closest("tr");
+    const comboFirstCellButton = comboRow?.querySelectorAll("button")[0];
+    expect(comboFirstCellButton?.disabled).toBe(false);
+  });
+
+  it("surfaces the server's rejection message when a toggle is refused", async () => {
+    mockApiFetch.mockResolvedValueOnce({ ok: true, json: async () => boardWithMainCourse });
+    mockApiFetch.mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({ error: "Kombinovaná diéta „X“ môže byť spolu, až keď…" }),
+    });
+
+    render(<MemoryRouter><DietComponentMergePage /></MemoryRouter>);
+
+    fireEvent.click(await screen.findByRole("button", { name: /rozbaliť/i }));
+    const buttons = await screen.findAllByText("zvlášť");
+    fireEvent.click(buttons[0]);
+
+    expect(await screen.findByText(/kombinovaná diéta „x“/i)).toBeInTheDocument();
+  });
+
   it("clicking a cell POSTs a toggle with the right key and applies the refreshed board", async () => {
     mockApiFetch.mockResolvedValueOnce({ ok: true, json: async () => boardWithMainCourse });
     mockApiFetch.mockResolvedValueOnce({
