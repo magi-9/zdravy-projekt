@@ -616,6 +616,42 @@ def test_scrape_edupage_orders_management_command(monkeypatch, capsys):
     )
 
 
+class TestFilterOrderDataByMeals:
+    """`_filter_order_data_by_meals` beží PRED `_apply_scrape` a orezáva
+    scrapnuté `order_data` len na `requested_meals` (deadline-gated
+    `_ALL_MEALS` podmnožina) — `desiata` (British Cluster C, mimo
+    deadline-riadeného toku) tam nikdy nie je, lebo `requested_meals` sa
+    počíta výhradne z `_ALL_MEALS`. Bez explicitnej výnimky teda
+    `_apply_scrape` dostane `imported_data` bez kľúča "desiata" vôbec, aj
+    keď ho scraper reálne vrátil — a keďže `_apply_scrape` je autoritatívny
+    (chýbajúci kľúč = "dnes 0" → zmaže), KAŽDÝ hodinový beh s neprázdnym
+    `requested_meals` (takmer všetky) potichu vynuloval existujúcu desiatu,
+    hoci EduPage mala platné počty (nahlásené 8.9.2026 — desiata zmizla z
+    appky, hoci na EduPage bola)."""
+
+    def test_desiata_survives_meal_filter_even_when_not_requested(self):
+        from api.tasks import _filter_order_data_by_meals
+
+        order_data = {
+            "lunch": {"Škôlka": {"menuCounts": {"A": 21}}},
+            "desiata": {"ZŠ 1.stupeň": {"menuCounts": {"A": 24}}},
+        }
+        out = _filter_order_data_by_meals(order_data, ["lunch"])
+        assert out["desiata"] == {"ZŠ 1.stupeň": {"menuCounts": {"A": 24}}}
+
+    def test_regular_meal_not_in_requested_meals_still_filtered_out(self):
+        """Filter musí pre `_ALL_MEALS` fungovať ako doteraz — výnimka platí
+        len pre extra kľúče (desiata), nie pre bežné jedlá."""
+        from api.tasks import _filter_order_data_by_meals
+
+        order_data = {
+            "lunch": {"Škôlka": {"menuCounts": {"A": 21}}},
+            "olovrant": {"Škôlka": {"menuCounts": {"A": 5}}},
+        }
+        out = _filter_order_data_by_meals(order_data, ["lunch"])
+        assert "olovrant" not in out
+
+
 class TestApplyScrapeIdempotency:
     """Scrape v rámci dňa musí byť UPDATE, nie ADD."""
 

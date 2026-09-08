@@ -475,11 +475,22 @@ def apply_auto_orders_task(
 
 
 def _filter_order_data_by_meals(order_data, meal_types):
+    """Orežže `order_data` na `meal_types` (deadline-gated podmnožina
+    `_ALL_MEALS`) — ale `_EXTRA_MEAL_KEYS` (British `desiata`) prejdú VŽDY,
+    nech `meal_types` obsahuje čokoľvek. `desiata` nie je súčasťou
+    `_ALL_MEALS`, takže `requested_meals` (počítané z deadlinov `_ALL_MEALS`
+    v `scrape_edupage_orders_task`) ju nikdy neobsahuje — bez tejto výnimky
+    by ju tento filter potichu vyhodil z `imported_data` ešte PRED
+    `_apply_scrape`, a keďže ten je pre chýbajúci kľúč autoritatívny (žiadny
+    kľúč = "dnes 0" → zmaže), každý hodinový beh s neprázdnym
+    `requested_meals` (takmer všetky) by tak vynuloval platnú desiatu, hoci
+    ju scraper reálne priniesol (British 8.9.2026 — desiata zmizla z appky,
+    hoci na EduPage bola)."""
     if meal_types is None:
         return order_data
     return {
         meal_type: order_data[meal_type]
-        for meal_type in meal_types
+        for meal_type in (*meal_types, *_EXTRA_MEAL_KEYS)
         if order_data.get(meal_type)
     }
 
