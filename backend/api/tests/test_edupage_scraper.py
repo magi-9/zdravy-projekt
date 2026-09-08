@@ -71,6 +71,15 @@ class TestResolveDietName(unittest.TestCase):
     def test_known_skratka_nf(self):
         self.assertEqual(self._r("NF", "NoFish"), "NO FISH")
 
+    def test_zdravebrusko_dsb_nnn_sj_has_all_confirmed_restrictions(self):
+        rule = zdravebrusko_letter_hook("X", "dsbNNN SJ", "NoNoNo")
+
+        self.assertIsNotNone(rule)
+        self.assertEqual(
+            rule.diet,
+            "NoNoNo - No Soja - No Jablko - No Telacie",
+        )
+
     def test_known_skratka_case_insensitive(self):
         # skratka lookup normalises to upper
         self.assertEqual(self._r("nm", "whatever"), "NO MILK")
