@@ -11,16 +11,23 @@ payer labelu namiesto nespoľahlivého EduPage kódu.
 Zároveň diéta "bezlak" (bez laktózy) nebola v generickom keyword mape vôbec
 namapovaná (registry.py poznamka: "bezlak→NO MILK, doplniť keyword mapu") —
 "1. st. ŠD bezlak"/"2.st ŠD bezlak" mali prázdnu diétu. Hook to dopĺňa.
+
+`nPAR` bol uncertain fuzzy match — potvrdené na isté, NO PARADAJKA (user
+9.9.2026).
 """
 
 from __future__ import annotations
 
 import unicodedata
 
-from ..base import PayerRule
+from ..base import LetterRule, PayerRule
 
 _ZS_1_STUPEN = "ZŠ 1.stupeň"
 _ZS_2_STUPEN = "ZŠ 2.stupeň"
+
+_LETTER_RULES: dict[str, LetterRule] = {
+    "NPAR": LetterRule(diet="NO PARADAJKA"),
+}
 
 
 def _fold(value: str) -> str:
@@ -47,3 +54,10 @@ def dobrodruzstvo_payer_hook(payer_name: str) -> PayerRule | None:
     if portion is None and diet is None:
         return None
     return PayerRule(portion=portion, diet=diet)
+
+
+def dobrodruzstvo_letter_hook(
+    letter: str, skratka: str, nazov: str
+) -> LetterRule | None:
+    """Vráť pravidlo pre menu písmeno, alebo None → nech rozhodne engine."""
+    return _LETTER_RULES.get(_fold(skratka))

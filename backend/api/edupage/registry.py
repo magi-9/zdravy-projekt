@@ -20,7 +20,10 @@ from .overrides.britishschool import (
 )
 from .overrides.cmspezinok import cmspezinok_letter_hook
 from .overrides.cvernicka import cvernicka_letter_hook
-from .overrides.dobrodruzstvo import dobrodruzstvo_payer_hook
+from .overrides.dobrodruzstvo import (
+    dobrodruzstvo_letter_hook,
+    dobrodruzstvo_payer_hook,
+)
 from .overrides.fantasticka import (
     fantasticka_letter_hook,
     fantasticka_payer_hook,
@@ -181,8 +184,10 @@ _CONFIGS: tuple[PrevadzkaConfig, ...] = (
             "bezlep→NO GLUTEN (generický engine, OK). bezlak→NO MILK a "
             "1.stupeň porcia-kód (4 z 5 skupín majú v EduPage zle nastavené "
             "porcia=2 namiesto 1, user 3.9.2026: 'spojilo 1. a 2. stupeň') "
-            "rieši payer_hook."
+            "rieši payer_hook. nPAR bol uncertain fuzzy match — letter_hook "
+            "potvrdzuje na NO PARADAJKA (user 9.9.2026)."
         ),
+        letter_hook=dobrodruzstvo_letter_hook,
         payer_hook=dobrodruzstvo_payer_hook,
     ),
     PrevadzkaConfig(

@@ -30,6 +30,9 @@ User 2.9.2026 potvrdil ďalšie dve "uncertain" fuzzy matche:
 - `zšlaNM` = ZŠ Malokarpatská, len mlieko (bez ďalších obmedzení, na rozdiel
   od `zšlaNMnEnOnJ` vyššie) → NO MILK.
 
+`zšlaNM B` (rovnaká diéta, iný riadok/skratka na inom menu písmene) —
+potvrdené user 9.9.2026, tiež NO MILK.
+
 `zdravebrusko_payer_hook` — raňajky/olovrant (live 2.9.2026): diétne portie MŠ
 Malokarpatského aj MŠ Heyrovského tam zdieľajú menu písmeno `dsbNMNE` (Deutsche
 Schule) s Deutsche Schule, lebo tento feed pre ne pri raňajkách/olovrante nemá
@@ -58,6 +61,7 @@ _RULES: dict[str, LetterRule] = {
     "ZŠLANG": LetterRule(diet="NO GLUTEN"),
     "ZŠLANMNENONJ": LetterRule(diet="NO MILK – NO EGG – NO ORECH – NO JABLKO"),
     "ZŠLANM": LetterRule(diet="NO MILK"),
+    "ZŠLANM B": LetterRule(diet="NO MILK"),
     "SŠVV": LetterRule(menu="V"),
 }
 

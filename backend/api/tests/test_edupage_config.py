@@ -20,7 +20,10 @@ from api.edupage.overrides.britishschool import (
 )
 from api.edupage.overrides.cmspezinok import cmspezinok_letter_hook
 from api.edupage.overrides.cvernicka import cvernicka_letter_hook
-from api.edupage.overrides.dobrodruzstvo import dobrodruzstvo_payer_hook
+from api.edupage.overrides.dobrodruzstvo import (
+    dobrodruzstvo_letter_hook,
+    dobrodruzstvo_payer_hook,
+)
 from api.edupage.overrides.fantasticka import (
     fantasticka_letter_hook,
     fantasticka_payer_hook,
@@ -636,7 +639,15 @@ class TestZdravebruskoLetterHook(unittest.TestCase):
     def test_dsb_triple_combo_confirmed(self):
         """'dsbNNN SJ' bol uncertain fuzzy match (len NO SOJA) — potvrdené na
         plnú kombináciu (user 1.9.2026)."""
-        self.assertEqual(self._rule("dsbNNN SJ").diet, "NONONO – NO SOJA")
+        self.assertEqual(
+            self._rule("dsbNNN SJ").diet,
+            "NoNoNo - No Soja - No Jablko - No Telacie",
+        )
+
+    def test_zs_malokarpatska_nm_variant_b_confirmed(self):
+        """'zšlaNM B' (rovnaká diéta ako 'zšlaNM', iný riadok) — potvrdené
+        NO MILK (user 9.9.2026)."""
+        self.assertEqual(self._rule("zšlaNM B").diet, "NO MILK")
 
     def test_heyrovskeho_gluten_confirmed(self):
         self.assertEqual(self._rule("mšHey. NG").diet, "NO GLUTEN")
@@ -793,6 +804,20 @@ class TestDobrodruzstvoPayerHook(unittest.TestCase):
         self.assertIsNone(self._rule("MŠ klasik"))
         self.assertIsNone(self._rule("MŠ Vege"))
         self.assertIsNone(self._rule("Dospelý"))
+
+
+class TestDobrodruzstvoLetterHook(unittest.TestCase):
+    """`nPAR` bol uncertain fuzzy match — potvrdené na isté, NO PARADAJKA
+    (user 9.9.2026)."""
+
+    def _rule(self, skratka) -> LetterRule | None:
+        return dobrodruzstvo_letter_hook("X", skratka, "")
+
+    def test_npar_confirmed_no_paradajka(self):
+        self.assertEqual(self._rule("nPAR").diet, "NO PARADAJKA")
+
+    def test_unknown_skratka_falls_through_to_engine(self):
+        self.assertIsNone(self._rule("bezlak"))
 
 
 class TestFantastickaSkolkaLetterHook(unittest.TestCase):
