@@ -11,7 +11,8 @@ Zdieľaný feed pre 5 celkov (Deutsche Schule "dsb", MŠ Heyrovského 4 "mšHey.
 MŠ Malokarpatké nám. 6 "mšMal.", ZŠ Malokarpatská "zšla" — rozdelené cez
 `edupage_match`, viď CLAUDE.md). Potvrdené s userom 1.9.2026, doplnené z
 "uncertain" fuzzy matchov na isté pravidlá:
-- `dsbNNN SJ` = mlieko+lepok+vajcia+sója → "NONONO – NO SOJA" (pk 125)
+- `dsbNNN SJ` = NoNoNo+sója+jablko+teľacie → "NoNoNo - No Soja - No Jablko
+  - No Telacie"
 - `dsbNGNM` = mlieko+lepok → "NO MILK – NO GLUTEN" (pk 84)
 - `zšlaNMnEnOnJ` = mlieko+vajcia+orechy+jablko → nová kombinácia (posledné
   písmeno "J" bolo pôvodne neisté, `flag="!"` žiadal manuálnu kontrolu; user
@@ -28,6 +29,9 @@ User 2.9.2026 potvrdil ďalšie dve "uncertain" fuzzy matche:
   Vege do vlastného menuCounts.V, bez dotyku na A.
 - `zšlaNM` = ZŠ Malokarpatská, len mlieko (bez ďalších obmedzení, na rozdiel
   od `zšlaNMnEnOnJ` vyššie) → NO MILK.
+
+`zšlaNM B` (rovnaká diéta, iný riadok/skratka na inom menu písmene) —
+potvrdené user 9.9.2026, tiež NO MILK.
 
 `zdravebrusko_payer_hook` — raňajky/olovrant (live 2.9.2026): diétne portie MŠ
 Malokarpatského aj MŠ Heyrovského tam zdieľajú menu písmeno `dsbNMNE` (Deutsche
@@ -48,7 +52,7 @@ from ..base import LetterRule, PayerRule
 _RULES: dict[str, LetterRule] = {
     "DSBNMNE": LetterRule(diet="NO MILK/NO EGG"),
     "DSBNM": LetterRule(diet="NO MILK"),
-    "DSBNNN SJ": LetterRule(diet="NONONO – NO SOJA"),
+    "DSBNNN SJ": LetterRule(diet="NoNoNo - No Soja - No Jablko - No Telacie"),
     "DSBNGNM": LetterRule(diet="NO MILK – NO GLUTEN"),
     "DSBNO": LetterRule(diet="NO ORECH"),
     "MŠHEY. NG": LetterRule(diet="NO GLUTEN"),
@@ -57,6 +61,7 @@ _RULES: dict[str, LetterRule] = {
     "ZŠLANG": LetterRule(diet="NO GLUTEN"),
     "ZŠLANMNENONJ": LetterRule(diet="NO MILK – NO EGG – NO ORECH – NO JABLKO"),
     "ZŠLANM": LetterRule(diet="NO MILK"),
+    "ZŠLANM B": LetterRule(diet="NO MILK"),
     "SŠVV": LetterRule(menu="V"),
 }
 

@@ -1,32 +1,5 @@
 # Changelog
 
-## [2.12.0](https://github.com/tomag-9/zdravy-projekt/compare/v2.11.1...v2.12.0) (2026-09-07)
-
-
-### Features
-
-* **delivery:** add cluster D ([a7898a3](https://github.com/tomag-9/zdravy-projekt/commit/a7898a32ee150300119b181cdb28c1eba03781d5))
-* **objednavanie:** vypínanie jedál per deň v týždni + auto-order rešpektuje deň ([#606](https://github.com/tomag-9/zdravy-projekt/issues/606)) ([0718763](https://github.com/tomag-9/zdravy-projekt/commit/07187635e1804757c73ff05440c6186b356284e6))
-
-
-### Bug Fixes
-
-* **admin:** rozliš počty odznakov podľa menu ([255f82b](https://github.com/tomag-9/zdravy-projekt/commit/255f82b2fc8bd41b36dad9b2b8e3a11cd3433153))
-* **admin:** stabilizuj British sumár a menu riadky ([4c0403f](https://github.com/tomag-9/zdravy-projekt/commit/4c0403f09fe7ff42b9c4ea396f1214f4956cea24))
-* **admin:** zarovnaj príznaky prevádzky ([d9f88e3](https://github.com/tomag-9/zdravy-projekt/commit/d9f88e3c9eee6cbdedb32be348d8e80a71eb6a2c))
-* **edupage:** include British diets in summary ([524389a](https://github.com/tomag-9/zdravy-projekt/commit/524389a5d30acedac1731cc174464361d83cb4e4))
-* **edupage:** route Libellus Stromcek meals ([1cae8e5](https://github.com/tomag-9/zdravy-projekt/commit/1cae8e570f1176fe43493adbf691ee80a83334d1))
-* **gramage:** validate component decimals ([1f02785](https://github.com/tomag-9/zdravy-projekt/commit/1f0278517093a359e951d2e51e30156198a5e9ae))
-* **tests:** update tests for child portion handling and menu variant separation ([140d2c9](https://github.com/tomag-9/zdravy-projekt/commit/140d2c9cb99bdd678efe6df6878d86152ace6051))
-
-## [2.11.1](https://github.com/tomag-9/zdravy-projekt/compare/v2.11.0...v2.11.1) (2026-09-06)
-
-
-### Bug Fixes
-
-* **docs:** refine language and remove unnecessary sections in CLAUDE.md ([7bed895](https://github.com/tomag-9/zdravy-projekt/commit/7bed8952829faf9d74896947cf408b037039e731))
-* **edupage:** refine British cluster summary ([0a9744f](https://github.com/tomag-9/zdravy-projekt/commit/0a9744f3939a35ba4bec60d41d1a9f04d277c1d1))
-
 ## [2.11.0](https://github.com/tomag-9/zdravy-projekt/compare/v2.10.0...v2.11.0) (2026-09-06)
 
 

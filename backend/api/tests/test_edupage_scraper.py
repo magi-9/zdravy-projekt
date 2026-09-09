@@ -6,6 +6,7 @@ from datetime import date
 from unittest.mock import MagicMock, patch
 
 from api.edupage.base import OlovrantMode, PrevadzkaConfig
+from api.edupage.overrides.libellus import libellus_letter_hook
 from api.edupage.overrides.zdravebrusko import zdravebrusko_letter_hook
 from api.edupage_scraper import EdupageScraper, nest_order_data_by_category
 
@@ -70,6 +71,15 @@ class TestResolveDietName(unittest.TestCase):
 
     def test_known_skratka_nf(self):
         self.assertEqual(self._r("NF", "NoFish"), "NO FISH")
+
+    def test_zdravebrusko_dsb_nnn_sj_has_all_confirmed_restrictions(self):
+        rule = zdravebrusko_letter_hook("X", "dsbNNN SJ", "NoNoNo")
+
+        self.assertIsNotNone(rule)
+        self.assertEqual(
+            rule.diet,
+            "NoNoNo - No Soja - No Jablko - No Telacie",
+        )
 
     def test_known_skratka_case_insensitive(self):
         # skratka lookup normalises to upper
@@ -996,6 +1006,110 @@ class TestParse(unittest.TestCase):
                 }
             },
         )
+
+    def test_parse_libellus_sa_flags_both_libellus_and_stromcek(self):
+        """`sA` sa zapíše ako diéta "Klasik STROMČEK" priamo do Libellusu
+        (žiadny presmerovaný dátový merge, viď libellus.py) — admin má o tom
+        vedieť na oboch stranách: `attention` na Libelluse (`flag`) a
+        `relayed_attention["Stromček"]` na Stromčeku (`relay_attention_to`),
+        bez toho, aby sa Stromčekove dáta menili (user 9.9.2026)."""
+        prehlad = {
+            "prehlad": {
+                self.DATE_STR: {
+                    "2": {
+                        "A": {"typ_platitela": {"5": {"o": 33}}},
+                        "S": {"typ_platitela": {"5": {"o": 4}}},
+                    },
+                }
+            },
+            "mamUnknown": False,
+            "unknownTypyIDS": [],
+        }
+        nazov_menu = {
+            "A": {"nazov": "Klasik", "skratka": "A"},
+            "S": {"nazov": "Stomček Klasik", "skratka": "sA"},
+        }
+        nastavenia = [
+            {
+                "setting": "vydaj_normal",
+                "hodnota": json.dumps(
+                    {"1": {"2": {"vydaj_od": "11:00", "vydaj_do": "14:00"}}}
+                ),
+            }
+        ]
+        html = _make_html(
+            prehlad,
+            nazov_menu,
+            nastavenia,
+            self._typy([(5, "MŠ Škôlka", 0)]),
+            self.DATE_STR,
+        )
+        config = PrevadzkaConfig(
+            subdomena="libellus",
+            ucty=("Libellus",),
+            olovrant_mode=OlovrantMode.EDUPAGE,
+            letter_hook=libellus_letter_hook,
+            relay_targets=frozenset({"Stromček"}),
+        )
+        result = self._scrape_html(html, config=config)
+
+        self.assertEqual(
+            result.order_data["lunch"]["Škôlka"],
+            {"menuCounts": {"A": 37}, "diets": {"Klasik STROMČEK": 4}},
+        )
+        self.assertEqual(
+            result.attention,
+            ["S:sA — patrí Stromčeku, over/rozdeľ appkové objednávky"],
+        )
+        self.assertEqual(
+            result.relayed_attention,
+            {
+                "Stromček": [
+                    "S:sA — patrí Stromčeku, over/rozdeľ appkové objednávky (4)"
+                ]
+            },
+        )
+
+    def test_parse_libellus_relay_target_cleared_when_sa_absent_that_run(self):
+        """`relay_targets` predvyplní `relayed_attention` prázdnym zoznamom aj
+        keď `sA` v danom behu vôbec nepadlo — tasks.py to zapisuje ako plné
+        nahradenie, takže bez tohto by na Stromčeku zostal visieť flag z
+        predošlého behu (napr. deti sa medzičasom odhlásili)."""
+        prehlad = {
+            "prehlad": {
+                self.DATE_STR: {
+                    "2": {"A": {"typ_platitela": {"5": {"o": 33}}}},
+                }
+            },
+            "mamUnknown": False,
+            "unknownTypyIDS": [],
+        }
+        nazov_menu = {"A": {"nazov": "Klasik", "skratka": "A"}}
+        nastavenia = [
+            {
+                "setting": "vydaj_normal",
+                "hodnota": json.dumps(
+                    {"1": {"2": {"vydaj_od": "11:00", "vydaj_do": "14:00"}}}
+                ),
+            }
+        ]
+        html = _make_html(
+            prehlad,
+            nazov_menu,
+            nastavenia,
+            self._typy([(5, "MŠ Škôlka", 0)]),
+            self.DATE_STR,
+        )
+        config = PrevadzkaConfig(
+            subdomena="libellus",
+            ucty=("Libellus",),
+            olovrant_mode=OlovrantMode.EDUPAGE,
+            letter_hook=libellus_letter_hook,
+            relay_targets=frozenset({"Stromček"}),
+        )
+        result = self._scrape_html(html, config=config)
+
+        self.assertEqual(result.relayed_attention, {"Stromček": []})
 
     def test_nest_order_data_by_category_wraps_flat_meals(self):
         nested = nest_order_data_by_category(

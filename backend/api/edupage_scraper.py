@@ -371,6 +371,10 @@ class ScrapeResult:
     # `attention` rozpadnuté podľa prevádzky, do ktorej porcie s daným flagom
     # reálne padli. Prázdne pri jedno-prevádzkovom scrape (vtedy platí `attention`).
     attention_by_prevadzka: dict[str, list[str]] = field(default_factory=dict)
+    # `LetterRule.relay_attention_to` (Libellus `sA` → Stromček): informačný
+    # attention flag pre CUDZIU prevádzku (mimo tohto scrapu), bez dátového
+    # merge. Kľúč je názov tej cudzej prevádzky.
+    relayed_attention: dict[str, list[str]] = field(default_factory=dict)
 
 
 # ------------------------------------------------------------------
@@ -833,6 +837,15 @@ class EdupageScraper:
         unmapped_buckets: dict[str, set[str]] = {}
         # to isté pre neisto (fuzzy) namatchnuté diéty (`uncertain`)
         uncertain_buckets: dict[str, set[str]] = {}
+        # `LetterRule.relay_attention_to` (Libellus `sA`): pridaj rovnaký flag_label
+        # aj do zoznamu inej, cudzej prevádzky — LEN informačne (žiadny dátový
+        # merge, na rozdiel od zrušeného `redirect_prevadzka`). Kľúč tu je názov
+        # tej cudzej prevádzky priamo, nie bucket tohto scrapu. Predvyplnené z
+        # `config.relay_targets`, aby prázdny výsledok tento beh (skratka dnes
+        # nepadla) vedel cieľovú prevádzku vyčistiť, nie ju len tíško vynechať.
+        relayed_attention_buckets: dict[str, set[str]] = {
+            nazov: set() for nazov in (config.relay_targets if config else ())
+        }
 
         date_key = target_date.isoformat()
         day_data = prehlad.get(date_key, {})
@@ -964,9 +977,17 @@ class EdupageScraper:
                     effective_diet = forced_diet or diet_name or payer_diet
                     effective_menu = "A" if effective_diet else (menu_variant or "A")
 
-                    if rule is not None and rule.redirect_prevadzka:
-                        buckets = [rule.redirect_prevadzka]
-                    elif matches:
+                    if rule is not None and rule.relay_attention_to:
+                        relay_label = (
+                            f"{flag_label} ({total})"
+                            if flag_label is not None
+                            else f"{letter}:{skratka} ({total})"
+                        )
+                        relayed_attention_buckets.setdefault(
+                            rule.relay_attention_to, set()
+                        ).add(relay_label)
+
+                    if matches:
                         buckets = match_prevadzka(
                             matches,
                             match_name,
@@ -1060,6 +1081,15 @@ class EdupageScraper:
                 bucket: sorted(flags)
                 for bucket, flags in attention_buckets.items()
                 if bucket and flags
+            },
+            # Zámerne BEZ `if flags` filtra (na rozdiel od attention/unmapped/
+            # uncertain buckets vyššie) — prázdny zoznam pre deklarovaný
+            # `relay_targets` je platný výsledok "dnes nič", ktorý musí
+            # cieľovú prevádzku vyčistiť, nie ju vynechať z payloadu.
+            relayed_attention={
+                nazov: sorted(flags)
+                for nazov, flags in relayed_attention_buckets.items()
+                if nazov
             },
         )
 

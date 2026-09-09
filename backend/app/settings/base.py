@@ -90,6 +90,7 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "api.middleware.NoCacheMiddleware",
     "api.middleware.UnauthorizedAccessRedirectMiddleware",
+    "api.maintenance.MaintenanceModeMiddleware",
     # Prometheus metrics - must be last to complete measurement
     "django_prometheus.middleware.PrometheusAfterMiddleware",
 ]

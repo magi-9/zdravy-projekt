@@ -35,6 +35,7 @@ interface TablePrefs {
   clusterSummary: boolean;
   dietClusters: string[];
   expanded: boolean;
+  mergeDiets: boolean;
 }
 function loadTablePrefs(): Partial<TablePrefs> {
   try {
@@ -266,12 +267,26 @@ const AdminDashboard: React.FC = () => {
   // prehliadača (viď TABLE_PREFS_KEY vyššie) — ide do backendu, lebo
   // ovplyvňuje aj to, čo vytlačí PDF komukoľvek inému, kto ho dnes otvorí.
   const [dietPacking, setDietPacking] = useState<DietPackingItem[]>([]);
+  // "Použiť zlúčenie diét" (#568) — diéty, ktoré šéfkuchár označil ako
+  // pripravované spolu so štandardom (viď /admin/diet-component-merge), sa
+  // do tabuľky zlúčia. Default zapnuté, vypnutím sa tabuľka na chvíľu vráti
+  // do "vždy zvlášť" pohľadu bez toho, aby sa uložené označenia zmazali.
+  const [mergeDiets, setMergeDiets] = useState(() => loadTablePrefs().mergeDiets ?? true);
 
   // Zapamätanie "Nastavenia tabuľky" (viď loadTablePrefs vyššie) — uloží sa
   // pri každej zmene, nech admin po návrate zo škôlky vidí presne to, čo mal.
   useEffect(() => {
-    saveTablePrefs({ mealType, sections, selectedVydaje, showEmpty, clusterSummary, dietClusters, expanded });
-  }, [mealType, sections, selectedVydaje, showEmpty, clusterSummary, dietClusters, expanded]);
+    saveTablePrefs({
+      mealType,
+      sections,
+      selectedVydaje,
+      showEmpty,
+      clusterSummary,
+      dietClusters,
+      expanded,
+      mergeDiets,
+    });
+  }, [mealType, sections, selectedVydaje, showEmpty, clusterSummary, dietClusters, expanded, mergeDiets]);
 
   // Prepnutie tabu jedla mení celú množinu stĺpcov/trás pod sebou — staré
   // "sections"/"selectedVydaje" (napr. "len Menu A") takmer isto nesedia na
@@ -297,8 +312,9 @@ const AdminDashboard: React.FC = () => {
     if (!showEmpty) parts.push("&show_empty=0");
     if (!clusterSummary) parts.push("&cluster_summary=0");
     if (expanded) parts.push("&expanded=1");
+    if (!mergeDiets) parts.push("&merge_diets=0");
     return parts.join("");
-  }, [mealType, sections, selectedVydaje, dietClusters, showEmpty, clusterSummary, expanded]);
+  }, [mealType, sections, selectedVydaje, dietClusters, showEmpty, clusterSummary, expanded, mergeDiets]);
 
   const fetchData = useCallback(async (refresh = false) => {
     // Zámerne NEnulujeme `data`/`orderReport` pred fetchom — Nastavenia
@@ -707,6 +723,7 @@ const AdminDashboard: React.FC = () => {
           showEmpty={showEmpty}
           clusterSummary={clusterSummary}
           expanded={expanded}
+          mergeDiets={mergeDiets}
           onToggleSection={(key) =>
             setSections((current) =>
               toggleSelection(current, key, data.spec.sections.map((section) => section.key)),
@@ -729,6 +746,7 @@ const AdminDashboard: React.FC = () => {
           onShowEmptyChange={setShowEmpty}
           onClusterSummaryChange={setClusterSummary}
           onExpandedChange={setExpanded}
+          onMergeDietsChange={setMergeDiets}
           onReset={() => {
             setSections([]);
             setSelectedVydaje([]);
@@ -736,6 +754,7 @@ const AdminDashboard: React.FC = () => {
             setShowEmpty(true);
             setClusterSummary(true);
             setExpanded(false);
+            setMergeDiets(true);
           }}
           onClose={() => setSettingsOpen(false)}
         />
@@ -917,6 +936,7 @@ const TableSettingsModal: React.FC<{
   clusterSummary: boolean;
   expanded: boolean;
   dietPacking: DietPackingItem[];
+  mergeDiets: boolean;
   onToggleSection: (key: string) => void;
   onToggleVydaj: (key: string) => void;
   onToggleDietCluster: (key: string) => void;
@@ -924,6 +944,7 @@ const TableSettingsModal: React.FC<{
   onShowEmptyChange: (v: boolean) => void;
   onClusterSummaryChange: (v: boolean) => void;
   onExpandedChange: (v: boolean) => void;
+  onMergeDietsChange: (v: boolean) => void;
   onReset: () => void;
   onClose: () => void;
 }> = ({
@@ -934,6 +955,7 @@ const TableSettingsModal: React.FC<{
   clusterSummary,
   expanded,
   dietPacking,
+  mergeDiets,
   onToggleSection,
   onToggleVydaj,
   onToggleDietCluster,
@@ -941,6 +963,7 @@ const TableSettingsModal: React.FC<{
   onShowEmptyChange,
   onClusterSummaryChange,
   onExpandedChange,
+  onMergeDietsChange,
   onReset,
   onClose,
 }) => {
@@ -1011,6 +1034,14 @@ const TableSettingsModal: React.FC<{
             <div style={{ fontSize: 12, color: "var(--ink-3)" }}>Pásy „SUMÁR CLUSTER ... S DIÉTAMI MŠ".</div>
           </div>
           <Toggle on={clusterSummary} onChange={onClusterSummaryChange} ariaLabel="Zobraziť sumáre klastrov" />
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 13.5 }}>Použiť zlúčenie diét</div>
+            <div style={{ fontSize: 12, color: "var(--ink-3)" }}>Diéty odklikané ako "spolu" (Zlúčenie diét) sa v tabuľke zlúčia so štandardom. Vypnuté = vždy zvlášť, bez ohľadu na odklikané.</div>
+          </div>
+          <Toggle on={mergeDiets} onChange={onMergeDietsChange} ariaLabel="Použiť zlúčenie diét" />
         </div>
 
         {clusterSummary && vydaje.length > 1 && (

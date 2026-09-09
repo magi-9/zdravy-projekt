@@ -251,3 +251,45 @@ describe('SystemSettings - manuálny EduPage scrape', () => {
         expect(mockSuccess).not.toHaveBeenCalled();
     });
 });
+
+describe('SystemSettings - údržba', () => {
+    const maintenanceSettings = {
+        deadline_breakfast: '10:00', deadline_breakfast_is_day_before: false,
+        deadline_lunch: '10:00', deadline_lunch_is_day_before: false,
+        deadline_olovrant: '10:00', deadline_olovrant_is_day_before: false,
+        edupage_auto_scrape_enabled: true, report_email_recipients: [],
+        client_contact_name: '', client_contact_role: '', client_contact_email: '', client_contact_phone: '',
+        maintenance_enabled: true,
+        maintenance_starts_at: '2026-09-10T08:00:00Z',
+        maintenance_ends_at: '2026-09-10T10:00:00Z',
+    };
+
+    beforeEach(() => {
+        mockApiFetch.mockReset();
+        mockApiFetch.mockImplementation((_url: string, options?: RequestInit) => Promise.resolve({
+            ok: true,
+            json: async () => (options?.method === 'POST' ? {} : maintenanceSettings),
+        }));
+    });
+
+    it('shows the configured maintenance window and clears it explicitly', async () => {
+        const user = userEvent.setup();
+        render(<SystemSettings />);
+        await user.click(await screen.findByRole('button', { name: 'Údržba' }));
+
+        expect(await screen.findByText('Aktuálna údržba')).toBeInTheDocument();
+        expect(screen.getByText('Naplánovaná')).toBeInTheDocument();
+        await user.click(screen.getByRole('button', { name: 'Zmazať údržbu' }));
+
+        await waitFor(() => {
+            expect(mockApiFetch).toHaveBeenLastCalledWith(
+                expect.stringContaining('/admin/global-settings/'),
+                expect.objectContaining({
+                    method: 'POST',
+                    body: expect.stringContaining('"maintenance_enabled":false'),
+                }),
+            );
+        });
+        expect(screen.getByText('Nie je nastavená')).toBeInTheDocument();
+    });
+});

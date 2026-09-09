@@ -104,6 +104,19 @@ class DailyOrder(models.Model):
     is_auto = models.BooleanField(
         default=False, help_text="True if this order was auto-generated after deadline"
     )
+    attention_dismissed = models.BooleanField(
+        default=False,
+        help_text=(
+            "Admin odklikol VŠETKY upozornenia z posledného scrapu "
+            "(attention/config_notes/unmapped_diets/uncertain_diets) ako "
+            "vybavené pre tento konkrétny deň (Kontrola objednávok). Scrape "
+            "prepisuje `data`/`scrape_flags`, ale nie toto pole, takže dismiss "
+            "v ten deň prežije aj ďalší hodinový beh; ďalší deň má vlastný "
+            "DailyOrder riadok, takže sa flag prirodzene znova ukáže, ak "
+            "pretrváva — pre trvalé štrukturálne fakty (napr. škola nikdy "
+            "nemá olovrant) oprav radšej PrevadzkaConfig/letter_hook priamo."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -257,6 +270,12 @@ def _default_visible_menus() -> List[str]:
 
 
 class GlobalSettings(models.Model):
+    maintenance_enabled = models.BooleanField(
+        default=False,
+        help_text="Temporarily blocks client access during a scheduled update.",
+    )
+    maintenance_starts_at = models.DateTimeField(null=True, blank=True)
+    maintenance_ends_at = models.DateTimeField(null=True, blank=True)
     deadline_breakfast = models.TimeField(
         default=datetime.time(10, 0), help_text="Deadline for breakfast orders"
     )
@@ -383,6 +402,16 @@ class GlobalSettings(models.Model):
             )
         return getattr(self, f"deadline_{meal_type}"), getattr(
             self, f"deadline_{meal_type}_is_day_before", False
+        )
+
+    def maintenance_is_active(self) -> bool:
+        """Whether the configured maintenance window is in progress right now."""
+        now = timezone.now()
+        return bool(
+            self.maintenance_enabled
+            and self.maintenance_starts_at
+            and self.maintenance_ends_at
+            and self.maintenance_starts_at <= now < self.maintenance_ends_at
         )
 
     def save(self, *args: Any, **kwargs: Any) -> None:
@@ -1378,3 +1407,44 @@ class PrevadzkaLoadingConfirmation(models.Model):
 
     def __str__(self) -> str:
         return f"{self.date} {self.prevadzka}: naložené"
+
+
+class DietComponentMerge(models.Model):
+    """Šéfkuchár per deň/jedlo/zložku odklikáva, že sa diéta v tú zložku
+    pripraví spolu so štandardným jedlom, nie samostatne (#568).
+
+    Existuje len riadok pre VÝNIMKU "spolu" — default (žiadny riadok) je
+    "zvlášť", šéfkuchár označuje len tie zložky, čo môžu ísť spolu. Pri
+    obede sa `component_index` viaže výhradne na **Menu A** danéh dňa
+    (jediný variant, ktorý táto funkcia rieši), pri raňajkách/olovrante na
+    jediný template toho jedla — index je pozícia v `MealTemplate.components`
+    tak, ako ju vidí gramážová tabuľka (`col_groups[i]["components"]`).
+
+    `component_label` je denormalizovaný text pre čitateľnosť v adminovi/DB
+    (šablóny sa môžu meniť deň čo deň, index sám o sebe nič nehovorí).
+    """
+
+    date = models.DateField(db_index=True)
+    meal = models.CharField(max_length=20, choices=MealCategory.choices)
+    component_index = models.PositiveSmallIntegerField()
+    component_label = models.CharField(max_length=100, blank=True, default="")
+    diet = models.ForeignKey(
+        Diet, on_delete=models.CASCADE, related_name="component_merges"
+    )
+    updated_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["date", "meal", "component_index", "diet"],
+                name="unique_diet_component_merge_slot",
+            )
+        ]
+        indexes = [models.Index(fields=["date", "meal"])]
+        ordering = ["date", "meal", "component_index"]
+
+    def __str__(self) -> str:
+        return f"{self.date} {self.meal}[{self.component_index}] {self.diet} — spolu"

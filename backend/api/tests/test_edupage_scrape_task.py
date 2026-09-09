@@ -316,6 +316,135 @@ def test_edupage_scrape_splits_attention_flags_per_prevadzka(monkeypatch):
 
 
 @pytest.mark.django_db
+def test_edupage_scrape_relays_attention_without_touching_target_data(
+    edupage_user, monkeypatch
+):
+    """`ScrapeResult.relayed_attention` (Libellus `sA` → Stromček, `relay_
+    attention_to`) sa zapíše do CUDZEJ prevádzky len ako `scrape_flags.
+    attention` — jej appkové `data` sa nesmú zmeniť (na rozdiel od zrušeného
+    `redirect_prevadzka`, ktorý appkové počty prepisoval/miešal)."""
+    from api.models import Prevadzka
+
+    stromcek_celok = Celok.objects.create(
+        nazov="Stromček",
+        zdroj_objednavok=Celok.ZdrojObjednavok.APP,
+    )
+    stromcek = Prevadzka.objects.create(celok=stromcek_celok, nazov="Stromček")
+    GlobalSettings.objects.create(
+        pk=1,
+        deadline_breakfast=datetime.time(18, 0),
+        deadline_lunch=datetime.time(9, 0),
+        deadline_olovrant=datetime.time(10, 0),
+    )
+    target_date = datetime.date(2026, 6, 30)
+    app_data = {"lunch": {"Škôlka": {"menuCounts": {"A": 7}, "diets": {}}}}
+    DailyOrder.objects.create(
+        prevadzka=stromcek, date=target_date, user=edupage_user, data=app_data
+    )
+
+    def fake_scrape(self, url, scrape_date, prevadzka_matches=None, allowed_diets=None):
+        return _scrape_result(
+            order_data={"lunch": {"menuCounts": {"A": 33}, "diets": {}}},
+            relayed_attention={"Stromček": ["S:sA — over/rozdeľ (4)"]},
+        )
+
+    monkeypatch.setattr("api.edupage_scraper.EdupageScraper.scrape", fake_scrape)
+    scrape_edupage_orders_task.run(date_str=target_date.isoformat())
+
+    stromcek_order = DailyOrder.objects.get(prevadzka=stromcek, date=target_date)
+    assert stromcek_order.data == app_data
+    assert stromcek_order.scrape_flags == {
+        "attention": ["S:sA — over/rozdeľ (4)"],
+        "config_notes": [],
+        "unmapped_diets": [],
+        "uncertain_diets": [],
+    }
+
+    # Ďalší beh bez `sA` (deti sa odhlásili) musí flag na cudzej prevádzke
+    # vyčistiť, nie ho tam nechať visieť.
+    def clean_scrape(
+        self, url, scrape_date, prevadzka_matches=None, allowed_diets=None
+    ):
+        return _scrape_result(
+            order_data={"lunch": {"menuCounts": {"A": 33}, "diets": {}}},
+            relayed_attention={"Stromček": []},
+        )
+
+    monkeypatch.setattr("api.edupage_scraper.EdupageScraper.scrape", clean_scrape)
+    scrape_edupage_orders_task.run(date_str=target_date.isoformat())
+
+    stromcek_order.refresh_from_db()
+    assert stromcek_order.data == app_data
+    assert stromcek_order.scrape_flags["attention"] == []
+
+
+@pytest.mark.django_db
+def test_edupage_scrape_relay_preserves_dismissed_flag_on_rerun(
+    edupage_user, monkeypatch
+):
+    """`attention_dismissed` je per-deň admin rozhodnutie — hodinový rescrape
+    (aj keď prepíše `scrape_flags`) ho nesmie potichu vrátiť späť."""
+    from api.models import Prevadzka
+
+    stromcek_celok = Celok.objects.create(
+        nazov="Stromček", zdroj_objednavok=Celok.ZdrojObjednavok.APP
+    )
+    stromcek = Prevadzka.objects.create(celok=stromcek_celok, nazov="Stromček")
+    GlobalSettings.objects.create(
+        pk=1,
+        deadline_breakfast=datetime.time(18, 0),
+        deadline_lunch=datetime.time(9, 0),
+        deadline_olovrant=datetime.time(10, 0),
+    )
+    target_date = datetime.date(2026, 6, 30)
+    order = DailyOrder.objects.create(
+        prevadzka=stromcek,
+        date=target_date,
+        user=edupage_user,
+        data={},
+        attention_dismissed=True,
+    )
+
+    def fake_scrape(self, url, scrape_date, prevadzka_matches=None, allowed_diets=None):
+        return _scrape_result(
+            order_data={"lunch": {"menuCounts": {"A": 33}, "diets": {}}},
+            relayed_attention={"Stromček": ["S:sA — over/rozdeľ (4)"]},
+        )
+
+    monkeypatch.setattr("api.edupage_scraper.EdupageScraper.scrape", fake_scrape)
+    scrape_edupage_orders_task.run(date_str=target_date.isoformat())
+
+    order.refresh_from_db()
+    assert order.attention_dismissed is True
+
+
+@pytest.mark.django_db
+def test_edupage_scrape_relay_target_missing_does_not_crash(edupage_user, monkeypatch):
+    """Cieľová prevádzka (`relay_attention_to`) v DB chýba — nesmie to zhodiť
+    zvyšok scrapu, len sa zaloguje a preskočí."""
+    GlobalSettings.objects.create(
+        pk=1,
+        deadline_breakfast=datetime.time(18, 0),
+        deadline_lunch=datetime.time(9, 0),
+        deadline_olovrant=datetime.time(10, 0),
+    )
+    target_date = datetime.date(2026, 6, 30)
+
+    def fake_scrape(self, url, scrape_date, prevadzka_matches=None, allowed_diets=None):
+        return _scrape_result(
+            order_data={"lunch": {"menuCounts": {"A": 33}, "diets": {}}},
+            relayed_attention={"Stromček": ["S:sA — over/rozdeľ (4)"]},
+        )
+
+    monkeypatch.setattr("api.edupage_scraper.EdupageScraper.scrape", fake_scrape)
+    result = scrape_edupage_orders_task.run(date_str=target_date.isoformat())
+
+    assert result["scraped"] == 1
+    order = DailyOrder.objects.get(user=edupage_user, date=target_date)
+    assert order.data
+
+
+@pytest.mark.django_db
 def test_edupage_scrape_task_skips_automatic_run_when_disabled(
     edupage_user, monkeypatch
 ):
@@ -551,6 +680,42 @@ def test_scrape_edupage_orders_management_command(monkeypatch, capsys):
         "EduPage scrape complete: scraped=2 skipped=1 errors=0"
         in capsys.readouterr().out
     )
+
+
+class TestFilterOrderDataByMeals:
+    """`_filter_order_data_by_meals` beží PRED `_apply_scrape` a orezáva
+    scrapnuté `order_data` len na `requested_meals` (deadline-gated
+    `_ALL_MEALS` podmnožina) — `desiata` (British Cluster C, mimo
+    deadline-riadeného toku) tam nikdy nie je, lebo `requested_meals` sa
+    počíta výhradne z `_ALL_MEALS`. Bez explicitnej výnimky teda
+    `_apply_scrape` dostane `imported_data` bez kľúča "desiata" vôbec, aj
+    keď ho scraper reálne vrátil — a keďže `_apply_scrape` je autoritatívny
+    (chýbajúci kľúč = "dnes 0" → zmaže), KAŽDÝ hodinový beh s neprázdnym
+    `requested_meals` (takmer všetky) potichu vynuloval existujúcu desiatu,
+    hoci EduPage mala platné počty (nahlásené 8.9.2026 — desiata zmizla z
+    appky, hoci na EduPage bola)."""
+
+    def test_desiata_survives_meal_filter_even_when_not_requested(self):
+        from api.tasks import _filter_order_data_by_meals
+
+        order_data = {
+            "lunch": {"Škôlka": {"menuCounts": {"A": 21}}},
+            "desiata": {"ZŠ 1.stupeň": {"menuCounts": {"A": 24}}},
+        }
+        out = _filter_order_data_by_meals(order_data, ["lunch"])
+        assert out["desiata"] == {"ZŠ 1.stupeň": {"menuCounts": {"A": 24}}}
+
+    def test_regular_meal_not_in_requested_meals_still_filtered_out(self):
+        """Filter musí pre `_ALL_MEALS` fungovať ako doteraz — výnimka platí
+        len pre extra kľúče (desiata), nie pre bežné jedlá."""
+        from api.tasks import _filter_order_data_by_meals
+
+        order_data = {
+            "lunch": {"Škôlka": {"menuCounts": {"A": 21}}},
+            "olovrant": {"Škôlka": {"menuCounts": {"A": 5}}},
+        }
+        out = _filter_order_data_by_meals(order_data, ["lunch"])
+        assert "olovrant" not in out
 
 
 class TestApplyScrapeIdempotency:

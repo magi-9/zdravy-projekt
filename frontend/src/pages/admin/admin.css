@@ -49,6 +49,17 @@
 .zpa-statusdot.warn { background: rgba(255,201,92,0.28); color: var(--mustard-700); }
 .zpa-statusdot.err { background: rgba(201,46,82,0.10); color: var(--coral-600); }
 .zpa-statusdot.zero { background: rgba(96,113,137,0.14); color: var(--ink-3); font-family: var(--font-display); font-size: 13px; font-weight: 800; }
+/* Attention hover popover (nahrádza natívny title tooltip, #563) */
+.zpa-attnpop { position: relative; display: inline-flex; }
+.zpa-attnpop-card { position: absolute; z-index: 40; top: calc(100% + 6px); left: 0; min-width: 240px; max-width: 340px; padding: 12px 14px; background: var(--bg-cream); border: 1px solid var(--line-soft); border-radius: var(--radius-md); box-shadow: var(--shadow-md); }
+.zpa-attnpop-title { font-family: var(--font-display); font-weight: 700; font-size: 12.5px; color: var(--green-900); margin-bottom: 6px; }
+.zpa-attnpop-card ul { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.zpa-attnpop-card li { font-size: 12.5px; color: var(--ink-2); line-height: 1.4; }
+.zpa-attnpop-done { color: var(--green-700); font-weight: 700; }
+.zpa-attnpop-btn { display: inline-flex; align-items: center; gap: 6px; width: 100%; justify-content: center; padding: 7px 10px; border: none; border-radius: var(--radius-pill); background: var(--green-700); color: var(--bg-cream); font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; transition: background 160ms; }
+.zpa-attnpop-btn svg { width: 14px; height: 14px; }
+.zpa-attnpop-btn:hover:not(:disabled) { background: var(--green-800); }
+.zpa-attnpop-btn:disabled { opacity: 0.55; cursor: not-allowed; }
 .zpa-ovflags { display: inline-flex; align-items: center; width: 25px; flex: 0 0 25px; }
 .zpa-ovflags--stacked { flex-direction: column; gap: 4px; }
 .zpa-ovflag { display: inline-flex; align-items: center; justify-content: center; min-width: 25px; height: 20px; padding: 0 5px; border-radius: var(--radius-pill); font-family: var(--font-display); font-size: 10px; font-weight: 800; letter-spacing: 0.04em; }
@@ -652,6 +663,21 @@ a.zpa-ovrow-link .nm:hover, a.zpa-ovrow-link .nm:focus-visible { text-decoration
 }
 .zpa-time__day { font-weight: 600; }
 .zpa-time__hm { color: var(--ink-3); font-size: 0.875em; }
+
+/* "Nadchádzajúce" — karty vedľa seba v `.zpa-grid-cards` namiesto tabuľky
+   zoradenej podľa najbližšieho behu (#573 follow-up). */
+.zpa-upcoming-card {
+    display: flex; flex-direction: column; gap: 10px;
+    padding: 16px; border: 1px solid var(--line-soft); border-radius: var(--radius-md);
+    background: var(--bg-cream-soft);
+}
+.zpa-upcoming-card__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.zpa-upcoming-card__title { font-weight: 600; color: var(--green-900); }
+.zpa-upcoming-card__name { font-size: 11.5px; color: var(--ink-mute); font-family: var(--font-mono, monospace); }
+.zpa-upcoming-card__desc { margin: 0; font-size: 13px; color: var(--ink-2); line-height: 1.5; }
+.zpa-upcoming-card__foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: auto; }
+.zpa-upcoming-card__days { font-size: 12.5px; color: var(--ink-3); }
+.zpa-upcoming-card__days strong { color: var(--ink-2); }
 
 /* ========================================================== *
  * Modal

@@ -20,7 +20,10 @@ from api.edupage.overrides.britishschool import (
 )
 from api.edupage.overrides.cmspezinok import cmspezinok_letter_hook
 from api.edupage.overrides.cvernicka import cvernicka_letter_hook
-from api.edupage.overrides.dobrodruzstvo import dobrodruzstvo_payer_hook
+from api.edupage.overrides.dobrodruzstvo import (
+    dobrodruzstvo_letter_hook,
+    dobrodruzstvo_payer_hook,
+)
 from api.edupage.overrides.fantasticka import (
     fantasticka_letter_hook,
     fantasticka_payer_hook,
@@ -172,6 +175,12 @@ class TestConfigPreUrl(unittest.TestCase):
     def test_szsfan_has_letter_hook(self):
         cfg = config_pre_url("https://szsfan.edupage.org/menu/mealsGuest?id=x")
         self.assertIsNotNone(cfg.letter_hook)
+
+    def test_szsfan_olovrant_mode_is_mimo_appky(self):
+        """ZŠ Fantastická nikdy olovrant neponúka (user 9.9.2026) — `_C`
+        (EDUPAGE) predtým každý deň False-flagoval 'olovrant chýba'."""
+        cfg = config_pre_url("https://szsfan.edupage.org/menu/mealsGuest?id=x")
+        self.assertEqual(cfg.olovrant_mode, OlovrantMode.MIMO_APPKY)
 
     def test_zsivanka_has_letter_hook(self):
         cfg = config_pre_url("https://zsivanka.edupage.org/menu/mealsGuest?id=x")
@@ -630,7 +639,15 @@ class TestZdravebruskoLetterHook(unittest.TestCase):
     def test_dsb_triple_combo_confirmed(self):
         """'dsbNNN SJ' bol uncertain fuzzy match (len NO SOJA) — potvrdené na
         plnú kombináciu (user 1.9.2026)."""
-        self.assertEqual(self._rule("dsbNNN SJ").diet, "NONONO – NO SOJA")
+        self.assertEqual(
+            self._rule("dsbNNN SJ").diet,
+            "NoNoNo - No Soja - No Jablko - No Telacie",
+        )
+
+    def test_zs_malokarpatska_nm_variant_b_confirmed(self):
+        """'zšlaNM B' (rovnaká diéta ako 'zšlaNM', iný riadok) — potvrdené
+        NO MILK (user 9.9.2026)."""
+        self.assertEqual(self._rule("zšlaNM B").diet, "NO MILK")
 
     def test_heyrovskeho_gluten_confirmed(self):
         self.assertEqual(self._rule("mšHey. NG").diet, "NO GLUTEN")
@@ -789,6 +806,20 @@ class TestDobrodruzstvoPayerHook(unittest.TestCase):
         self.assertIsNone(self._rule("Dospelý"))
 
 
+class TestDobrodruzstvoLetterHook(unittest.TestCase):
+    """`nPAR` bol uncertain fuzzy match — potvrdené na isté, NO PARADAJKA
+    (user 9.9.2026)."""
+
+    def _rule(self, skratka) -> LetterRule | None:
+        return dobrodruzstvo_letter_hook("X", skratka, "")
+
+    def test_npar_confirmed_no_paradajka(self):
+        self.assertEqual(self._rule("nPAR").diet, "NO PARADAJKA")
+
+    def test_unknown_skratka_falls_through_to_engine(self):
+        self.assertIsNone(self._rule("bezlak"))
+
+
 class TestFantastickaSkolkaLetterHook(unittest.TestCase):
     """Samostatné EduPage pripojenie od Fantastickej Školy vyššie (iný
     subdomain, iný feed) — 'B' (riadok 'MŠ nM/nG') bol uncertain fuzzy match,
@@ -870,17 +901,22 @@ class TestLibellusLetterHook(unittest.TestCase):
     def test_unknown_skratka_falls_through_to_engine(self):
         self.assertIsNone(self._rule("NE"))
 
-    def test_sa_stromcek_redirected_without_making_it_an_edupage_facility(self):
-        """`sA` (nazov "Stomček Klasik") patrí Stromčeku, nie Libellusu — obe
-        zdieľajú jeden EduPage feed, ale Stromček objednáva cez appku
-        (`zdroj_objednavok=app`). Bez skip by substring "klasik" v nazve
-        skratku tíško zlúčil do Libellusovho vlastného Klasik/A počtu
-        (nahlásené 3.9.2026, živý porovnávací scrape: Škôlka A o 4 vyššie
-        než uložená objednávka na obede aj raňajkách)."""
+    def test_sa_stromcek_recorded_as_libellus_diet(self):
+        """`sA` (nazov "Stomček Klasik") sa už nepresmerúva na samostatný
+        celok Stromček (nespoľahlivý mechanizmus, appkové a EduPage počty sa
+        vedeli rozísť — user 9.9.2026) — namiesto toho sa započíta priamo do
+        Libellusu ako diéta "Klasik STROMČEK". Bez skip by substring "klasik"
+        v nazve skratku tíško zlúčil do Libellusovho vlastného Klasik/A počtu
+        (pôvodne nahlásené 3.9.2026, živý porovnávací scrape: Škôlka A o 4
+        vyššie než uložená objednávka na obede aj raňajkách)."""
         rule = self._rule("sA")
         self.assertFalse(rule.skip)
-        self.assertEqual(rule.menu, "A")
-        self.assertEqual(rule.redirect_prevadzka, "Stromček")
+        self.assertEqual(rule.diet, "Klasik STROMČEK")
+        self.assertIsNone(rule.menu)
+        # Admin sa musí dozvedieť o oboch stranách — vidí to na Libelluse
+        # (`flag`) aj na Stromčeku (`relay_attention_to`), bez zmeny dát.
+        self.assertTrue(rule.flag)
+        self.assertEqual(rule.relay_attention_to, "Stromček")
 
 
 class TestMontessoriLetterHook(unittest.TestCase):
