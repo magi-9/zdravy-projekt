@@ -49,9 +49,11 @@ def build_prevadzka_overview(target_date):
         }
         counts = meal_counts(data)
         delivery_status = "missing"
+        attention_dismissed = False
         if order is not None:
             data = order.data if isinstance(order.data, dict) else {}
             counts = meal_counts(data)
+            attention_dismissed = order.attention_dismissed
             if order.is_auto:
                 delivery_status = "auto"
             elif counts["total"] == 0:
@@ -68,6 +70,11 @@ def build_prevadzka_overview(target_date):
                     or [],
                 }
 
+        # `attention_dismissed` skryje LEN `attention` z warning výpočtu (admin
+        # ho odklikol ako vybavené pre tento deň) — `flags.attention` samotné
+        # necháme netknuté (frontend popup ho aj po dismisse vie zobraziť),
+        # `config_notes`/`unmapped_diets`/`uncertain_diets` sa dajú vyriešiť
+        # len opravou dát, nie odkliknutím, takže naďalej robia warning.
         row = {
             "prevadzka_id": prevadzka.id,
             "nazov": prevadzka.nazov,
@@ -82,8 +89,9 @@ def build_prevadzka_overview(target_date):
             "olovrant_s_obedom": prevadzka.olovrant_s_obedom,
             "counts": counts,
             "flags": flags,
+            "attention_dismissed": attention_dismissed,
             "has_warning": bool(
-                flags["attention"]
+                (flags["attention"] and not attention_dismissed)
                 or flags["config_notes"]
                 or flags["unmapped_diets"]
                 or flags["uncertain_diets"]
@@ -102,6 +110,7 @@ def build_prevadzka_overview(target_date):
     daily_stats=extend_schema(tags=["admin"]),
     daily_report=extend_schema(tags=["admin"]),
     prevadzka_overview=extend_schema(tags=["admin"]),
+    dismiss_attention=extend_schema(tags=["admin"]),
 )
 class AdminSummaryViewSet(viewsets.ViewSet):
     """
@@ -244,3 +253,38 @@ class AdminSummaryViewSet(viewsets.ViewSet):
         if isinstance(parsed, Response):
             return parsed
         return Response(build_prevadzka_overview(parsed))
+
+    @action(detail=False, methods=["post"], url_path="dismiss-attention")
+    def dismiss_attention(self, request):
+        """Odklikni `attention` upozornenia ako vybavené pre (prevádzka, deň).
+
+        Len pre tento konkrétny deň — `DailyOrder` je per (prevádzka, date),
+        takže ďalší deň má vlastný riadok a flag sa prirodzene znova ukáže,
+        ak pretrváva (viď `DailyOrder.attention_dismissed`). Nedotýka sa
+        `config_notes`/`unmapped_diets`/`uncertain_diets` — tie rieši len
+        oprava dát.
+        """
+        prevadzka_id = request.data.get("prevadzka_id")
+        date_str = request.data.get("date")
+        if not prevadzka_id or not date_str:
+            return Response(
+                {"error": "prevadzka_id a date sú povinné"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            target_date = datetime.date.fromisoformat(date_str)
+        except (TypeError, ValueError):
+            return Response(
+                {"error": "invalid date format, expected YYYY-MM-DD"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        updated = DailyOrder.objects.filter(
+            prevadzka_id=prevadzka_id, date=target_date
+        ).update(attention_dismissed=True)
+        if not updated:
+            return Response(
+                {"error": "objednávka pre danú prevádzku/deň neexistuje"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response({"ok": True})

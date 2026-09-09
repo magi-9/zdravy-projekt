@@ -129,6 +129,89 @@ def test_overview_splits_edupage_and_app_and_flags(admin_client):
 
 
 @pytest.mark.django_db
+def test_overview_attention_dismissed_hides_warning_but_not_other_flags(admin_client):
+    """Odkliknuté `attention` prestane robiť warning, ale `config_notes` (dá
+    sa vyriešiť len opravou dát, nie odkliknutím) warning drží ďalej."""
+    edu_celok, edu_prev, edu_user = _celok_with_prevadzka("Dismiss Test", True)
+    DailyOrder.objects.create(
+        user=edu_user,
+        prevadzka=edu_prev,
+        date=DATE,
+        data={"lunch": {"Dismiss Test": {"menuCounts": {"A": 5}}}},
+        scrape_flags={"attention": ["A:sA — over"], "config_notes": []},
+        attention_dismissed=True,
+    )
+
+    res = admin_client.get(URL, {"date": DATE.isoformat()})
+    row = res.json()["edupage"][0]
+    assert row["attention_dismissed"] is True
+    assert row["flags"]["attention"] == ["A:sA — over"]
+    assert row["has_warning"] is False
+
+    DailyOrder.objects.filter(prevadzka=edu_prev, date=DATE).update(
+        scrape_flags={"attention": ["A:sA — over"], "config_notes": ["drift"]}
+    )
+    res = admin_client.get(URL, {"date": DATE.isoformat()})
+    row = res.json()["edupage"][0]
+    assert row["has_warning"] is True
+
+
+@pytest.mark.django_db
+def test_dismiss_attention_endpoint_sets_flag_for_that_day_only(admin_client):
+    _celok, prev, user = _celok_with_prevadzka("Dismiss Endpoint", True)
+    other_date = DATE + datetime.timedelta(days=1)
+    DailyOrder.objects.create(
+        user=user,
+        prevadzka=prev,
+        date=DATE,
+        data={},
+        scrape_flags={"attention": ["A:sA — over"]},
+    )
+    DailyOrder.objects.create(
+        user=user,
+        prevadzka=prev,
+        date=other_date,
+        data={},
+        scrape_flags={"attention": ["A:sA — over"]},
+    )
+
+    res = admin_client.post(
+        "/api/admin/summary/dismiss-attention/",
+        {"prevadzka_id": prev.id, "date": DATE.isoformat()},
+        format="json",
+    )
+    assert res.status_code == 200
+
+    assert DailyOrder.objects.get(prevadzka=prev, date=DATE).attention_dismissed is True
+    # Iný deň má vlastný riadok — dismiss sa naň nedotkne.
+    assert (
+        DailyOrder.objects.get(prevadzka=prev, date=other_date).attention_dismissed
+        is False
+    )
+
+
+@pytest.mark.django_db
+def test_dismiss_attention_missing_order_returns_404(admin_client):
+    _celok, prev, _user = _celok_with_prevadzka("Dismiss Missing", True)
+    res = admin_client.post(
+        "/api/admin/summary/dismiss-attention/",
+        {"prevadzka_id": prev.id, "date": DATE.isoformat()},
+        format="json",
+    )
+    assert res.status_code == 404
+
+
+@pytest.mark.django_db
+def test_dismiss_attention_requires_admin(authenticated_client):
+    res = authenticated_client.post(
+        "/api/admin/summary/dismiss-attention/",
+        {"prevadzka_id": 1, "date": DATE.isoformat()},
+        format="json",
+    )
+    assert res.status_code in (401, 403)
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize("fmt", ["xlsx", "pdf"])
 def test_overview_export_endpoints_removed(admin_client, fmt):
     """#447: dodanie podkladov must not offer PDF/XLSX generation anymore."""

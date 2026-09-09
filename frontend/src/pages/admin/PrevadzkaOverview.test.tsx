@@ -1,16 +1,28 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import PrevadzkaOverview from "./PrevadzkaOverview";
 
 const mockApiFetch = vi.fn();
+// Module-level (not per-call) — the real `useToast()` memoizes these with
+// `useCallback`, so a fresh `vi.fn()` on every render here would destabilize
+// any consumer's dependency arrays (e.g. `fetchData`'s `[apiFetch, date,
+// toastError]`) in a way the real hook never does, causing spurious re-fetch
+// loops under sustained interaction (found via #563 attention popover tests).
+const mockToastError = vi.fn();
+const mockToastSuccess = vi.fn();
+const mockToastWarning = vi.fn();
 
 vi.mock("../../context/auth", () => ({
   useAuth: () => ({ apiFetch: mockApiFetch }),
 }));
 
 vi.mock("../../context/ToastContext", () => ({
-  useToast: () => ({ success: vi.fn(), error: vi.fn(), warning: vi.fn() }),
+  useToast: () => ({
+    success: mockToastSuccess,
+    error: mockToastError,
+    warning: mockToastWarning,
+  }),
 }));
 
 describe("PrevadzkaOverview", () => {
@@ -186,5 +198,89 @@ describe("PrevadzkaOverview", () => {
     // riadkom s jedným príznakom — majú spoločný stĺpec a idú pod seba.
     expect(olBadge.parentElement).toHaveClass("zpa-ovflags--stacked");
     expect(document.querySelector("#prevadzka-row-2 [aria-label='Olovrant sa vozí s obedom']")).toBeNull();
+  });
+
+  it("shows attention notes in a hover popover, with a dismiss button that posts to the API", async () => {
+    mockApiFetch.mockImplementation(async (url: string) => {
+      if (String(url).includes("dismiss-attention")) {
+        return { ok: true, json: async () => ({ ok: true }) };
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          date: "2026-09-09",
+          edupage: [
+            {
+              ...baseRow,
+              attention_dismissed: false,
+              flags: {
+                attention: ["S:sA — patrí Stromčeku, over/rozdeľ appkové objednávky (4)"],
+                config_notes: [],
+                unmapped_diets: [],
+                uncertain_diets: [],
+              },
+            },
+          ],
+          app: [],
+        }),
+      };
+    });
+
+    render(<MemoryRouter><PrevadzkaOverview /></MemoryRouter>);
+    await screen.findByText("MŠ Testovacia");
+    const input = (await screen.findByDisplayValue(/^\d{4}-\d{2}-\d{2}$/)) as HTMLInputElement;
+    const shownDate = input.value;
+
+    // Popup content is hidden until hover.
+    expect(screen.queryByText(/patrí Stromčeku/)).not.toBeInTheDocument();
+
+    const dot = document.querySelector(".zpa-attnpop") as HTMLElement;
+    fireEvent.mouseEnter(dot);
+
+    expect(await screen.findByText(/patrí Stromčeku/)).toBeInTheDocument();
+    const dismissBtn = screen.getByRole("button", { name: /OK, vybavené/i });
+
+    fireEvent.click(dismissBtn);
+
+    await waitFor(() =>
+      expect(mockApiFetch).toHaveBeenCalledWith(
+        expect.stringContaining("/admin/summary/dismiss-attention/"),
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ prevadzka_id: 1, date: shownDate }),
+        }),
+      ),
+    );
+  });
+
+  it("hides the dismiss button once attention_dismissed is already true", async () => {
+    mockApiFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        date: "2026-09-09",
+        edupage: [
+          {
+            ...baseRow,
+            attention_dismissed: true,
+            flags: {
+              attention: ["S:sA — over"],
+              config_notes: [],
+              unmapped_diets: [],
+              uncertain_diets: [],
+            },
+          },
+        ],
+        app: [],
+      }),
+    });
+
+    render(<MemoryRouter><PrevadzkaOverview /></MemoryRouter>);
+    await screen.findByText("MŠ Testovacia");
+
+    const dot = document.querySelector(".zpa-attnpop") as HTMLElement;
+    fireEvent.mouseEnter(dot);
+
+    await screen.findByText(/vybavené/);
+    expect(screen.queryByRole("button", { name: /OK, vybavené/i })).not.toBeInTheDocument();
   });
 });

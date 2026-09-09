@@ -882,6 +882,10 @@ class TestLibellusLetterHook(unittest.TestCase):
         self.assertFalse(rule.skip)
         self.assertEqual(rule.diet, "Klasik STROMČEK")
         self.assertIsNone(rule.menu)
+        # Admin sa musí dozvedieť o oboch stranách — vidí to na Libelluse
+        # (`flag`) aj na Stromčeku (`relay_attention_to`), bez zmeny dát.
+        self.assertTrue(rule.flag)
+        self.assertEqual(rule.relay_attention_to, "Stromček")
 
 
 class TestMontessoriLetterHook(unittest.TestCase):

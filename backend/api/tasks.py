@@ -585,6 +585,44 @@ def _log_scrape_order_event(order, previous_data: dict, is_new: bool) -> None:
     )
 
 
+def _write_relayed_attention(nazov, target_date, messages, *, source_user):
+    """Zapíš `ScrapeResult.relayed_attention[nazov]` do CUDZEJ prevádzky ako
+    `scrape_flags.attention` — informačne, BEZ dotyku `data` (na rozdiel od
+    zrušeného `redirect_prevadzka`, ktorý appkové počty prepisoval/miešal,
+    viď `libellus.py`). Plné nahradenie (nie prírastok) je bezpečné, lebo
+    `messages` už prišlo ako aktuálny, úplný stav pre tento beh (viď
+    `PrevadzkaConfig.relay_targets` docstring — prázdny zoznam je platný
+    "dnes nič" výsledok, nie chýbajúci údaj).
+    """
+    from django.db import transaction
+
+    from api.models import DailyOrder, Prevadzka
+
+    target = Prevadzka.objects.filter(nazov=nazov).first()
+    if target is None:
+        logger.error(
+            "scrape_edupage_orders_task: relay_attention_to target %s missing",
+            nazov,
+        )
+        return
+    with transaction.atomic():
+        order, _created = DailyOrder.objects.select_for_update().get_or_create(
+            prevadzka=target,
+            date=target_date,
+            defaults={"user": source_user, "data": {}},
+        )
+        existing_flags = (
+            order.scrape_flags if isinstance(order.scrape_flags, dict) else {}
+        )
+        order.scrape_flags = {
+            "attention": list(messages),
+            "config_notes": list(existing_flags.get("config_notes", []) or []),
+            "unmapped_diets": list(existing_flags.get("unmapped_diets", []) or []),
+            "uncertain_diets": list(existing_flags.get("uncertain_diets", []) or []),
+        }
+        order.save(update_fields=["scrape_flags", "updated_at"])
+
+
 def _apply_scrape(existing_data, imported_data, requested_meals):
     """Vlož výsledok scrapu s UPDATE sémantikou (nie ADD).
 
@@ -1143,6 +1181,14 @@ def scrape_edupage_orders_task(
                         order.save(update_fields=["data", "scrape_flags", "updated_at"])
                         _log_scrape_order_event(order, previous_data, created)
                     scraped += 1
+
+                for relay_nazov, relay_messages in result.relayed_attention.items():
+                    _write_relayed_attention(
+                        relay_nazov,
+                        target_date,
+                        relay_messages,
+                        source_user=operation["user"],
+                    )
 
         # Scrape prepísal DailyOrder.data pre tieto dni — gramage dashboard by
         # ich inak mohol ešte 5 minút ukazovať s počtami spred scrapu.

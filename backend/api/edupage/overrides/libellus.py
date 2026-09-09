@@ -27,7 +27,10 @@ Skôr sa `sA` presmerúval na samostatný celok Stromček (`redirect_prevadzka`,
 appkový zdroj objednávok) — ukázalo sa to nespoľahlivé (appkové a EduPage
 počty sa opakovane rozišli, user 9.9.2026). Namiesto presmerovania sa `sA`
 teraz zapíše priamo ako diéta "Klasik STROMČEK" v rámci Libellusu — Stromček
-si svoje objednávky rieši výhradne cez appku.
+si svoje objednávky rieši výhradne cez appku. `flag`/`relay_attention_to`
+pridá upozornenie na kontrolu do Kontroly objednávok pre OBE prevádzky
+(Libellus aj Stromček), bez toho, aby sa dáta medzi nimi menili (user
+9.9.2026).
 """
 
 from __future__ import annotations
@@ -38,7 +41,11 @@ _RULES: dict[str, LetterRule] = {
     "NENO": LetterRule(diet="NO EGG – NO ORECH"),
     "NMNE": LetterRule(diet="NO MILK/NO EGG"),
     "NENONPARNMAK": LetterRule(diet="NO EGG – NO PARADAJKA – NO ORECH – NO MAK"),
-    "SA": LetterRule(diet="Klasik STROMČEK"),
+    "SA": LetterRule(
+        diet="Klasik STROMČEK",
+        flag=" — patrí Stromčeku, over/rozdeľ appkové objednávky",
+        relay_attention_to="Stromček",
+    ),
 }
 
 

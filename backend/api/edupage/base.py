@@ -52,6 +52,13 @@ class LetterRule:
     # tento fallback pre daný riadok úplne vypne — `payer_diet` sa neuplatní,
     # aj keby payer_hook/engine niečo našli.
     suppress_payer_diet: bool = False
+    # Informačný „vedľajší" attention flag pre CUDZIU prevádzku (mimo tohto
+    # scrapu) — meno prevádzky, nie `redirect_prevadzka` (ten mechanizmus bol
+    # zrušený ako nespoľahlivý, viď libellus.py). Na rozdiel od neho toto NIC
+    # nemení na `data`/počtoch — len pridá rovnaký `flag_label` (s počtom) do
+    # attention zoznamu pomenovanej prevádzky, nech to admin vidí aj tam. Bez
+    # `flag` na tom istom pravidle sa použije holé `letter:skratka`.
+    relay_attention_to: str | None = None
 
 
 # Hook beží pri parsovaní, na každé menu písmeno pred agregáciou.
@@ -134,6 +141,14 @@ class PrevadzkaConfig:
     # na živom mealsGuest 2026-09-07, viď `TestBuildJidMap`). `None` = použi
     # `_MEAL_BY_HOUR` (nezmenené správanie pre všetky ostatné školy).
     meal_hour_thresholds: tuple[tuple[int, str], ...] | None = None
+    # Mená CUDZÍCH prevádzok, ktoré niektorý `LetterRule.relay_attention_to`
+    # tejto connection môže označiť (Libellus `sA` → "Stromček"). Deklarované
+    # tu vopred, aby `_parse` vedelo do `ScrapeResult.relayed_attention`
+    # zapísať prázdny zoznam aj vtedy, keď v danom behu skratka vôbec
+    # nepadla — bez toho by pri poklese "sA" počtu na 0 zostal na cudzej
+    # prevádzke visieť starý flag z predošlého behu (tasks.py ho totiž
+    # zapisuje ako plné nahradenie, nie prírastok).
+    relay_targets: frozenset[str] = frozenset()
 
 
 def _apply_olovrant_config(

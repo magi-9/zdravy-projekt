@@ -230,6 +230,7 @@ _CONFIGS: tuple[PrevadzkaConfig, ...] = (
             "— letter_hook opravuje na plné kombinácie."
         ),
         letter_hook=libellus_letter_hook,
+        relay_targets=frozenset({"Stromček"}),
     ),
     PrevadzkaConfig(
         subdomena="rozmanita",
