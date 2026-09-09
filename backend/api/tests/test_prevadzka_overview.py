@@ -129,27 +129,31 @@ def test_overview_splits_edupage_and_app_and_flags(admin_client):
 
 
 @pytest.mark.django_db
-def test_overview_attention_dismissed_hides_warning_but_not_other_flags(admin_client):
-    """Odkliknuté `attention` prestane robiť warning, ale `config_notes` (dá
-    sa vyriešiť len opravou dát, nie odkliknutím) warning drží ďalej."""
+def test_overview_attention_dismissed_hides_all_flags_for_that_day(admin_client):
+    """Odkliknuté (`attention_dismissed`) skryje warning bez ohľadu na typ
+    flagu — `attention`, ale aj `config_notes`/`unmapped_diets`/
+    `uncertain_diets` (user 9.9.2026: opakované false-positive olovrant/diet
+    flagy naprieč prevádzkami, dovtedy sa nedali odkliknúť vôbec, len
+    `attention`). Trvalé fakty (ZŠ Fan olovrant) sa rieši config fixom, nie
+    dismissom — to len skrýva warning PRE TENTO DEŇ."""
     edu_celok, edu_prev, edu_user = _celok_with_prevadzka("Dismiss Test", True)
     DailyOrder.objects.create(
         user=edu_user,
         prevadzka=edu_prev,
         date=DATE,
         data={"lunch": {"Dismiss Test": {"menuCounts": {"A": 5}}}},
-        scrape_flags={"attention": ["A:sA — over"], "config_notes": []},
+        scrape_flags={"attention": [], "config_notes": ["olovrant chýba"]},
         attention_dismissed=True,
     )
 
     res = admin_client.get(URL, {"date": DATE.isoformat()})
     row = res.json()["edupage"][0]
     assert row["attention_dismissed"] is True
-    assert row["flags"]["attention"] == ["A:sA — over"]
+    assert row["flags"]["config_notes"] == ["olovrant chýba"]
     assert row["has_warning"] is False
 
     DailyOrder.objects.filter(prevadzka=edu_prev, date=DATE).update(
-        scrape_flags={"attention": ["A:sA — over"], "config_notes": ["drift"]}
+        attention_dismissed=False
     )
     res = admin_client.get(URL, {"date": DATE.isoformat()})
     row = res.json()["edupage"][0]

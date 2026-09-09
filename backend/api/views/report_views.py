@@ -70,11 +70,13 @@ def build_prevadzka_overview(target_date):
                     or [],
                 }
 
-        # `attention_dismissed` skryje LEN `attention` z warning výpočtu (admin
-        # ho odklikol ako vybavené pre tento deň) — `flags.attention` samotné
-        # necháme netknuté (frontend popup ho aj po dismisse vie zobraziť),
-        # `config_notes`/`unmapped_diets`/`uncertain_diets` sa dajú vyriešiť
-        # len opravou dát, nie odkliknutím, takže naďalej robia warning.
+        # `attention_dismissed` skrýva CELÝ warning popup pre tento deň (admin
+        # ho odklikol ako "OK, vybavené") — pôvodne len `attention`, rozšírené
+        # na `config_notes`/`unmapped_diets`/`uncertain_diets` tiež (user
+        # 9.9.2026: opakované false-positive olovrant/diet flagy na viacerých
+        # prevádzkach, dovtedy nedalo sa ich odkliknúť vôbec). `flags.*`
+        # samotné necháme netknuté (frontend popup ich aj po dismisse vie
+        # zobraziť), len `has_warning` (dot farba) dismiss zohľadní.
         row = {
             "prevadzka_id": prevadzka.id,
             "nazov": prevadzka.nazov,
@@ -91,10 +93,13 @@ def build_prevadzka_overview(target_date):
             "flags": flags,
             "attention_dismissed": attention_dismissed,
             "has_warning": bool(
-                (flags["attention"] and not attention_dismissed)
-                or flags["config_notes"]
-                or flags["unmapped_diets"]
-                or flags["uncertain_diets"]
+                not attention_dismissed
+                and (
+                    flags["attention"]
+                    or flags["config_notes"]
+                    or flags["unmapped_diets"]
+                    or flags["uncertain_diets"]
+                )
             ),
         }
         (edupage_rows if is_edupage else app_rows).append(row)
@@ -256,13 +261,16 @@ class AdminSummaryViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=["post"], url_path="dismiss-attention")
     def dismiss_attention(self, request):
-        """Odklikni `attention` upozornenia ako vybavené pre (prevádzka, deň).
+        """Odklikni VŠETKY flagy (`attention`/`config_notes`/`unmapped_diets`/
+        `uncertain_diets`) ako vybavené pre (prevádzka, deň).
 
         Len pre tento konkrétny deň — `DailyOrder` je per (prevádzka, date),
         takže ďalší deň má vlastný riadok a flag sa prirodzene znova ukáže,
-        ak pretrváva (viď `DailyOrder.attention_dismissed`). Nedotýka sa
-        `config_notes`/`unmapped_diets`/`uncertain_diets` — tie rieši len
-        oprava dát.
+        ak pretrváva (viď `DailyOrder.attention_dismissed`). Trvalé
+        structural facty (napr. "táto škola nikdy nemá olovrant") radšej
+        oprav v `PrevadzkaConfig`/`letter_hook` priamo — dismiss je pre
+        jednorazové/dennodenné overenie, nie náhrada za config fix, ktorý by
+        inak bolo treba klikať znova každý deň naveky.
         """
         prevadzka_id = request.data.get("prevadzka_id")
         date_str = request.data.get("date")

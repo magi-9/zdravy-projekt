@@ -52,12 +52,15 @@ interface OverviewResponse {
 // ── Row ───────────────────────────────────────────────────────────────────────
 
 // Hover popover pre riadky s `has_warning` — nahrádza pôvodný natívny
-// browser `title` tooltip. `attention` sa dá po jednom dni odkliknúť ako
-// vybavené ("OK, vybavené"): ostatné flagy (config_notes/unmapped/uncertain)
-// sa dajú vyriešiť len opravou dát, dismiss tlačidlo teda dostane len
-// `attention`. Odkliknutie platí len pre TENTO deň (`DailyOrder` je per
-// prevádzka+deň) — nasledujúci deň má vlastný riadok, takže flag sa
-// prirodzene znova ukáže, ak pretrváva.
+// browser `title` tooltip. Celý obsah (attention/config_notes/unmapped/
+// uncertain) sa dá po jednom dni odkliknúť naraz ako vybavené ("OK,
+// vybavené") — pôvodne len `attention`, rozšírené (user 9.9.2026: opakované
+// false-positive olovrant/diet flagy naprieč prevádzkami). Odkliknutie platí
+// len pre TENTO deň (`DailyOrder` je per prevádzka+deň) — nasledujúci deň má
+// vlastný riadok, takže flag sa prirodzene znova ukáže, ak pretrváva. Pre
+// TRVALÉ štrukturálne fakty (napr. škola nikdy olovrant neponúka) treba
+// opraviť config priamo (backend `PrevadzkaConfig`), nie klikať dismiss
+// každý deň.
 const AttentionPopover: React.FC<{
   row: OverviewRow;
   date: string;
@@ -74,7 +77,8 @@ const AttentionPopover: React.FC<{
   const uncertain = (row.flags.uncertain_diets ?? []).map(
     (d) => `neistá zhoda diéty z EduPage: ${d} — over, či je správne priradená`,
   );
-  const canDismiss = row.flags.attention.length > 0 && !row.attention_dismissed;
+  const allNotes = [...row.flags.config_notes, ...row.flags.attention, ...unmapped, ...uncertain];
+  const canDismiss = allNotes.length > 0 && !row.attention_dismissed;
 
   const handleDismiss = useCallback(async () => {
     setDismissing(true);
@@ -108,28 +112,23 @@ const AttentionPopover: React.FC<{
         <div className="zpa-attnpop-card" role="tooltip">
           <div className="zpa-attnpop-title">Dodané, ale skontroluj</div>
           <ul>
-            {row.flags.config_notes.map((n) => (
-              <li key={`c:${n}`}>{n}</li>
-            ))}
-            {row.flags.attention.map((n) => (
-              <li key={`a:${n}`}>
-                {n}
-                {row.attention_dismissed && <span className="zpa-attnpop-done"> — vybavené</span>}
-              </li>
-            ))}
-            {[...unmapped, ...uncertain].map((n) => (
-              <li key={`u:${n}`}>{n}</li>
+            {allNotes.map((n) => (
+              <li key={n}>{n}</li>
             ))}
           </ul>
-          {canDismiss && (
-            <button
-              type="button"
-              className="zpa-attnpop-btn"
-              disabled={dismissing}
-              onClick={handleDismiss}
-            >
-              <Check /> OK, vybavené
-            </button>
+          {row.attention_dismissed ? (
+            <div className="zpa-attnpop-done">Odkliknuté ako vybavené pre dnešok</div>
+          ) : (
+            canDismiss && (
+              <button
+                type="button"
+                className="zpa-attnpop-btn"
+                disabled={dismissing}
+                onClick={handleDismiss}
+              >
+                <Check /> OK, vybavené
+              </button>
+            )
           )}
         </div>
       )}

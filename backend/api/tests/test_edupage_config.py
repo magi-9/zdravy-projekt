@@ -173,6 +173,12 @@ class TestConfigPreUrl(unittest.TestCase):
         cfg = config_pre_url("https://szsfan.edupage.org/menu/mealsGuest?id=x")
         self.assertIsNotNone(cfg.letter_hook)
 
+    def test_szsfan_olovrant_mode_is_mimo_appky(self):
+        """ZŠ Fantastická nikdy olovrant neponúka (user 9.9.2026) — `_C`
+        (EDUPAGE) predtým každý deň False-flagoval 'olovrant chýba'."""
+        cfg = config_pre_url("https://szsfan.edupage.org/menu/mealsGuest?id=x")
+        self.assertEqual(cfg.olovrant_mode, OlovrantMode.MIMO_APPKY)
+
     def test_zsivanka_has_letter_hook(self):
         cfg = config_pre_url("https://zsivanka.edupage.org/menu/mealsGuest?id=x")
         self.assertIsNotNone(cfg.letter_hook)

@@ -105,13 +105,16 @@ _CONFIGS: tuple[PrevadzkaConfig, ...] = (
     PrevadzkaConfig(
         subdomena="szsfan",
         ucty=("SZŠ Fantastická",),
-        olovrant_mode=_C,
+        olovrant_mode=OlovrantMode.MIMO_APPKY,
         poznamka=(
             "ZŠ Fantastická — samostatná prevádzka od fantastickaskolka (MŠ). "
             "HITNMNGnSnKnFC fuzzy-matchovalo len na NO MILK/NO GLUTEN (#527) — "
             "letter_hook opravuje na plnú 6-násobnú kombináciu. Payer skupina "
             "'2.stupeň DIABETI' má v EduPage preklep v porcia kóde (user "
-            "3.9.2026) — payer_hook ju prepíše na ZŠ 2.stupeň podľa labelu."
+            "3.9.2026) — payer_hook ju prepíše na ZŠ 2.stupeň podľa labelu. "
+            "Olovrant tu nikdy nie je (user 9.9.2026) — `_C`/EDUPAGE False-"
+            "flagoval 'olovrant chýba' každý deň; MIMO_APPKY mlčí, keď je "
+            "olovrant štrukturálne neprítomný."
         ),
         letter_hook=fantasticka_letter_hook,
         payer_hook=fantasticka_payer_hook,

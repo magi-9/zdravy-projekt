@@ -283,4 +283,35 @@ describe("PrevadzkaOverview", () => {
     await screen.findByText(/vybavené/);
     expect(screen.queryByRole("button", { name: /OK, vybavené/i })).not.toBeInTheDocument();
   });
+
+  it("offers a dismiss button for config_notes-only flags too (not just attention)", async () => {
+    mockApiFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        date: "2026-09-09",
+        edupage: [
+          {
+            ...baseRow,
+            attention_dismissed: false,
+            flags: {
+              attention: [],
+              config_notes: ["olovrant chýba"],
+              unmapped_diets: [],
+              uncertain_diets: [],
+            },
+          },
+        ],
+        app: [],
+      }),
+    });
+
+    render(<MemoryRouter><PrevadzkaOverview /></MemoryRouter>);
+    await screen.findByText("MŠ Testovacia");
+
+    const dot = document.querySelector(".zpa-attnpop") as HTMLElement;
+    fireEvent.mouseEnter(dot);
+
+    await screen.findByText("olovrant chýba");
+    expect(screen.getByRole("button", { name: /OK, vybavené/i })).toBeInTheDocument();
+  });
 });
