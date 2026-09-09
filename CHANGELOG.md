@@ -1,5 +1,20 @@
 # Changelog
 
+## [3.1.0](https://github.com/tomag-9/zdravy-projekt/compare/v3.0.0...v3.1.0) (2026-09-09)
+
+
+### Features
+
+* **admin:** show menu B/C deadline and regroup Nadchádzajúce as cards ([c82f7d5](https://github.com/tomag-9/zdravy-projekt/commit/c82f7d5615386cf19af0dfe1a8ad5812d3dc148a))
+* **edupage:** attention flag na Libelluse aj Stromčeku pre 'sA', s odklikaním ([a9e0869](https://github.com/tomag-9/zdravy-projekt/commit/a9e086919f7ddb737ee131962698f8f89733bca6))
+
+
+### Bug Fixes
+
+* **edupage:** Libellus sA zapíš ako diétu namiesto presmerovania na Stromček ([3f20d8e](https://github.com/tomag-9/zdravy-projekt/commit/3f20d8e19cc9aa1d1b78ad10e92a2db8640386c2))
+* **edupage:** olovrant/diet false-flags — ZŠ Fan config fix + dismiss rozšírený na všetky flagy ([aefea3d](https://github.com/tomag-9/zdravy-projekt/commit/aefea3d3b1cdfbfe372714ff44aaf09cf3d06ef1))
+* **edupage:** potvrdené uncertain diéty — Dobrodružstvo nPAR, Zdravé Brúško zšlaNM B ([e7916ef](https://github.com/tomag-9/zdravy-projekt/commit/e7916efeac463c71ed4ea8344420fbb1d48a97b4))
+
 ## [3.0.0](https://github.com/tomag-9/zdravy-projekt/compare/v2.12.0...v3.0.0) (2026-09-08)
 
 
