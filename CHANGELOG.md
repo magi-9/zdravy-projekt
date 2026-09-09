@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.2.0](https://github.com/tomag-9/zdravy-projekt/compare/v3.1.0...v3.2.0) (2026-09-09)
+
+
+### Features
+
+* samostatné trasy a tabuľky pre raňajky/obed/olovrant ([#613](https://github.com/tomag-9/zdravy-projekt/issues/613)) ([dda6fc1](https://github.com/tomag-9/zdravy-projekt/commit/dda6fc171d86a850fc02382af7f5628fae572ea0))
+
 ## [3.1.0](https://github.com/tomag-9/zdravy-projekt/compare/v3.0.0...v3.1.0) (2026-09-09)
 
 
