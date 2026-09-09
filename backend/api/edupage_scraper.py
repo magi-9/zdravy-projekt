@@ -964,9 +964,7 @@ class EdupageScraper:
                     effective_diet = forced_diet or diet_name or payer_diet
                     effective_menu = "A" if effective_diet else (menu_variant or "A")
 
-                    if rule is not None and rule.redirect_prevadzka:
-                        buckets = [rule.redirect_prevadzka]
-                    elif matches:
+                    if matches:
                         buckets = match_prevadzka(
                             matches,
                             match_name,
