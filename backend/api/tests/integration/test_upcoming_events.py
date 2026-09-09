@@ -169,11 +169,50 @@ def test_deadline_lock_entries_group_meals_by_shared_deadline(admin_client):
     results = response.json()["results"]
     lock_entries = {r["name"]: r for r in results if r["task"] == "order-lock"}
 
-    assert set(lock_entries) == {"order-lock-breakfast", "order-lock-lunch-olovrant"}
+    assert {"order-lock-breakfast", "order-lock-lunch-olovrant"} <= set(lock_entries)
     assert "raňajky" in lock_entries["order-lock-breakfast"]["description"]
     assert "obed/olovrant" in lock_entries["order-lock-lunch-olovrant"]["description"]
+    # Raňajky majú deň-vopred deadline (obsluhuje nasledujúci pracovný deň,
+    # preto beží Ne–Št); obed/olovrant bežia v ten istý deň, Po–Pi.
+    assert lock_entries["order-lock-breakfast"]["days"] == "Ne–Št"
+    assert lock_entries["order-lock-lunch-olovrant"]["days"] == "Po–Pi"
     for entry in lock_entries.values():
         assert entry["next_run"] is not None
+
+
+@pytest.mark.django_db
+def test_menu_bc_lock_entry_reflects_configured_deadline(admin_client):
+    """Menu B/C má vlastnú (prísnejšiu) uzávierku na navýšenie/nahlásenie,
+    N dní vopred — oddelenú od bežných uzávierok raňajok/obeda/olovrantu.
+    "Nadchádzajúce" ju doteraz vôbec nezobrazovalo (chýbala v
+    `_deadline_lock_entries`), hoci ide o netriviálny, ľahko zabudnuteľný
+    termín (#573 zmätok "appka je rozbitá")."""
+    import datetime
+
+    from api.models import GlobalSettings
+
+    GlobalSettings.objects.update_or_create(
+        pk=1,
+        defaults={
+            "deadline_menu_bc": datetime.time(21, 0),
+            "deadline_menu_bc_days_before": 2,
+        },
+    )
+
+    response = admin_client.get("/api/admin/upcoming-events/")
+
+    assert response.status_code == status.HTTP_200_OK
+    results = response.json()["results"]
+    lock_entries = {r["name"]: r for r in results if r["task"] == "order-lock"}
+
+    assert "order-lock-menu-bc-increase" in lock_entries
+    entry = lock_entries["order-lock-menu-bc-increase"]
+    assert "Menu B" in entry["description"]
+    assert "21:00" in entry["description"]
+    assert "2" in entry["description"]
+    assert entry["next_run"] is not None
+    # 2 dni vopred pred Po–Pi cieľom = So–St (wrap-around, #573).
+    assert entry["days"] == "So–St"
 
 
 @pytest.mark.django_db
