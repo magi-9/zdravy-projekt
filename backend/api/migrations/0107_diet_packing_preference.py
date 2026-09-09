@@ -7,7 +7,11 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
+        # Merge dvoch nezávislých vetiev vzniknutých pri paralelnom vývoji
+        # (#568 diet-component-merge a samostatné trasy per meal_type +
+        # táto zmena) — obe vychádzali z 0102 a rozdelili sa na 0103_*.
         ("api", "0103_split_delivery_routes_by_meal_type"),
+        ("api", "0106_alter_dailyorder_attention_dismissed"),
     ]
 
     operations = [
