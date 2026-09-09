@@ -60,6 +60,38 @@ function taskLabel(entry: UpcomingEventEntry): string {
     return TASK_LABELS_SK[entry.task] ?? entry.name;
 }
 
+// Kategórie pre "Nadchádzajúce" — namiesto jednej tabuľky zoradenej podľa
+// najbližšieho behu (poradie kariet sa tak menilo priebežne s časom) sa karty
+// zoskupia podľa toho, čo robia, a vedľa seba v mriežke (#573 follow-up:
+// "nie len ako zoznam, netreba to zoradiť").
+const UPCOMING_CATEGORIES: { label: string; match: (entry: UpcomingEventEntry) => boolean }[] = [
+    { label: 'Uzávierky objednávok', match: (e) => e.task === 'order-lock' },
+    { label: 'EduPage scrape', match: (e) => e.task === 'api.tasks.scrape_edupage_orders_task' },
+    {
+        label: 'Push pripomienky',
+        match: (e) => e.task === 'api.tasks.send_push_deadline_reminder_task'
+            || e.task === 'api.tasks.send_weekly_order_reminder_task',
+    },
+    { label: 'Auto-objednávky', match: (e) => e.task === 'api.tasks.apply_auto_orders_task' },
+    { label: 'Denné reporty', match: (e) => e.task === 'api.tasks.send_daily_report_task' },
+    {
+        label: 'Údržba systému',
+        match: (e) => e.task === 'api.tasks.purge_old_event_logs_task' || e.task === 'celery.backend_cleanup',
+    },
+];
+
+function groupUpcomingByCategory(entries: UpcomingEventEntry[]) {
+    const groups = UPCOMING_CATEGORIES.map((category) => ({ ...category, entries: [] as UpcomingEventEntry[] }));
+    const rest: UpcomingEventEntry[] = [];
+    for (const entry of entries) {
+        const group = groups.find((g) => g.match(entry));
+        if (group) group.entries.push(entry);
+        else rest.push(entry);
+    }
+    if (rest.length > 0) groups.push({ label: 'Ostatné', match: () => false, entries: rest });
+    return groups.filter((g) => g.entries.length > 0);
+}
+
 type ActiveTab = 'events' | 'orders' | 'upcoming' | 'system';
 
 interface AdminLogEntry {
@@ -113,6 +145,7 @@ interface UpcomingEventEntry {
     task: string;
     description: string;
     next_run: string | null;
+    days: string | null;
     push_preview?: PushPreview | null;
 }
 
@@ -255,6 +288,7 @@ export default function AdminLogs() {
     const [upcomingLoading, setUpcomingLoading] = useState(true);
     const [upcomingError, setUpcomingError] = useState<string | null>(null);
     const [expandedUpcoming, setExpandedUpcoming] = useState<Set<string>>(() => new Set());
+    const upcomingGroups = useMemo(() => groupUpcomingByCategory(upcoming), [upcoming]);
 
     const [entries, setEntries] = useState<AdminLogEntry[]>([]);
     const [availableLoggers, setAvailableLoggers] = useState<string[]>([]);
@@ -582,51 +616,49 @@ export default function AdminLogs() {
                 ) : activeTab === 'upcoming' ? (
                     <>
                         {upcomingError && <div className="zpa-empty">{upcomingError}</div>}
-                        <Card style={{ overflow: 'hidden' }}>
-                            <div className="zpa-card-head" style={{ padding: '14px 20px', borderBottom: '1px solid var(--line-soft)' }}>
-                                <h3>Nadchádzajúce ({upcoming.length})</h3>
-                            </div>
-                            {upcomingLoading ? <div className="zpa-empty">Načítavam…</div> : upcoming.length === 0 ? (
-                                <div className="zpa-empty">Žiadne naplánované úlohy</div>
-                            ) : (
-                                <div className="zpa-table-wrap">
-                                    <table className="zpa-table">
-                                        <thead><tr><th>Najbližší beh</th><th>Úloha</th><th>Čo urobí</th><th /></tr></thead>
-                                        <tbody>
-                                            {upcoming.map((entry) => {
+                        {upcomingLoading ? (
+                            <Card className="zpa-card--pad"><div className="zpa-empty">Načítavam…</div></Card>
+                        ) : upcoming.length === 0 ? (
+                            <Card className="zpa-card--pad"><div className="zpa-empty">Žiadne naplánované úlohy</div></Card>
+                        ) : (
+                            <div className="zpa-stack">
+                                {upcomingGroups.map((group) => (
+                                    <Card key={group.label} className="zpa-card--pad">
+                                        <div className="zpa-card-head" style={{ padding: 0, border: 'none', marginBottom: 14 }}>
+                                            <h3>{group.label} ({group.entries.length})</h3>
+                                        </div>
+                                        <div className="zpa-grid-cards">
+                                            {group.entries.map((entry) => {
                                                 const isExpanded = expandedUpcoming.has(entry.name);
                                                 return (
-                                                    <Fragment key={entry.name}>
-                                                        <tr>
-                                                            <td>{entry.next_run ? <EventTime value={entry.next_run} /> : <span className="zpa-time">—</span>}</td>
-                                                            <td>
-                                                                <div>{taskLabel(entry)}</div>
-                                                                <div style={{ fontSize: 11.5, color: 'var(--ink-mute)', fontFamily: 'var(--font-mono, monospace)' }}>{entry.name}</div>
-                                                            </td>
-                                                            <td>{entry.description || entry.task}</td>
-                                                            <td className="r">
-                                                                {entry.push_preview && (
-                                                                    <Button variant="ghost" sm onClick={() => toggleExpanded(setExpandedUpcoming, entry.name)}>
-                                                                        {isExpanded ? <ChevronDown /> : <ChevronRight />} Text správy
-                                                                    </Button>
-                                                                )}
-                                                            </td>
-                                                        </tr>
+                                                    <div key={entry.name} className="zpa-upcoming-card">
+                                                        <div className="zpa-upcoming-card__head">
+                                                            <div>
+                                                                <div className="zpa-upcoming-card__title">{taskLabel(entry)}</div>
+                                                                <div className="zpa-upcoming-card__name">{entry.name}</div>
+                                                            </div>
+                                                            {entry.next_run ? <EventTime value={entry.next_run} /> : <span className="zpa-time">—</span>}
+                                                        </div>
+                                                        <p className="zpa-upcoming-card__desc">{entry.description || entry.task}</p>
+                                                        <div className="zpa-upcoming-card__foot">
+                                                            <span className="zpa-upcoming-card__days">Dni: <strong>{entry.days ?? '—'}</strong></span>
+                                                            {entry.push_preview && (
+                                                                <Button variant="ghost" sm onClick={() => toggleExpanded(setExpandedUpcoming, entry.name)}>
+                                                                    {isExpanded ? <ChevronDown /> : <ChevronRight />} Text správy
+                                                                </Button>
+                                                            )}
+                                                        </div>
                                                         {isExpanded && entry.push_preview && (
-                                                            <tr>
-                                                                <td colSpan={4}>
-                                                                    <pre className="tb">{`${entry.push_preview.title}\n\n${entry.push_preview.body}`}</pre>
-                                                                </td>
-                                                            </tr>
+                                                            <pre className="tb">{`${entry.push_preview.title}\n\n${entry.push_preview.body}`}</pre>
                                                         )}
-                                                    </Fragment>
+                                                    </div>
                                                 );
                                             })}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            )}
-                        </Card>
+                                        </div>
+                                    </Card>
+                                ))}
+                            </div>
+                        )}
                     </>
                 ) : (
                     <>

@@ -20,7 +20,10 @@ from .overrides.britishschool import (
 )
 from .overrides.cmspezinok import cmspezinok_letter_hook
 from .overrides.cvernicka import cvernicka_letter_hook
-from .overrides.dobrodruzstvo import dobrodruzstvo_payer_hook
+from .overrides.dobrodruzstvo import (
+    dobrodruzstvo_letter_hook,
+    dobrodruzstvo_payer_hook,
+)
 from .overrides.fantasticka import (
     fantasticka_letter_hook,
     fantasticka_payer_hook,
@@ -105,13 +108,16 @@ _CONFIGS: tuple[PrevadzkaConfig, ...] = (
     PrevadzkaConfig(
         subdomena="szsfan",
         ucty=("SZŠ Fantastická",),
-        olovrant_mode=_C,
+        olovrant_mode=OlovrantMode.MIMO_APPKY,
         poznamka=(
             "ZŠ Fantastická — samostatná prevádzka od fantastickaskolka (MŠ). "
             "HITNMNGnSnKnFC fuzzy-matchovalo len na NO MILK/NO GLUTEN (#527) — "
             "letter_hook opravuje na plnú 6-násobnú kombináciu. Payer skupina "
             "'2.stupeň DIABETI' má v EduPage preklep v porcia kóde (user "
-            "3.9.2026) — payer_hook ju prepíše na ZŠ 2.stupeň podľa labelu."
+            "3.9.2026) — payer_hook ju prepíše na ZŠ 2.stupeň podľa labelu. "
+            "Olovrant tu nikdy nie je (user 9.9.2026) — `_C`/EDUPAGE False-"
+            "flagoval 'olovrant chýba' každý deň; MIMO_APPKY mlčí, keď je "
+            "olovrant štrukturálne neprítomný."
         ),
         letter_hook=fantasticka_letter_hook,
         payer_hook=fantasticka_payer_hook,
@@ -178,8 +184,10 @@ _CONFIGS: tuple[PrevadzkaConfig, ...] = (
             "bezlep→NO GLUTEN (generický engine, OK). bezlak→NO MILK a "
             "1.stupeň porcia-kód (4 z 5 skupín majú v EduPage zle nastavené "
             "porcia=2 namiesto 1, user 3.9.2026: 'spojilo 1. a 2. stupeň') "
-            "rieši payer_hook."
+            "rieši payer_hook. nPAR bol uncertain fuzzy match — letter_hook "
+            "potvrdzuje na NO PARADAJKA (user 9.9.2026)."
         ),
+        letter_hook=dobrodruzstvo_letter_hook,
         payer_hook=dobrodruzstvo_payer_hook,
     ),
     PrevadzkaConfig(
@@ -230,6 +238,7 @@ _CONFIGS: tuple[PrevadzkaConfig, ...] = (
             "— letter_hook opravuje na plné kombinácie."
         ),
         letter_hook=libellus_letter_hook,
+        relay_targets=frozenset({"Stromček"}),
     ),
     PrevadzkaConfig(
         subdomena="rozmanita",

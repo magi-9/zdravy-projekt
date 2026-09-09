@@ -34,6 +34,7 @@ interface OverviewRow {
     unmapped_diets?: string[];
     uncertain_diets?: string[];
   };
+  attention_dismissed: boolean;
   has_warning: boolean;
   pack_separately_enabled: boolean;
   adults_pack_separately_enabled: boolean;
@@ -50,7 +51,97 @@ interface OverviewResponse {
 
 // ── Row ───────────────────────────────────────────────────────────────────────
 
-const StatusDot: React.FC<{ row: OverviewRow; source: "edupage" | "app" }> = ({ row, source }) => {
+// Hover popover pre riadky s `has_warning` — nahrádza pôvodný natívny
+// browser `title` tooltip. Celý obsah (attention/config_notes/unmapped/
+// uncertain) sa dá po jednom dni odkliknúť naraz ako vybavené ("OK,
+// vybavené") — pôvodne len `attention`, rozšírené (user 9.9.2026: opakované
+// false-positive olovrant/diet flagy naprieč prevádzkami). Odkliknutie platí
+// len pre TENTO deň (`DailyOrder` je per prevádzka+deň) — nasledujúci deň má
+// vlastný riadok, takže flag sa prirodzene znova ukáže, ak pretrváva. Pre
+// TRVALÉ štrukturálne fakty (napr. škola nikdy olovrant neponúka) treba
+// opraviť config priamo (backend `PrevadzkaConfig`), nie klikať dismiss
+// každý deň.
+const AttentionPopover: React.FC<{
+  row: OverviewRow;
+  date: string;
+  onDismissed: () => void;
+}> = ({ row, date, onDismissed }) => {
+  const { apiFetch } = useAuth();
+  const { error: toastError } = useToast();
+  const [open, setOpen] = useState(false);
+  const [dismissing, setDismissing] = useState(false);
+
+  const unmapped = (row.flags.unmapped_diets ?? []).map(
+    (d) => `neznáma diéta z EduPage: ${d} — založ ju v appke`,
+  );
+  const uncertain = (row.flags.uncertain_diets ?? []).map(
+    (d) => `neistá zhoda diéty z EduPage: ${d} — over, či je správne priradená`,
+  );
+  const allNotes = [...row.flags.config_notes, ...row.flags.attention, ...unmapped, ...uncertain];
+  const canDismiss = allNotes.length > 0 && !row.attention_dismissed;
+
+  const handleDismiss = useCallback(async () => {
+    setDismissing(true);
+    try {
+      const res = await apiFetch(`${API}/admin/summary/dismiss-attention/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prevadzka_id: row.prevadzka_id, date }),
+      });
+      if (!res.ok) throw new Error("dismiss failed");
+      setOpen(false);
+      onDismissed();
+    } catch (e) {
+      logger.error(e);
+      toastError("Nepodarilo sa odkliknúť upozornenie.");
+    } finally {
+      setDismissing(false);
+    }
+  }, [apiFetch, date, onDismissed, row.prevadzka_id, toastError]);
+
+  return (
+    <span
+      className="zpa-attnpop"
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <span className="zpa-statusdot warn">
+        <AlertTriangle />
+      </span>
+      {open && (
+        <div className="zpa-attnpop-card" role="tooltip">
+          <div className="zpa-attnpop-title">Dodané, ale skontroluj</div>
+          <ul>
+            {allNotes.map((n) => (
+              <li key={n}>{n}</li>
+            ))}
+          </ul>
+          {row.attention_dismissed ? (
+            <div className="zpa-attnpop-done">Odkliknuté ako vybavené pre dnešok</div>
+          ) : (
+            canDismiss && (
+              <button
+                type="button"
+                className="zpa-attnpop-btn"
+                disabled={dismissing}
+                onClick={handleDismiss}
+              >
+                <Check /> OK, vybavené
+              </button>
+            )
+          )}
+        </div>
+      )}
+    </span>
+  );
+};
+
+const StatusDot: React.FC<{
+  row: OverviewRow;
+  source: "edupage" | "app";
+  date: string;
+  onDismissed: () => void;
+}> = ({ row, source, date, onDismissed }) => {
   if (source === "app") {
     if (row.delivery_status === "manual_zero") {
       return (
@@ -83,23 +174,7 @@ const StatusDot: React.FC<{ row: OverviewRow; source: "edupage" | "app" }> = ({ 
     );
   }
   if (row.has_warning) {
-    const unmapped = (row.flags.unmapped_diets ?? []).map(
-      (d) => `neznáma diéta z EduPage: ${d} — založ ju v appke`,
-    );
-    const uncertain = (row.flags.uncertain_diets ?? []).map(
-      (d) => `neistá zhoda diéty z EduPage: ${d} — over, či je správne priradená`,
-    );
-    const notes = [
-      ...row.flags.config_notes,
-      ...row.flags.attention,
-      ...unmapped,
-      ...uncertain,
-    ].join("\n");
-    return (
-      <span className="zpa-statusdot warn" title={`Dodané, ale skontroluj:\n${notes}`}>
-        <AlertTriangle />
-      </span>
-    );
+    return <AttentionPopover row={row} date={date} onDismissed={onDismissed} />;
   }
   return (
     <span className="zpa-statusdot ok" title="Podklady dodané">
@@ -134,7 +209,12 @@ const FacilityFlags: React.FC<{ row: OverviewRow; source: "edupage" | "app" }> =
   );
 };
 
-const OverviewRowItem: React.FC<{ row: OverviewRow; source: "edupage" | "app" }> = ({ row, source }) => {
+const OverviewRowItem: React.FC<{
+  row: OverviewRow;
+  source: "edupage" | "app";
+  date: string;
+  onDismissed: () => void;
+}> = ({ row, source, date, onDismissed }) => {
   const showCelok = row.celok && row.celok !== row.nazov;
   const dietWarnings = [
     ...(row.flags.unmapped_diets ?? []),
@@ -143,7 +223,7 @@ const OverviewRowItem: React.FC<{ row: OverviewRow; source: "edupage" | "app" }>
   const dietEntries = Object.entries(row.counts.diet_counts ?? {}).filter(([, count]) => count > 0);
   return (
     <div className="zpa-ovrow" id={`prevadzka-row-${row.prevadzka_id}`}>
-      <StatusDot row={row} source={source} />
+      <StatusDot row={row} source={source} date={date} onDismissed={onDismissed} />
       <FacilityFlags row={row} source={source} />
       <div style={{ minWidth: 0, flex: 1 }}>
         <Link to={`/admin/facilities/${row.prevadzka_id}`} className="zpa-ovrow-link" title="Otvoriť detail prevádzky">
@@ -182,7 +262,9 @@ const CategoryCard: React.FC<{
   icon: React.ReactNode;
   rows: OverviewRow[];
   source: "edupage" | "app";
-}> = ({ title, icon, rows, source }) => {
+  date: string;
+  onDismissed: () => void;
+}> = ({ title, icon, rows, source, date, onDismissed }) => {
   const delivered = rows.filter((r) => r.delivered).length;
   const warnings = rows.filter((r) => r.delivered && (r.has_warning || r.delivery_status === "auto")).length;
   return (
@@ -202,7 +284,13 @@ const CategoryCard: React.FC<{
       ) : (
         <div>
           {rows.map((row) => (
-            <OverviewRowItem key={row.prevadzka_id} row={row} source={source} />
+            <OverviewRowItem
+              key={row.prevadzka_id}
+              row={row}
+              source={source}
+              date={date}
+              onDismissed={onDismissed}
+            />
           ))}
         </div>
       )}
@@ -265,8 +353,22 @@ const PrevadzkaOverview: React.FC = () => {
         <div className="zpa-empty">Načítavam…</div>
       ) : (
         <div className="zpa-grid-2">
-          <CategoryCard title="EduPage prevádzky" icon={<Upload />} rows={data?.edupage ?? []} source="edupage" />
-          <CategoryCard title="App prevádzky" icon={<Smartphone />} rows={data?.app ?? []} source="app" />
+          <CategoryCard
+            title="EduPage prevádzky"
+            icon={<Upload />}
+            rows={data?.edupage ?? []}
+            source="edupage"
+            date={date}
+            onDismissed={fetchData}
+          />
+          <CategoryCard
+            title="App prevádzky"
+            icon={<Smartphone />}
+            rows={data?.app ?? []}
+            source="app"
+            date={date}
+            onDismissed={fetchData}
+          />
         </div>
       )}
     </>

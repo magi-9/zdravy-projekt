@@ -316,24 +316,20 @@ def test_edupage_scrape_splits_attention_flags_per_prevadzka(monkeypatch):
 
 
 @pytest.mark.django_db
-def test_edupage_scrape_redirect_does_not_wipe_target_app_orders(
+def test_edupage_scrape_relays_attention_without_touching_target_data(
     edupage_user, monkeypatch
 ):
-    """End-to-end reprodukcia Stromček/Libellus (8.9.2026): presmerovaný
-    `sA` bucket sa musí PRIČÍTAŤ k appkovej "Škôlka" (rodičia na Stromčeku do
-    nej vedia objednávať priamo, potvrdené v DB — `visible_portion_types`),
-    nie ju nahradiť; ostatné appkové porcie (Predškolák, ...) musia po
-    scrape ostať netknuté."""
+    """`ScrapeResult.relayed_attention` (Libellus `sA` → Stromček, `relay_
+    attention_to`) sa zapíše do CUDZEJ prevádzky len ako `scrape_flags.
+    attention` — jej appkové `data` sa nesmú zmeniť (na rozdiel od zrušeného
+    `redirect_prevadzka`, ktorý appkové počty prepisoval/miešal)."""
     from api.models import Prevadzka
 
     stromcek_celok = Celok.objects.create(
         nazov="Stromček",
         zdroj_objednavok=Celok.ZdrojObjednavok.APP,
     )
-    stromcek = Prevadzka.objects.create(
-        celok=stromcek_celok,
-        nazov="Stromček",
-    )
+    stromcek = Prevadzka.objects.create(celok=stromcek_celok, nazov="Stromček")
     GlobalSettings.objects.create(
         pk=1,
         deadline_breakfast=datetime.time(18, 0),
@@ -341,41 +337,111 @@ def test_edupage_scrape_redirect_does_not_wipe_target_app_orders(
         deadline_olovrant=datetime.time(10, 0),
     )
     target_date = datetime.date(2026, 6, 30)
+    app_data = {"lunch": {"Škôlka": {"menuCounts": {"A": 7}, "diets": {}}}}
     DailyOrder.objects.create(
-        prevadzka=stromcek,
-        date=target_date,
-        user=edupage_user,
-        data={
-            "lunch": {
-                "Predškolák": {"menuCounts": {"A": 4}, "diets": {}},
-                "Škôlka": {"menuCounts": {"A": 7}, "diets": {}},
-            }
-        },
+        prevadzka=stromcek, date=target_date, user=edupage_user, data=app_data
     )
 
     def fake_scrape(self, url, scrape_date, prevadzka_matches=None, allowed_diets=None):
         return _scrape_result(
-            order_data={"lunch": {"menuCounts": {"A": 30}}},
-            order_data_by_prevadzka={
-                "Stromček": {
-                    "lunch": {"Škôlka": {"menuCounts": {"A": 4}, "diets": {}}}
-                },
-            },
+            order_data={"lunch": {"menuCounts": {"A": 33}, "diets": {}}},
+            relayed_attention={"Stromček": ["S:sA — over/rozdeľ (4)"]},
         )
 
     monkeypatch.setattr("api.edupage_scraper.EdupageScraper.scrape", fake_scrape)
     scrape_edupage_orders_task.run(date_str=target_date.isoformat())
 
-    order = DailyOrder.objects.get(prevadzka=stromcek, date=target_date)
-    assert order.data["lunch"]["Predškolák"] == {
-        "menuCounts": {"A": 4},
-        "diets": {},
+    stromcek_order = DailyOrder.objects.get(prevadzka=stromcek, date=target_date)
+    assert stromcek_order.data == app_data
+    assert stromcek_order.scrape_flags == {
+        "attention": ["S:sA — over/rozdeľ (4)"],
+        "config_notes": [],
+        "unmapped_diets": [],
+        "uncertain_diets": [],
     }
-    # 7 appkových + 4 z EduPage redirectu = 11, nie prepísaných na 4
-    assert order.data["lunch"]["Škôlka"] == {"menuCounts": {"A": 11}, "diets": {}}
-    assert order.scrape_flags["redirected_counts"] == {
-        "lunch": {"Škôlka": {"menuCounts": {"A": 4}, "diets": {}}}
-    }
+
+    # Ďalší beh bez `sA` (deti sa odhlásili) musí flag na cudzej prevádzke
+    # vyčistiť, nie ho tam nechať visieť.
+    def clean_scrape(
+        self, url, scrape_date, prevadzka_matches=None, allowed_diets=None
+    ):
+        return _scrape_result(
+            order_data={"lunch": {"menuCounts": {"A": 33}, "diets": {}}},
+            relayed_attention={"Stromček": []},
+        )
+
+    monkeypatch.setattr("api.edupage_scraper.EdupageScraper.scrape", clean_scrape)
+    scrape_edupage_orders_task.run(date_str=target_date.isoformat())
+
+    stromcek_order.refresh_from_db()
+    assert stromcek_order.data == app_data
+    assert stromcek_order.scrape_flags["attention"] == []
+
+
+@pytest.mark.django_db
+def test_edupage_scrape_relay_preserves_dismissed_flag_on_rerun(
+    edupage_user, monkeypatch
+):
+    """`attention_dismissed` je per-deň admin rozhodnutie — hodinový rescrape
+    (aj keď prepíše `scrape_flags`) ho nesmie potichu vrátiť späť."""
+    from api.models import Prevadzka
+
+    stromcek_celok = Celok.objects.create(
+        nazov="Stromček", zdroj_objednavok=Celok.ZdrojObjednavok.APP
+    )
+    stromcek = Prevadzka.objects.create(celok=stromcek_celok, nazov="Stromček")
+    GlobalSettings.objects.create(
+        pk=1,
+        deadline_breakfast=datetime.time(18, 0),
+        deadline_lunch=datetime.time(9, 0),
+        deadline_olovrant=datetime.time(10, 0),
+    )
+    target_date = datetime.date(2026, 6, 30)
+    order = DailyOrder.objects.create(
+        prevadzka=stromcek,
+        date=target_date,
+        user=edupage_user,
+        data={},
+        attention_dismissed=True,
+    )
+
+    def fake_scrape(self, url, scrape_date, prevadzka_matches=None, allowed_diets=None):
+        return _scrape_result(
+            order_data={"lunch": {"menuCounts": {"A": 33}, "diets": {}}},
+            relayed_attention={"Stromček": ["S:sA — over/rozdeľ (4)"]},
+        )
+
+    monkeypatch.setattr("api.edupage_scraper.EdupageScraper.scrape", fake_scrape)
+    scrape_edupage_orders_task.run(date_str=target_date.isoformat())
+
+    order.refresh_from_db()
+    assert order.attention_dismissed is True
+
+
+@pytest.mark.django_db
+def test_edupage_scrape_relay_target_missing_does_not_crash(edupage_user, monkeypatch):
+    """Cieľová prevádzka (`relay_attention_to`) v DB chýba — nesmie to zhodiť
+    zvyšok scrapu, len sa zaloguje a preskočí."""
+    GlobalSettings.objects.create(
+        pk=1,
+        deadline_breakfast=datetime.time(18, 0),
+        deadline_lunch=datetime.time(9, 0),
+        deadline_olovrant=datetime.time(10, 0),
+    )
+    target_date = datetime.date(2026, 6, 30)
+
+    def fake_scrape(self, url, scrape_date, prevadzka_matches=None, allowed_diets=None):
+        return _scrape_result(
+            order_data={"lunch": {"menuCounts": {"A": 33}, "diets": {}}},
+            relayed_attention={"Stromček": ["S:sA — over/rozdeľ (4)"]},
+        )
+
+    monkeypatch.setattr("api.edupage_scraper.EdupageScraper.scrape", fake_scrape)
+    result = scrape_edupage_orders_task.run(date_str=target_date.isoformat())
+
+    assert result["scraped"] == 1
+    order = DailyOrder.objects.get(user=edupage_user, date=target_date)
+    assert order.data
 
 
 @pytest.mark.django_db
@@ -797,164 +863,6 @@ class TestApplyPartialMenuScrape:
         existing = {"lunch": {"Škôlka": {"menuCounts": {"B": 3}}}}
         out = _apply_partial_menu_scrape(existing, {"lunch": {}})
         assert "lunch" not in out
-
-
-class TestApplyRedirectedScrape:
-    """Presmerovaný zdieľaný feed (Libellus `sA` → Stromček) sa musí PRIČÍTAŤ
-    k appkovým objednávkam tej istej porcie, nie ich nahradiť — appkoví
-    rodičia si na Stromčeku vedia objednať priamo pod "Škôlka" rovnako ako
-    EduPage (`Prevadzka.visible_portion_types` to Stromčeku povoľuje), takže
-    obe strany zapisujú do toho istého kľúča (nahlásené 8.9.2026, potvrdené
-    v DB dňa 8.9.2026 aj v tento deň).
-
-    `previous_contribution` (uložené v `scrape_flags["redirected_counts"]`)
-    je presne to, čo EduPage pridalo minulý beh — pred pripočítaním nového
-    príspevku sa najprv odčíta, aby sa: (a) opakovaný beh s tou istou
-    hodnotou nezdvojoval donekonečna, (b) appkové zmeny medzi behmi ostali
-    zachované, (c) pokles EduPage počtu na 0 vrátil count späť na appkový
-    základ, nie na 0."""
-
-    def test_first_redirect_adds_to_existing_app_count(self):
-        from api.tasks import _apply_redirected_scrape
-
-        existing = {
-            "lunch": {
-                "Predškolák": {"menuCounts": {"A": 4}, "diets": {}},
-                "Škôlka": {"menuCounts": {"A": 7}, "diets": {}},
-            }
-        }
-        imported = {"lunch": {"Škôlka": {"menuCounts": {"A": 4}, "diets": {}}}}
-
-        out, new_contribution = _apply_redirected_scrape(
-            existing, imported, ["lunch"], {}
-        )
-
-        assert out["lunch"]["Predškolák"] == {"menuCounts": {"A": 4}, "diets": {}}
-        # 7 appkových + 4 z EduPage = 11, nie prepísaných na 4
-        assert out["lunch"]["Škôlka"] == {"menuCounts": {"A": 11}, "diets": {}}
-        assert new_contribution == {
-            "lunch": {"Škôlka": {"menuCounts": {"A": 4}, "diets": {}}}
-        }
-
-    def test_rerun_same_value_does_not_accumulate(self):
-        from api.tasks import _apply_redirected_scrape
-
-        existing = {"lunch": {"Škôlka": {"menuCounts": {"A": 7}, "diets": {}}}}
-        imported = {"lunch": {"Škôlka": {"menuCounts": {"A": 4}, "diets": {}}}}
-
-        out, contribution = _apply_redirected_scrape(existing, imported, ["lunch"], {})
-        out, contribution = _apply_redirected_scrape(
-            out, imported, ["lunch"], contribution
-        )
-        out, contribution = _apply_redirected_scrape(
-            out, imported, ["lunch"], contribution
-        )
-
-        assert out["lunch"]["Škôlka"]["menuCounts"]["A"] == 11
-
-    def test_edupage_drop_to_zero_reverts_to_app_only_count(self):
-        from api.tasks import _apply_redirected_scrape
-
-        # 7 appkových + 4 z minulého EduPage behu
-        existing = {
-            "lunch": {
-                "Predškolák": {"menuCounts": {"A": 4}, "diets": {}},
-                "Škôlka": {"menuCounts": {"A": 11}, "diets": {}},
-            }
-        }
-        previous_contribution = {
-            "lunch": {"Škôlka": {"menuCounts": {"A": 4}, "diets": {}}}
-        }
-        # dnes 0 detí zo Stromčeka cez presmerovanie -> feed riadok vôbec nepošle
-        out, new_contribution = _apply_redirected_scrape(
-            existing, {"lunch": {}}, ["lunch"], previous_contribution
-        )
-
-        assert out["lunch"]["Škôlka"] == {"menuCounts": {"A": 7}, "diets": {}}
-        assert out["lunch"]["Predškolák"] == {"menuCounts": {"A": 4}, "diets": {}}
-        assert new_contribution == {}
-
-    def test_app_change_between_scrapes_is_preserved(self):
-        """Medzi dvomi behmi si appkový rodič pridá ďalšie dieťa do Škôlky —
-        ďalší scrape (aj s iným EduPage počtom) nesmie appkový prírastok
-        stratiť."""
-        from api.tasks import _apply_redirected_scrape
-
-        # minulý beh: 7 app + 4 edupage = 11
-        previous_contribution = {
-            "lunch": {"Škôlka": {"menuCounts": {"A": 4}, "diets": {}}}
-        }
-        # medzitým appka pridala 2 deti navyše appkovou cestou: 11 + 2 = 13
-        existing = {"lunch": {"Škôlka": {"menuCounts": {"A": 13}, "diets": {}}}}
-
-        out, new_contribution = _apply_redirected_scrape(
-            existing,
-            {"lunch": {"Škôlka": {"menuCounts": {"A": 5}, "diets": {}}}},
-            ["lunch"],
-            previous_contribution,
-        )
-
-        # appkový základ (13 - 4 = 9) + nový edupage počet (5) = 14
-        assert out["lunch"]["Škôlka"]["menuCounts"]["A"] == 14
-        assert new_contribution == {
-            "lunch": {"Škôlka": {"menuCounts": {"A": 5}, "diets": {}}}
-        }
-
-    def test_diets_merge_the_same_way(self):
-        from api.tasks import _apply_redirected_scrape
-
-        existing = {
-            "lunch": {"Škôlka": {"menuCounts": {"A": 5}, "diets": {"NO MILK": 2}}}
-        }
-        imported = {
-            "lunch": {"Škôlka": {"menuCounts": {"A": 1}, "diets": {"NO MILK": 1}}}
-        }
-
-        out, _ = _apply_redirected_scrape(existing, imported, ["lunch"], {})
-
-        assert out["lunch"]["Škôlka"] == {
-            "menuCounts": {"A": 6},
-            "diets": {"NO MILK": 3},
-        }
-
-    def test_other_portions_untouched(self):
-        from api.tasks import _apply_redirected_scrape
-
-        existing = {
-            "lunch": {
-                "Predškolák": {"menuCounts": {"A": 4}, "diets": {}},
-                "Škôlka": {"menuCounts": {"A": 7}, "diets": {}},
-            }
-        }
-        imported = {"lunch": {"Škôlka": {"menuCounts": {"A": 4}, "diets": {}}}}
-
-        out, _ = _apply_redirected_scrape(existing, imported, ["lunch"], {})
-
-        assert out["lunch"]["Predškolák"] == {"menuCounts": {"A": 4}, "diets": {}}
-
-    def test_unrequested_meal_untouched(self):
-        from api.tasks import _apply_redirected_scrape
-
-        existing = {"olovrant": {"Škôlka": {"menuCounts": {"A": 5}, "diets": {}}}}
-        out, _ = _apply_redirected_scrape(
-            existing,
-            {"lunch": {"Škôlka": {"menuCounts": {"A": 3}, "diets": {}}}},
-            ["lunch"],
-            {},
-        )
-        assert out["olovrant"]["Škôlka"]["menuCounts"]["A"] == 5
-
-    def test_app_only_meal_with_no_redirect_data_left_alone(self):
-        """Breakfast prichádza len z appky (feed doň nič neposiela) — nesmie
-        sa vymazať len preto, že je medzi requested_meals."""
-        from api.tasks import _apply_redirected_scrape
-
-        existing = {"breakfast": {"Predškolák": {"menuCounts": {"A": 2}, "diets": {}}}}
-        out, new_contribution = _apply_redirected_scrape(
-            existing, {}, ["breakfast"], {}
-        )
-        assert out["breakfast"]["Predškolák"] == {"menuCounts": {"A": 2}, "diets": {}}
-        assert new_contribution == {}
 
 
 @pytest.mark.django_db

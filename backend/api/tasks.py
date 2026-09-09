@@ -585,6 +585,44 @@ def _log_scrape_order_event(order, previous_data: dict, is_new: bool) -> None:
     )
 
 
+def _write_relayed_attention(nazov, target_date, messages, *, source_user):
+    """Zapíš `ScrapeResult.relayed_attention[nazov]` do CUDZEJ prevádzky ako
+    `scrape_flags.attention` — informačne, BEZ dotyku `data` (na rozdiel od
+    zrušeného `redirect_prevadzka`, ktorý appkové počty prepisoval/miešal,
+    viď `libellus.py`). Plné nahradenie (nie prírastok) je bezpečné, lebo
+    `messages` už prišlo ako aktuálny, úplný stav pre tento beh (viď
+    `PrevadzkaConfig.relay_targets` docstring — prázdny zoznam je platný
+    "dnes nič" výsledok, nie chýbajúci údaj).
+    """
+    from django.db import transaction
+
+    from api.models import DailyOrder, Prevadzka
+
+    target = Prevadzka.objects.filter(nazov=nazov).first()
+    if target is None:
+        logger.error(
+            "scrape_edupage_orders_task: relay_attention_to target %s missing",
+            nazov,
+        )
+        return
+    with transaction.atomic():
+        order, _created = DailyOrder.objects.select_for_update().get_or_create(
+            prevadzka=target,
+            date=target_date,
+            defaults={"user": source_user, "data": {}},
+        )
+        existing_flags = (
+            order.scrape_flags if isinstance(order.scrape_flags, dict) else {}
+        )
+        order.scrape_flags = {
+            "attention": list(messages),
+            "config_notes": list(existing_flags.get("config_notes", []) or []),
+            "unmapped_diets": list(existing_flags.get("unmapped_diets", []) or []),
+            "uncertain_diets": list(existing_flags.get("uncertain_diets", []) or []),
+        }
+        order.save(update_fields=["scrape_flags", "updated_at"])
+
+
 def _apply_scrape(existing_data, imported_data, requested_meals):
     """Vlož výsledok scrapu s UPDATE sémantikou (nie ADD).
 
@@ -601,95 +639,6 @@ def _apply_scrape(existing_data, imported_data, requested_meals):
         else:
             result.pop(meal_type, None)
     return result
-
-
-def _replace_contribution(existing_counts, previous_counts, new_counts):
-    """Nahraď v `existing_counts` starý cudzí príspevok (`previous_counts`)
-    novým (`new_counts`), nech je "vlastník" tohto kľúča ktokoľvek iný.
-
-    `existing_counts.get(key) - previous_counts.get(key, 0)` odstráni presne
-    to, čo sme sem naposledy pridali my — zvyšok patrí druhej strane (appke)
-    a ostáva netknutý. Použité pre `menuCounts` aj `diets` rovnako.
-    """
-    merged = dict(existing_counts)
-    for key in set(previous_counts) | set(new_counts):
-        base = max(merged.get(key, 0) - previous_counts.get(key, 0), 0)
-        value = base + new_counts.get(key, 0)
-        if value:
-            merged[key] = value
-        else:
-            merged.pop(key, None)
-    return merged
-
-
-def _apply_redirected_scrape(
-    existing_data, imported_data, requested_meals, previous_contribution
-):
-    """Vlož presmerovaný scrape zdieľaného feedu (Libellus `sA` → Stromček)
-    ako PRIČÍTANIE k porcii, nie ako jej nahradenie.
-
-    Cieľová prevádzka objednáva primárne cez appku a rodičia vedia objednávať
-    priamo pod tú istú porciu, ktorú feed prináša (napr. "Škôlka" —
-    `Prevadzka.visible_portion_types` to Stromčeku povoľuje). Plné nahradenie
-    porcie (predošlá verzia tejto funkcie) by appkové objednávky pri každom
-    behu vynulovalo na jedno EduPage číslo (Stromček/Libellus `sA` redirect,
-    nahlásené a potvrdené v DB 8.9.2026). Namiesto toho sa v `existing_counts`
-    najprv odstráni presne to, čo sme sem pridali MINULÝ beh
-    (`previous_contribution`, uložené v `scrape_flags["redirected_counts"]`),
-    a až potom sa pripočíta aktuálny príspevok — vďaka tomu:
-      - opakovaný beh s tou istou hodnotou sa nezdvojuje (idempotentné SET
-        na "náš podiel", nie ADD navrch),
-      - appkové zmeny urobené medzi dvomi behmi ostanú zachované,
-      - pokles EduPage počtu na 0 vráti count na appkový základ, nie na 0.
-
-    Vracia `(new_data, new_contribution)` — druhé sa uloží do `scrape_flags`
-    pre budúci beh.
-    """
-    result = dict(existing_data or {})
-    meals = _ALL_MEALS if requested_meals is None else requested_meals
-    new_contribution: dict[str, dict] = {}
-    for meal_type in (*meals, *_EXTRA_MEAL_KEYS):
-        scraped_meal = imported_data.get(meal_type) or {}
-        existing_meal = dict(result.get(meal_type) or {})
-        prev_meal_contribution = previous_contribution.get(meal_type) or {}
-        new_meal_contribution: dict[str, dict] = {}
-        for portion_name in set(prev_meal_contribution) | set(scraped_meal):
-            existing_portion = existing_meal.get(portion_name) or {}
-            prev_portion = prev_meal_contribution.get(portion_name) or {}
-            new_portion = scraped_meal.get(portion_name) or {}
-
-            merged_menu = _replace_contribution(
-                existing_portion.get("menuCounts") or {},
-                prev_portion.get("menuCounts") or {},
-                new_portion.get("menuCounts") or {},
-            )
-            merged_diets = _replace_contribution(
-                existing_portion.get("diets") or {},
-                prev_portion.get("diets") or {},
-                new_portion.get("diets") or {},
-            )
-
-            if merged_menu or merged_diets:
-                existing_meal[portion_name] = {
-                    "menuCounts": merged_menu,
-                    "diets": merged_diets,
-                }
-            else:
-                existing_meal.pop(portion_name, None)
-
-            if new_portion.get("menuCounts") or new_portion.get("diets"):
-                new_meal_contribution[portion_name] = {
-                    "menuCounts": dict(new_portion.get("menuCounts") or {}),
-                    "diets": dict(new_portion.get("diets") or {}),
-                }
-
-        if existing_meal:
-            result[meal_type] = existing_meal
-        else:
-            result.pop(meal_type, None)
-        if new_meal_contribution:
-            new_contribution[meal_type] = new_meal_contribution
-    return result, new_contribution
 
 
 def _apply_partial_menu_scrape(
@@ -915,7 +864,7 @@ def scrape_edupage_orders_task(
             nest_order_data_by_category,
             prevadzky_without_match,
         )
-        from api.models import DailyOrder, GlobalSettings, Prevadzka
+        from api.models import DailyOrder, GlobalSettings
         from api.scheduling import business_days, closed_dates_for_prevadzky, is_day_off
         from api.services import _next_workday
         from api.services.edupage_connection_service import edupage_operations
@@ -1137,26 +1086,6 @@ def scrape_edupage_orders_task(
                 else:
                     data_by_nazov = {prevadzky[0].nazov: result.order_data}
 
-                # Výnimka zdieľaného feedu (Libellus `sA` → Stromček): parser
-                # vráti samostatný bucket, ale Stromček nepatrí medzi EduPage
-                # prevádzky tejto connection ani nemení svoj appkový zdroj.
-                # `redirected_nazovs` si pamätá, ktorým prevádzkam sa nižšie
-                # smie zapísať len presmerovaná porcia (merge), nie celý meal.
-                redirected_nazovs: set[str] = set()
-                for nazov, redirected_data in result.order_data_by_prevadzka.items():
-                    if nazov in by_nazov:
-                        continue
-                    redirected = Prevadzka.objects.filter(nazov=nazov).first()
-                    if redirected is None:
-                        logger.error(
-                            "scrape_edupage_orders_task: redirect target %s missing",
-                            nazov,
-                        )
-                        continue
-                    by_nazov[nazov] = redirected
-                    data_by_nazov[nazov] = redirected_data
-                    redirected_nazovs.add(nazov)
-
                 for nazov, prevadzka in by_nazov.items():
                     if target_date in closed_by_prevadzka.get(prevadzka.id, set()):
                         logger.info(
@@ -1232,22 +1161,9 @@ def scrape_edupage_orders_task(
                             defaults={"user": operation["user"], "data": {}},
                         )
                         previous_data = deepcopy(order.data or {})
-                        new_redirected_counts = None
                         if target_date in partial_dates:
                             order.data = _apply_partial_menu_scrape(
                                 order.data, imported_data
-                            )
-                        elif nazov in redirected_nazovs:
-                            previous_contribution = (order.scrape_flags or {}).get(
-                                "redirected_counts"
-                            ) or {}
-                            order.data, new_redirected_counts = (
-                                _apply_redirected_scrape(
-                                    order.data,
-                                    imported_data,
-                                    requested_meals,
-                                    previous_contribution,
-                                )
                             )
                         else:
                             order.data = _apply_scrape(
@@ -1262,13 +1178,17 @@ def scrape_edupage_orders_task(
                             "unmapped_diets": list(unmapped_for_prevadzka),
                             "uncertain_diets": list(uncertain_for_prevadzka),
                         }
-                        if new_redirected_counts is not None:
-                            order.scrape_flags["redirected_counts"] = (
-                                new_redirected_counts
-                            )
                         order.save(update_fields=["data", "scrape_flags", "updated_at"])
                         _log_scrape_order_event(order, previous_data, created)
                     scraped += 1
+
+                for relay_nazov, relay_messages in result.relayed_attention.items():
+                    _write_relayed_attention(
+                        relay_nazov,
+                        target_date,
+                        relay_messages,
+                        source_user=operation["user"],
+                    )
 
         # Scrape prepísal DailyOrder.data pre tieto dni — gramage dashboard by
         # ich inak mohol ešte 5 minút ukazovať s počtami spred scrapu.

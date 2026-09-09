@@ -104,6 +104,19 @@ class DailyOrder(models.Model):
     is_auto = models.BooleanField(
         default=False, help_text="True if this order was auto-generated after deadline"
     )
+    attention_dismissed = models.BooleanField(
+        default=False,
+        help_text=(
+            "Admin odklikol VŠETKY upozornenia z posledného scrapu "
+            "(attention/config_notes/unmapped_diets/uncertain_diets) ako "
+            "vybavené pre tento konkrétny deň (Kontrola objednávok). Scrape "
+            "prepisuje `data`/`scrape_flags`, ale nie toto pole, takže dismiss "
+            "v ten deň prežije aj ďalší hodinový beh; ďalší deň má vlastný "
+            "DailyOrder riadok, takže sa flag prirodzene znova ukáže, ak "
+            "pretrváva — pre trvalé štrukturálne fakty (napr. škola nikdy "
+            "nemá olovrant) oprav radšej PrevadzkaConfig/letter_hook priamo."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

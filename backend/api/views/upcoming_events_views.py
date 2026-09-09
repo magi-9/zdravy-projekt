@@ -114,6 +114,103 @@ def _next_run(periodic_task):
     return _next_run_for_schedule(periodic_task.schedule, periodic_task.name)
 
 
+def _day_of_week_mask_for_days_before(days_before: int) -> str:
+    """Cron `day_of_week` mask for a rule that fires `days_before` calendar
+    days before a Mon–Fri target date (menu B/C deadline; #573).
+
+    Targets are always weekdays (school meals aren't ordered for weekends),
+    but the day it must fire on shifts with `days_before` and can land on a
+    weekend itself (e.g. 2 days before Monday is Saturday) — unlike the
+    breakfast/lunch/olovrant locks in `_deadline_lock_entries`, which only
+    ever shift by 0 or 1 day (`api.signals._day_of_week`), this is calendar
+    days, not business days — same arithmetic as the serializer check
+    (`target_date - timedelta(days=deadline_menu_bc_days_before)`).
+    """
+    targets = (1, 2, 3, 4, 5)  # cron day_of_week: Mon–Fri
+    days = sorted({(t - days_before) % 7 for t in targets})
+    return ",".join(str(d) for d in days)
+
+
+def _menu_bc_lock_entry(gs):
+    """Syntetický riadok pre uzávierku navýšenia/nahlásenia Menu B a C —
+    samostatná, prísnejšia než bežná uzávierka obeda (#573)."""
+    from django.conf import settings
+
+    try:
+        from django_celery_beat.models import CrontabSchedule
+    except ImportError:
+        return None
+
+    days_before = gs.deadline_menu_bc_days_before
+    deadline = gs.deadline_menu_bc
+    schedule = CrontabSchedule(
+        minute=deadline.minute,
+        hour=deadline.hour,
+        day_of_week=_day_of_week_mask_for_days_before(days_before),
+        day_of_month="*",
+        month_of_year="*",
+        timezone=settings.TIME_ZONE,
+    )
+    name = "order-lock-menu-bc-increase"
+    return {
+        "name": name,
+        "task": "order-lock",
+        "description": (
+            f"Uzávierka navýšenia/nahlásenia Menu B a C: najneskôr "
+            f"{days_before} dni vopred o {deadline.strftime('%H:%M')} "
+            f"(kuchyňa ich dokupuje vopred). Odhlásenie/zníženie zostáva "
+            f"možné podľa bežnej uzávierky obeda."
+        ),
+        "next_run": _next_run_for_schedule(schedule.schedule, name),
+        "days": _days_label_sk(schedule.day_of_week),
+    }
+
+
+DAY_ABBR_SK = {0: "Ne", 1: "Po", 2: "Ut", 3: "St", 4: "Št", 5: "Pi", 6: "So"}
+
+
+def _parse_day_of_week(day_of_week) -> set[int]:
+    """Cron `day_of_week` string/int → set of day numbers (0=Ne … 6=So)."""
+    dow = str(day_of_week).strip()
+    if dow in ("*", ""):
+        return set(range(7))
+    days: set[int] = set()
+    for part in dow.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            start_s, end_s = part.split("-", 1)
+            start, end = int(start_s) % 7, int(end_s) % 7
+            cur = start
+            while True:
+                days.add(cur)
+                if cur == end:
+                    break
+                cur = (cur + 1) % 7
+        else:
+            days.add(int(part) % 7)
+    return days
+
+
+def _days_label_sk(day_of_week) -> str:
+    """Human Slovak label for a cron `day_of_week` mask — "Po–Pi", "Ne–Št",
+    "denne"… Ranges wrap around the week (e.g. menu B/C's "So–St", #573),
+    since the mask isn't always Monday-anchored."""
+    days = _parse_day_of_week(day_of_week)
+    if not days or days == set(range(7)):
+        return "denne"
+    if len(days) == 1:
+        return DAY_ABBR_SK[next(iter(days))]
+    n = len(days)
+    for start in sorted(days):
+        seq = [(start + i) % 7 for i in range(n)]
+        if set(seq) == days:
+            return f"{DAY_ABBR_SK[seq[0]]}–{DAY_ABBR_SK[seq[-1]]}"
+    # Not a single contiguous block — list it out rather than mislabel it.
+    return ", ".join(DAY_ABBR_SK[d] for d in sorted(days, key=lambda d: (d - 1) % 7))
+
+
 def _deadline_lock_entries():
     """Syntetické riadky uzávierky objednávok — kedy appka prestane prijímať
     zmeny pre raňajky/obed/olovrant (#548).
@@ -165,8 +262,14 @@ def _deadline_lock_entries():
                     f"(uzávierka: {deadline.strftime('%H:%M')})."
                 ),
                 "next_run": _next_run_for_schedule(schedule.schedule, name),
+                "days": _days_label_sk(schedule.day_of_week),
             }
         )
+
+    menu_bc_entry = _menu_bc_lock_entry(gs)
+    if menu_bc_entry is not None:
+        entries.append(menu_bc_entry)
+
     return entries
 
 
@@ -182,8 +285,10 @@ class AdminUpcomingEventsViewSet(viewsets.ViewSet):
         except ImportError:
             return Response({"results": []})
 
-        tasks = PeriodicTask.objects.filter(enabled=True).select_related(
-            "crontab", "interval", "solar"
+        tasks = (
+            PeriodicTask.objects.filter(enabled=True)
+            .select_related("crontab", "interval", "solar")
+            .order_by("name")
         )
 
         results = []
@@ -194,17 +299,18 @@ class AdminUpcomingEventsViewSet(viewsets.ViewSet):
                 "task": task.task,
                 "description": task.description or "",
                 "next_run": next_run,
+                "days": (
+                    _days_label_sk(task.crontab.day_of_week) if task.crontab else None
+                ),
             }
             preview_builder = _PUSH_PREVIEW_BUILDERS.get(task.task)
             if preview_builder is not None:
                 entry["push_preview"] = preview_builder(task, next_run)
             results.append(entry)
 
-        results.extend(_deadline_lock_entries())
-
-        # Bez next_run (napr. nespočítateľný rozvrh) na koniec, nech tabuľka
-        # zostane čitateľná zoradená podľa toho, čo príde skôr.
-        results.sort(
-            key=lambda e: (e["next_run"] is None, e["next_run"] or timezone.now())
-        )
+        # Zámerne bez zoradenia podľa next_run (#573 follow-up) — appka to
+        # predtým zoraďovala podľa najbližšieho behu, takže sa poradie kariet
+        # menilo priebežne s časom. Uzávierky (bez vlastného cronu) idú prvé,
+        # zvyšné úlohy podľa mena — frontend si to ešte prezoskupí po kategórii.
+        results = _deadline_lock_entries() + results
         return Response({"results": results})
