@@ -285,9 +285,11 @@ class AdminUpcomingEventsViewSet(viewsets.ViewSet):
         except ImportError:
             return Response({"results": []})
 
-        tasks = PeriodicTask.objects.filter(enabled=True).select_related(
-            "crontab", "interval", "solar"
-        ).order_by("name")
+        tasks = (
+            PeriodicTask.objects.filter(enabled=True)
+            .select_related("crontab", "interval", "solar")
+            .order_by("name")
+        )
 
         results = []
         for task in tasks:
@@ -297,7 +299,9 @@ class AdminUpcomingEventsViewSet(viewsets.ViewSet):
                 "task": task.task,
                 "description": task.description or "",
                 "next_run": next_run,
-                "days": _days_label_sk(task.crontab.day_of_week) if task.crontab else None,
+                "days": (
+                    _days_label_sk(task.crontab.day_of_week) if task.crontab else None
+                ),
             }
             preview_builder = _PUSH_PREVIEW_BUILDERS.get(task.task)
             if preview_builder is not None:
