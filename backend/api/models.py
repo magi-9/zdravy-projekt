@@ -223,6 +223,26 @@ class Diet(models.Model):
         return self.name
 
 
+class DietPackingPreference(models.Model):
+    """Plošné (naprieč všetkými prevádzkami) nastavenie „táto diéta sa dnes
+    balí zvlášť" — checkbox v admin gramážnej tabuľke (9.9.2026). Default
+    (žiadny záznam) = balí sa spolu; kombinovaná diéta (`Diet.base_diets`)
+    zdedí „zvlášť" od ktorejkoľvek zo svojich zložiek, viď
+    `MealPlanService.resolve_diet_packing_preferences`.
+    """
+
+    diet = models.ForeignKey(Diet, on_delete=models.CASCADE)
+    date = models.DateField()
+    pack_separately = models.BooleanField(default=False)
+
+    class Meta:
+        unique_together = ("diet", "date")
+
+    def __str__(self) -> str:
+        state = "zvlášť" if self.pack_separately else "spolu"
+        return f"{self.diet.name} {self.date}: {state}"
+
+
 def _default_all_meals() -> List[str]:
     return ["breakfast", "lunch", "olovrant"]
 

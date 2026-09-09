@@ -12,6 +12,7 @@ from django.db import transaction
 from ..models import (
     DailyMealPlan,
     Diet,
+    DietPackingPreference,
     EnrolledCount,
     MealCategory,
     MealPlanItem,
@@ -26,6 +27,32 @@ from ..utils import (
     _meal_rule_key,
     order_row_label,
 )
+
+
+def resolve_diet_packing_preferences(date: datetime.date) -> dict[str, bool]:
+    """Ktoré diéty sa v daný deň balia zvlášť (checkbox v gramážnej tabuľke,
+    9.9.2026) — plošne naprieč všetkými prevádzkami, nie per prevádzka.
+
+    Vracia iba diéty, ktoré sa majú baliť ZVLÁŠŤ (`True`); chýbanie v
+    slovníku = default „spolu". Kombinovaná diéta (`Diet.base_diets`) zdedí
+    „zvlášť" od ktorejkoľvek zo svojich zložiek — napr. zaškrtnutie "No Milk"
+    ako zvlášť strhne aj "Diéta X + No Milk", bez vlastného záznamu v DB.
+    """
+    separate_names = set(
+        DietPackingPreference.objects.filter(
+            date=date, pack_separately=True
+        ).values_list("diet__name", flat=True)
+    )
+    if not separate_names:
+        return {}
+    result: dict[str, bool] = {name: True for name in separate_names}
+    for diet in Diet.objects.prefetch_related("base_diets"):
+        if diet.name in result:
+            continue
+        base_names = {base.name for base in diet.base_diets.all()}
+        if base_names & separate_names:
+            result[diet.name] = True
+    return result
 
 
 def resolve_diet_menu_variants(date: datetime.date) -> dict[str, str]:

@@ -530,6 +530,53 @@ def _aggregate_diet_summary(rows_for_summary: list[dict]) -> list[dict]:
     return [totals[name] for name in order]
 
 
+def _pack_together_row(
+    route_rows: list[dict],
+    diet_packing: dict[str, bool],
+    groups: list[dict],
+    hues: list[str],
+) -> dict | None:
+    """Súhrnný riadok „Zabaliť spolu:" na konci trasy (9.9.2026).
+
+    Sčíta diétne porcie (`sub_row.type == "diet"`) naprieč všetkými klientmi
+    danej trasy, OKREM tých, čo:
+      - klient sám označil ako "zabaliť zvlášť"/"zvlášť do GN"
+        (`sub_row.type in ("zvlast", "zvlast_gn")` — ide aj cez
+        `Prevadzka.adults_pack_separately_enabled`, ten generuje ten istý
+        typ riadku), alebo
+      - sú globálne (`diet_packing`, plošne naprieč prevádzkami pre daný
+        deň) označené ako "zabaliť zvlášť" — vrátane kombinovaných diét,
+        ktoré takú diétu majú medzi `base_diets` (`diet_packing` už s tým
+        počíta, viď `resolve_diet_packing_preferences`).
+
+    Nič z existujúcich riadkov (`_client_rows` atď.) sa týmto nemení — len
+    pribúda tento jeden riadok navyše. `None`, ak trasa nemá žiadnu diétnu
+    porciu, ktorá by sa dala baliť spolu (žiadny prázdny riadok).
+    """
+    total_count = Decimal("0")
+    col_grams: list | None = None
+    for row in route_rows:
+        for sub_row in row.get("sub_rows") or []:
+            if sub_row.get("type") != "diet":
+                continue
+            diet_name = str(sub_row.get("diet_name") or "")
+            if not diet_name or diet_packing.get(diet_name):
+                continue
+            total_count += _as_decimal(sub_row.get("count"))
+            sub_grams = sub_row.get("col_grams") or []
+            col_grams = (
+                sub_grams if col_grams is None else _sum_col_grams(col_grams, sub_grams)
+            )
+    if not total_count:
+        return None
+    return {
+        "kind": "pack-together",
+        "css": "summ-diet pack-together",
+        "cells": [_label_cell("Zabaliť spolu:", total_count)]
+        + _gram_cells(col_grams or [], groups, hues),
+    }
+
+
 def _diet_name_rows(
     rows_for_summary: list[dict],
     data: dict,
@@ -587,6 +634,7 @@ def build_table_spec(
     show_empty: bool = False,
     show_cluster_summary: bool = True,
     diet_clusters: list[str] | None = None,
+    diet_packing: dict[str, bool] | None = None,
 ) -> dict:
     """Prevedie payload z `gramage_dashboard()` na hotový popis tabuľky.
 
@@ -618,6 +666,7 @@ def build_table_spec(
     má zapnutý aspoň jeden z clustrov, ktoré do neho patria.
     """
     diet_cluster_keys = None if diet_clusters is None else set(diet_clusters)
+    diet_packing = diet_packing or {}
 
     def _cluster_shows_diets(*keys: str) -> bool:
         if diet_cluster_keys is None:
@@ -696,6 +745,11 @@ def build_table_spec(
                             include_summary_rows,
                         )
                     )
+                pack_together = _pack_together_row(
+                    route_rows, diet_packing, groups, hues
+                )
+                if pack_together:
+                    rows.append(pack_together)
             vydaj_rows = [
                 r
                 for route in vydaj.get("routes") or []
