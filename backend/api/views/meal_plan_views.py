@@ -15,6 +15,7 @@ from ..cache_service import get_cached, get_closed_day_pdf_cache_key
 from ..models import (
     DailyMealPlan,
     Diet,
+    DietPackingPreference,
     MealPlanItem,
     MealTemplate,
     PortionType,
@@ -38,6 +39,7 @@ from ..services.meal_plan_service import (
     MealPlanService,
     apply_diet_component_merge_toggle,
     diet_component_merge_board,
+    resolve_diet_packing_preferences,
 )
 from ..utils import parse_date_param
 from .audit_mixins import AuditedModelViewSetMixin
@@ -119,7 +121,13 @@ class DailyMealPlanViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
         return self.request.path.startswith("/api/admin/")
 
     #: Prehľady nakladania — kuchyňa ich len číta, meniť nesmie nič (#486).
-    KUCHYNA_READABLE_ACTIONS = {"gramage_dashboard", "gramage_dashboard_pdf"}
+    #: `diet_packing_preferences` je výnimka (9.9.2026) — kuchyňa si tu SMIE
+    #: prepínať "zabaliť zvlášť" per diéta/deň, je to jej vlastný balík úkon.
+    KUCHYNA_READABLE_ACTIONS = {
+        "gramage_dashboard",
+        "gramage_dashboard_pdf",
+        "diet_packing_preferences",
+    }
 
     def get_permissions(self):
         if (
@@ -342,17 +350,24 @@ class DailyMealPlanViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
         # aby sa nemali ako rozísť (viď gramage_table_spec).
         from ..exporters.gramage_table_spec import build_table_spec
 
+        meal_type = request.query_params.get("meal_type", "lunch")
+        if meal_type not in ("breakfast", "lunch", "olovrant"):
+            return Response(
+                {"error": "invalid meal_type"}, status=status.HTTP_400_BAD_REQUEST
+            )
         sections = request.query_params.getlist("section") or None
         vydaje = request.query_params.getlist("vydaj") or None
         diet_clusters = request.query_params.getlist("diet_cluster") or None
         data["spec"] = build_table_spec(
             data,
+            meal_type=meal_type,
             sections=sections,
             vydaje=vydaje,
             include_summary_rows=not _parse_bool_param(request, "expanded", False),
             show_empty=_parse_bool_param(request, "show_empty", True),
             show_cluster_summary=_parse_bool_param(request, "cluster_summary", True),
             diet_clusters=diet_clusters,
+            diet_packing=resolve_diet_packing_preferences(date),
         )
         return Response(data)
 
@@ -365,6 +380,11 @@ class DailyMealPlanViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
                 {"error": "date required"}, status=status.HTTP_400_BAD_REQUEST
             )
         date = parse_date_param(date_str)
+        meal_type = request.query_params.get("meal_type", "lunch")
+        if meal_type not in ("breakfast", "lunch", "olovrant"):
+            return Response(
+                {"error": "invalid meal_type"}, status=status.HTTP_400_BAD_REQUEST
+            )
         sections = request.query_params.getlist("section") or None
         vydaje = request.query_params.getlist("vydaj") or None
         diet_clusters = request.query_params.getlist("diet_cluster") or None
@@ -385,13 +405,17 @@ class DailyMealPlanViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
 
         # Uzavretý deň má PDF predgenerované a nacachované už pri uzavretí
         # (#528, viď closed_day_views) — ale len pre neprefiltrovaný export,
-        # presne taký, aký sa vtedy predgeneroval.
+        # presne taký, aký sa vtedy predgeneroval, a zvlášť per jedlo
+        # (#dashboard-per-meal-routes).
         pdf_bytes = None
         if is_default_view:
-            pdf_bytes = get_cached(get_closed_day_pdf_cache_key(date.isoformat()))
+            pdf_bytes = get_cached(
+                get_closed_day_pdf_cache_key(date.isoformat(), meal_type)
+            )
         if pdf_bytes is None:
             pdf_bytes = render_gramage_dashboard_pdf(
                 date.isoformat(),
+                meal_type=meal_type,
                 sections=sections,
                 vydaje=vydaje,
                 show_empty=show_empty,
@@ -400,9 +424,67 @@ class DailyMealPlanViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
                 merge_diets=merge_diets,
             )
         response = HttpResponse(pdf_bytes, content_type="application/pdf")
-        fname = f"gramaz_{date}.pdf"
+        meal_type_slug = {
+            "breakfast": "ranajky",
+            "lunch": "obed",
+            "olovrant": "olovrant",
+        }[meal_type]
+        fname = f"gramaz_{meal_type_slug}_{date}.pdf"
         response["Content-Disposition"] = f"attachment; filename*=UTF-8''{quote(fname)}"
         return response
+
+    @action(detail=False, methods=["get", "post"], url_path="diet-packing-preferences")
+    def diet_packing_preferences(self, request):
+        """Checkbox „táto diéta sa dnes balí zvlášť" (9.9.2026), plošne
+        naprieč všetkými prevádzkami — default (odškrtnuté) = spolu.
+
+        GET  /api/admin/meal-plans/diet-packing-preferences/?date=YYYY-MM-DD
+             -> zoznam aktívnych diét s `pack_separately` (vlastný záznam)
+             a `effective_separately` (vrátane dedenia cez `base_diets`,
+             viď `resolve_diet_packing_preferences`).
+        POST rovnaké query param `date`, body {"diet_id": int,
+             "pack_separately": bool} -> uloží/vymaže preferenciu.
+        """
+        date_str = request.query_params.get("date")
+        if not date_str:
+            return Response(
+                {"error": "date required"}, status=status.HTTP_400_BAD_REQUEST
+            )
+        date = parse_date_param(date_str)
+
+        if request.method == "POST":
+            diet_id = request.data.get("diet_id")
+            pack_separately = bool(request.data.get("pack_separately"))
+            diet = Diet.objects.filter(pk=diet_id).first()
+            if diet is None:
+                return Response(
+                    {"error": "invalid diet_id"}, status=status.HTTP_400_BAD_REQUEST
+                )
+            if pack_separately:
+                DietPackingPreference.objects.update_or_create(
+                    diet=diet, date=date, defaults={"pack_separately": True}
+                )
+            else:
+                # Default je "spolu" — návrat naň znamená zmazať záznam, nie
+                # ho držať s `pack_separately=False` naveky.
+                DietPackingPreference.objects.filter(diet=diet, date=date).delete()
+
+        separate_own = set(
+            DietPackingPreference.objects.filter(
+                date=date, pack_separately=True
+            ).values_list("diet_id", flat=True)
+        )
+        effective = resolve_diet_packing_preferences(date)
+        diets = [
+            {
+                "id": diet.id,
+                "name": diet.name,
+                "pack_separately": diet.id in separate_own,
+                "effective_separately": effective.get(diet.name, False),
+            }
+            for diet in Diet.objects.filter(is_active=True)
+        ]
+        return Response({"date": str(date), "diets": diets})
 
     @action(detail=False, methods=["get"], url_path="range-export-xlsx")
     def range_export_xlsx(self, request):
