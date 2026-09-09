@@ -26,9 +26,9 @@ from api.models import (
 from api.services.meal_plan_service import MealPlanService
 
 
-def _rendered_rows(data: dict) -> list[tuple[str, str]]:
+def _rendered_rows(data: dict, meal_type: str = "lunch") -> list[tuple[str, str]]:
     """(label, počet) pre každý riadok vykresleného HTML, v poradí tabuľky."""
-    spec = build_table_spec(data)
+    spec = build_table_spec(data, meal_type=meal_type)
     rows = []
     for row in [*spec["rows"], *spec["footer"]]:
         cells = row["cells"]
@@ -36,10 +36,12 @@ def _rendered_rows(data: dict) -> list[tuple[str, str]]:
     return rows
 
 
-def _cluster_ms_rows_after_band(data: dict, band_title: str) -> dict[str, str]:
+def _cluster_ms_rows_after_band(
+    data: dict, band_title: str, meal_type: str = "lunch"
+) -> dict[str, str]:
     """{jedlo: "X MŠ"} z `cluster-ms-row` riadkov priamo pod pásmom s daným
     presným textom (napr. „SUMÁR CLUSTER A S DIÉTAMI MŠ", #532)."""
-    spec = build_table_spec(data)
+    spec = build_table_spec(data, meal_type=meal_type)
     all_rows = [*spec["rows"], *spec["footer"]]
     band_index = next(
         index
@@ -183,12 +185,14 @@ class TestGramageDashboardExports:
         ]
         assert data["totals"] == [["300.00"], ["600.00"], ["500.00"], ["150.00"]]
 
-        rendered = _rendered_rows(data)
-        # Rozpis podľa pásu jedla (raňajky/obed/olovrant), nie plochý súčet —
-        # "0" pre pás, ktorý daný riadok/diéta neobjednala.
-        assert ("Súčet bez diét", "3 + 5 + 3") in rendered
-        assert ("Bezlepková", "0 + 2 + 0") in rendered
-        assert ("Vegan", "1 + 0 + 0") in rendered
+        # Raňajky/obed/olovrant sú od #dashboard-per-meal-routes samostatné
+        # tabuľky, nie jeden riadok so spoločným rozpisom — každá tabuľka
+        # nesie len svoj vlastný počet.
+        assert ("Súčet bez diét", "3") in _rendered_rows(data, meal_type="breakfast")
+        assert ("Vegan", "1") in _rendered_rows(data, meal_type="breakfast")
+        assert ("Súčet bez diét", "5") in _rendered_rows(data, meal_type="lunch")
+        assert ("Bezlepková", "2") in _rendered_rows(data, meal_type="lunch")
+        assert ("Súčet bez diét", "3") in _rendered_rows(data, meal_type="olovrant")
 
     def test_portion_summaries_export_per_vydaj_and_globally(self):
         user = User.objects.create_user(
@@ -256,19 +260,19 @@ class TestGramageDashboardExports:
             Prevadzka.objects.create(
                 celok=celok,
                 nazov="Prevádzka 1",
-                delivery_route=first_route,
-                delivery_sort_order=1,
+                delivery_route_lunch=first_route,
+                delivery_sort_order_lunch=1,
             ),
             Prevadzka.objects.create(
                 celok=celok,
                 nazov="Prevádzka 2",
-                delivery_route=second_route,
-                delivery_sort_order=1,
+                delivery_route_lunch=second_route,
+                delivery_sort_order_lunch=1,
             ),
             Prevadzka.objects.create(
                 celok=celok,
                 nazov="Nepriradená prevádzka",
-                delivery_sort_order=1,
+                delivery_sort_order_lunch=1,
             ),
         ]
         for count, prevadzka in enumerate(prevadzky, start=1):
@@ -280,8 +284,8 @@ class TestGramageDashboardExports:
             )
 
         data = MealPlanService.gramage_dashboard(plan.date.isoformat())
-        assert len(data["vydaje"]) == 2
-        assert len(data["unassigned_rows"]) == 1
+        assert len(data["vydaje_by_meal"]["lunch"]) == 2
+        assert len(data["unassigned_rows_by_meal"]["lunch"]) == 1
 
         # Škôlka má PortionType.coefficient 1.0000, žiadne diéty — MŠ prepočet
         # (#532) sa tu preto rovná surovému počtu hláv z objednávky (1/2/3).
@@ -454,7 +458,8 @@ class TestGramageDashboardExports:
         assert rows_by_prevadzka[flagged.id]["snack_with_lunch"] is True
         assert rows_by_prevadzka[normal.id]["snack_with_lunch"] is False
 
-        html = render_table(build_table_spec(data))
+        # Olovrant je od #dashboard-per-meal-routes vlastná tabuľka.
+        html = render_table(build_table_spec(data, meal_type="olovrant"))
         assert "mh-snacklunch-cell" in html
         # "mh-snack-cell" (bez "lunch") je jasne odlíšiteľný podreťazec od
         # "mh-snacklunch-cell" — obidve farby teda naozaj koexistujú v tabuľke.

@@ -2,7 +2,7 @@
 `MealPlanService.gramage_dashboard()`:
 
 - nikdy sa nedostanú do bežnej per-klientskej mriežky (`data["rows"]`,
-  `data["vydaje"][...]["routes"][...]["rows"]`) — nemajú menu-šablóny, takže
+  `data["vydaje_by_meal"]["lunch"][...]["routes"][...]["rows"]`) — nemajú menu-šablóny, takže
   gramáž by bola prázdna/neúplná a Menu D/VEGE1/desiata by ticho zmizli,
 - namiesto toho dostanú vlastný `vydaj` blok s `summary_only=True` a
   `british_summary` (kusy + MŠ prepočet), postavený priamo z `DailyOrder.data`.
@@ -53,7 +53,7 @@ def _make_british(target_date):
         celok=celok,
         nazov="British School",
         gramage_summary_only=True,
-        delivery_route=route,
+        delivery_route_lunch=route,
     )
     DailyOrder.objects.create(
         prevadzka=prevadzka,
@@ -79,7 +79,7 @@ def test_summary_only_prevadzka_excluded_from_normal_rows():
     data = MealPlanService.gramage_dashboard(target_date.isoformat())
 
     assert data["rows"] == []
-    assert data["unassigned_rows"] == []
+    assert data["unassigned_rows_by_meal"]["lunch"] == []
 
 
 @pytest.mark.django_db
@@ -90,7 +90,9 @@ def test_summary_only_prevadzka_gets_its_own_summary_vydaj():
 
     data = MealPlanService.gramage_dashboard(target_date.isoformat())
 
-    british_vydaj = next(v for v in data["vydaje"] if v["key"] == str(Vydaj.C))
+    british_vydaj = next(
+        v for v in data["vydaje_by_meal"]["lunch"] if v["key"] == str(Vydaj.C)
+    )
     assert british_vydaj["summary_only"] is True
     # Žiadne bežné client rows v tomto vydaji.
     assert all(not route["rows"] for route in british_vydaj["routes"])
@@ -130,4 +132,4 @@ def test_no_summary_only_prevadzka_means_no_summary_vydaje():
 
     data = MealPlanService.gramage_dashboard(target_date.isoformat())
 
-    assert not any(v.get("summary_only") for v in data["vydaje"])
+    assert not any(v.get("summary_only") for v in data["vydaje_by_meal"]["lunch"])

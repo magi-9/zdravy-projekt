@@ -217,8 +217,8 @@ class TestBuildGramageSummaryOnlyClusters:
         route = DeliveryRoute.objects.create(
             name="British School", block=block, vydaj=Vydaj.C, sort_order=1
         )
-        prevadzka.delivery_route = route
-        prevadzka.save(update_fields=["delivery_route"])
+        prevadzka.delivery_route_lunch = route
+        prevadzka.save(update_fields=["delivery_route_lunch"])
         target_date = datetime.date(2026, 9, 7)
         DailyOrder.objects.create(
             prevadzka=prevadzka,
