@@ -98,11 +98,18 @@ h1 small {
  * dohľadá zvyšok tooltipom; papier tooltip nemá, tak radšej dva riadky ako
  * „Súčet b". Odznak s počtom sa pritom nesmie stlačiť. */
 .zpa-gram .lbl-line { display: flex; align-items: baseline; gap: 1mm; }
+/* Flex-item bez `min-width` si pri `overflow-wrap: break-word` počíta
+ * minimálnu šírku ako jeden znak (break-word dovolí zalomiť kdekoľvek), takže
+ * ho flexbox stlačí na šírku badge-u vedľa a dlhý názov diéty sa rozpadne na
+ * stĺpec jednotlivých písmen namiesto pár riadkov. `min-width` v `ch`
+ * vynúti, že sa zalomí až po pár znakoch — riadok môže pretiecť cez badge,
+ * to je lepšie ako nečitateľný stĺpec písmen. */
 .zpa-gram .lbl-line > span:first-child {
     overflow: visible;
     text-overflow: clip;
     white-space: normal;
     overflow-wrap: break-word;
+    min-width: 6ch;
 }
 .zpa-gram .client-toggle > span { min-width: 0; }
 .zpa-gram thead .grp { font-size: 6.5pt; }
@@ -141,6 +148,13 @@ h1 small {
 .zpa-gram .note-delivery td { font-size: 6.5pt; padding: 1.2mm 2mm; }
 .zpa-gram .cluster-ms-row td { font-size: 7pt; padding: 1.2mm 2mm; }
 .zpa-gram .count-badge { min-width: 4mm; height: 3.2mm; padding: 0 1mm; font-size: 6pt; }
+/* `.pack-badge` ("S"/"Z" odznak) nemal na papieri žiadny override — ostal na
+ * obrazovkových px (`height: 19px; font-size: 10px`), zatiaľ čo susedný
+ * `.count-badge` je preškálovaný na mm/pt vyššie. V tlači tak vyšiel citeľne
+ * vyšší než count-badge vedľa seba. Rovnaká výška ako count-badge, o niečo
+ * menší font (zrkadlí pomer voči count-badge na obrazovke, 19px/11px vs
+ * 19px/10px). */
+.zpa-gram .pack-badge { height: 3.2mm; min-width: 3.4mm; padding: 0 0.8mm; font-size: 5.5pt; }
 .zpa-gram .diet-dot { width: 1.6mm; height: 1.6mm; margin-right: 1.2mm; }
 
 /* ── Pruhovanie riadkov ──────────────────────────────────────────────────────
