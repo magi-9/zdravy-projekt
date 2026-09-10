@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.3.0](https://github.com/tomag-9/zdravy-projekt/compare/v3.2.3...v3.3.0) (2026-09-10)
+
+
+### Features
+
+* **gramage:** diet-component-merge default "spolu", "Zabaliť spolu:" per prevádzka, S/Z odznak ([11fa5bc](https://github.com/tomag-9/zdravy-projekt/commit/11fa5bce02642262d5cccf7e960108b5962df185))
+
 ## [3.2.3](https://github.com/tomag-9/zdravy-projekt/compare/v3.2.2...v3.2.3) (2026-09-10)
 
 
