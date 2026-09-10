@@ -132,6 +132,7 @@ class AdminPrevadzkaSerializer(serializers.ModelSerializer):
             "adults_pack_separately_enabled",
             "olovrant_s_obedom",
             "admin_order_note",
+            "menu_bc_same_deadline_as_lunch",
             "orders_count",
             "client_user_id",
         ]

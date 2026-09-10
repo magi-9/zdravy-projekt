@@ -131,6 +131,22 @@ def _day_of_week_mask_for_days_before(days_before: int) -> str:
     return ",".join(str(d) for d in days)
 
 
+def _menu_bc_exempt_prevadzky_label() -> str:
+    """Mená prevádzok s `menu_bc_same_deadline_as_lunch=True` — tie tento
+    prísny termín vôbec nevidia, Menu B/C majú na bežnej uzávierke obeda
+    (user 10.9.2026: piatkové Menu B pre deti bez narýchlo dokupovania)."""
+    from ..models import Prevadzka
+
+    names = list(
+        Prevadzka.objects.filter(menu_bc_same_deadline_as_lunch=True)
+        .order_by("nazov")
+        .values_list("nazov", flat=True)
+    )
+    if not names:
+        return ""
+    return " Neplatí pre: " + ", ".join(names) + " (majú termín zhodný s Menu A)."
+
+
 def _menu_bc_lock_entry(gs):
     """Syntetický riadok pre uzávierku navýšenia/nahlásenia Menu B a C —
     samostatná, prísnejšia než bežná uzávierka obeda (#573)."""
@@ -160,6 +176,7 @@ def _menu_bc_lock_entry(gs):
             f"{days_before} dni vopred o {deadline.strftime('%H:%M')} "
             f"(kuchyňa ich dokupuje vopred). Odhlásenie/zníženie zostáva "
             f"možné podľa bežnej uzávierky obeda."
+            f"{_menu_bc_exempt_prevadzky_label()}"
         ),
         "next_run": _next_run_for_schedule(schedule.schedule, name),
         "days": _days_label_sk(schedule.day_of_week),

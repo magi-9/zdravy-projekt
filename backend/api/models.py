@@ -711,6 +711,18 @@ class Prevadzka(models.Model):
         default="",
         help_text="Interná poznámka k objednávkam prevádzky v admin prehľadoch.",
     )
+    menu_bc_same_deadline_as_lunch = models.BooleanField(
+        default=False,
+        help_text=(
+            "Keď je zapnuté, na Menu B/C tejto prevádzky sa NEVZŤAHUJE prísny "
+            "globálny 2-dňový termín nárastu (`GlobalSettings.deadline_menu_bc`) "
+            "— platí preň rovnaký termín ako na Menu A (bežná uzávierka daného "
+            "jedla). Určené pre školy, kde je Menu B/C pevná, vopred známa "
+            "voľba (napr. len v piatok cez `menu_day_restrictions`), nie "
+            "narýchlo dokupovaná porcia (user 10.9.2026: Múdre hranie Škola, "
+            "Benjamin Pezinok, Benjamin Senec, Pinocchio)."
+        ),
+    )
     auto_order_paused = models.BooleanField(
         default=False,
         help_text=(
