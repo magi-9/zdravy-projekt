@@ -5,6 +5,7 @@ from api.management.commands.fix_combined_diet_base_links_2026_09 import (
     DIET_1_COMPONENTS,
     DIET_1_NAME,
     DIET_2_COMPONENTS,
+    DIET_2_LEGACY_NAME,
     DIET_2_NAME,
 )
 from api.models import Celok, Diet, Prevadzka, PrevadzkaDiet
@@ -67,6 +68,36 @@ def test_diet_2_is_created_with_missing_single_diets():
     )
     assert Diet.objects.filter(name="NO CITRUSY").exists()
     assert Diet.objects.filter(name="NO SOSOVICA").exists()
+
+
+@pytest.mark.django_db
+def test_diet_2_links_to_existing_legacy_named_diet_instead_of_duplicating():
+    """Prod (10.9.2026): rovnaká kombinácia už existuje pod starým menom
+    (`id=46`, "NONONO..."), aktívne priradená prevádzke a používaná v
+    objednávkach. Príkaz na ňu MUSÍ naviazať base_diets namiesto založenia
+    duplicitnej novej diéty pod `DIET_2_NAME` — inak by problém ostal
+    nevyriešený a pribudla by len nepoužívaná diéta naviac."""
+    for name in DIET_2_COMPONENTS:
+        if name not in ("NO CITRUSY", "NO SOSOVICA"):
+            Diet.objects.create(name=name)
+    legacy = Diet.objects.create(name=DIET_2_LEGACY_NAME)
+    legacy_id = legacy.id
+    celok = Celok.objects.create(nazov="Little Big")
+    prevadzka = Prevadzka.objects.create(celok=celok, nazov="Little Big")
+    PrevadzkaDiet.objects.create(prevadzka=prevadzka, diet=legacy)
+
+    call_command("fix_combined_diet_base_links_2026_09")
+
+    # No new diet created under the new dash-joined name.
+    assert not Diet.objects.filter(name=DIET_2_NAME).exists()
+    legacy.refresh_from_db()
+    assert legacy.id == legacy_id
+    assert legacy.name == DIET_2_LEGACY_NAME
+    assert sorted(legacy.base_diets.values_list("name", flat=True)) == sorted(
+        DIET_2_COMPONENTS
+    )
+    # Priradenie k prevádzke prežilo.
+    assert PrevadzkaDiet.objects.filter(prevadzka=prevadzka, diet=legacy).exists()
 
 
 @pytest.mark.django_db

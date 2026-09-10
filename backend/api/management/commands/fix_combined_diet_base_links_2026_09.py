@@ -14,19 +14,30 @@ Vyšetrenie priamo v produkčnej DB (read-only, cez SSH) ukázalo:
     sekcií podľa `base_diets.length`, takže bez tohto prepojenia appka počíta
     komponenty ako 1 a schová ju do sekcie "1-zložkové" namiesto
     "Viac-zložkové". Preto ju klient nevedel nájsť.
-  - #2 v skutočnosti NEexistuje — spojený názov má 163 znakov, čo presahovalo
-    pôvodný `Diet.name` limit 100 (`0110_alter_diet_name_max_length` limit
-    zdvihol na 255). Vytvorenie preto padalo na validácii dĺžky poľa, nie na
-    duplicite — frontend ale pre každú chybu ukazuje rovnaké "možno už
-    existuje". Dve zo zložiek navyše nemali presný náprotivok (`No Citrus`
-    v appke existuje len v jednotnom čísle, `NO SOSOVICA` vôbec) — dopĺňa ich
-    tento príkaz.
+  - #2 pod NOVÝM názvom (14× "NO X" spojené pomlčkou) neexistuje — má 163
+    znakov, čo presahovalo pôvodný `Diet.name` limit 100
+    (`0110_alter_diet_name_max_length` limit zdvihol na 255). Vytvorenie
+    preto padalo na validácii dĺžky poľa, nie na duplicite — frontend ale
+    pre každú chybu ukazuje rovnaké "možno už existuje".
+    TÁ ISTÁ kombinácia ale reálne UŽ existuje pod STARÝM (predkompozitným)
+    názvom `id=46`, "NONONO, TEĽACIE, TEKVICE, JABLKA, ORECHY, SEZAM,
+    ARAŠÍDY, ZELER, KAKAO, CITRUSY, ŠOŠOVICE, HORČICA" — "NONONO" je podľa
+    `reference_data.py` alias pre "Bez mlieka, lepku a vajec", takže sedí
+    presne na 14 požadovaných zložiek. Táto diéta je aktívne priradená a
+    používaná (`Little Big`, objednávky za posledných 180 dní) — príkaz ju
+    preto MUSÍ nájsť podľa tohto starého mena a doplniť jej base_diets,
+    NIE založiť vedľa nej duplicitnú novú diétu (to by problém nevyriešilo,
+    len by pridalo nepoužívanú kombináciu naviac).
 
-Príkaz je idempotentný — dá sa spustiť opakovane bez duplicít. Nemení `id` ani
-`name` diéty #1 (existuje už), takže žiadne priradenie k prevádzke/klientovi
-(`PrevadzkaDiet`) ani historická objednávka (ktorá diétu nesie ako meno v
-JSON dátach, nie FK) sa touto zmenou nestratí — pridáva sa len `base_diets`
-metadáta pre zobrazenie v adminovi.
+Dve zo zložiek navyše nemali presný náprotivok (`No Citrus` v appke existuje
+len v jednotnom čísle, `NO SOSOVICA` vôbec) — dopĺňa ich tento príkaz.
+
+Príkaz je idempotentný — dá sa spustiť opakovane bez duplicít. Nemení `id`
+ani `name` žiadnej z existujúcich diét (#1 aj legacy #2 existujú už), takže
+žiadne priradenie k prevádzke/klientovi (`PrevadzkaDiet`) ani historická
+objednávka (ktorá diétu nesie ako meno v JSON dátach, nie FK) sa touto
+zmenou nestratí — pridáva sa len `base_diets` metadáta pre zobrazenie v
+adminovi.
 
     python manage.py fix_combined_diet_base_links_2026_09
     python manage.py fix_combined_diet_base_links_2026_09 --dry-run
@@ -46,6 +57,13 @@ DIET_2_NAME = (
     "NO MILK – NO GLUTEN – NO EGG – NO TELACIE – NO TEKVICA – NO JABLKO – "
     "NO ORECH – NO SEZAM – NO ARASIDY – NO ZELER – NO KAKAO – NO CITRUSY – "
     "NO SOSOVICA – NO HORCICA"
+)
+# Rovnaká kombinácia existuje aj pod starým, predkompozitným menom (aktívne
+# priradená, "Little Big") — príkaz na ňu musí prednostne naviazať base_diets
+# namiesto založenia duplicitnej novej diéty pod `DIET_2_NAME`.
+DIET_2_LEGACY_NAME = (
+    "NONONO, TEĽACIE, TEKVICE, JABLKA, ORECHY, SEZAM, ARAŠÍDY, ZELER, KAKAO, "
+    "CITRUSY, ŠOŠOVICE, HORČICA"
 )
 DIET_2_COMPONENTS = [
     "NO MILK",
@@ -95,7 +113,11 @@ class Command(BaseCommand):
         return diet
 
     def _link_composite(
-        self, name: str, component_names: list[str], dry_run: bool
+        self,
+        name: str,
+        component_names: list[str],
+        dry_run: bool,
+        legacy_name: str | None = None,
     ) -> None:
         components = [
             self._get_or_create_single(component, dry_run)
@@ -108,17 +130,30 @@ class Command(BaseCommand):
             )
             return
 
-        diet, created = Diet.objects.get_or_create(
-            name__iexact=name, defaults={"name": name}
-        )
-        if created:
-            self.stdout.write(
-                self.style.SUCCESS(f"  vytvorená kombinovaná diéta {name!r}")
+        # Prednostne naviaž na existujúcu diétu pod STARÝM (predkompozitným)
+        # menom, ak taká je — inak by vznikla nepoužívaná duplicita popri
+        # aktívne priradenej diéte (viď modul docstring, diéta #2/id=46).
+        diet = None
+        if legacy_name is not None:
+            diet = Diet.objects.filter(name__iexact=legacy_name).first()
+            if diet is not None:
+                self.stdout.write(
+                    f"  kombinovaná diéta nájdená pod starým menom {diet.name!r} "
+                    f"(id={diet.id}) — nezakladám duplicitu pod {name!r}"
+                )
+
+        if diet is None:
+            diet, created = Diet.objects.get_or_create(
+                name__iexact=name, defaults={"name": name}
             )
-        else:
-            self.stdout.write(
-                f"  kombinovaná diéta {name!r} už existuje (id={diet.id})"
-            )
+            if created:
+                self.stdout.write(
+                    self.style.SUCCESS(f"  vytvorená kombinovaná diéta {name!r}")
+                )
+            else:
+                self.stdout.write(
+                    f"  kombinovaná diéta {name!r} už existuje (id={diet.id})"
+                )
 
         existing = set(diet.base_diets.values_list("id", flat=True))
         wanted = {c.id for c in components}
@@ -143,7 +178,9 @@ class Command(BaseCommand):
         self._link_composite(DIET_1_NAME, DIET_1_COMPONENTS, dry_run)
 
         self.stdout.write("Diéta #2 (14-zložková kombinácia):")
-        self._link_composite(DIET_2_NAME, DIET_2_COMPONENTS, dry_run)
+        self._link_composite(
+            DIET_2_NAME, DIET_2_COMPONENTS, dry_run, legacy_name=DIET_2_LEGACY_NAME
+        )
 
         if dry_run:
             transaction.set_rollback(True)
