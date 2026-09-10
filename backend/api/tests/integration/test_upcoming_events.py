@@ -216,6 +216,39 @@ def test_menu_bc_lock_entry_reflects_configured_deadline(admin_client):
 
 
 @pytest.mark.django_db
+def test_menu_bc_lock_entry_lists_exempt_prevadzky(admin_client):
+    """Prevádzky s `menu_bc_same_deadline_as_lunch=True` (user 10.9.2026:
+    piatkové Menu B pre deti, rovnaký termín ako Menu A) nevidia prísny
+    2-dňový termín vôbec — "Nadchádzajúce" má to jasne uviesť, nech admin
+    nepočíta s termínom, ktorý sa na ne nevzťahuje."""
+    import datetime
+
+    from api.models import Celok, GlobalSettings, Prevadzka
+
+    GlobalSettings.objects.update_or_create(
+        pk=1,
+        defaults={
+            "deadline_menu_bc": datetime.time(7, 30),
+            "deadline_menu_bc_days_before": 2,
+        },
+    )
+    celok = Celok.objects.create(nazov="Test Celok")
+    Prevadzka.objects.create(
+        celok=celok, nazov="Pinocchio", menu_bc_same_deadline_as_lunch=True
+    )
+    Prevadzka.objects.create(celok=celok, nazov="Bežná škola")
+
+    response = admin_client.get("/api/admin/upcoming-events/")
+
+    assert response.status_code == status.HTTP_200_OK
+    results = response.json()["results"]
+    entry = next(r for r in results if r["name"] == "order-lock-menu-bc-increase")
+
+    assert "Pinocchio" in entry["description"]
+    assert "Bežná škola" not in entry["description"]
+
+
+@pytest.mark.django_db
 def test_disabled_tasks_are_not_listed(admin_client):
     PeriodicTask.objects.create(
         name="edupage-scrape-old",

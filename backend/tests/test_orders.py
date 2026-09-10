@@ -797,6 +797,74 @@ class TestOrderDeadlines:
         order = DailyOrder.objects.get(user=user, date=target_date)
         assert "B" not in order.data["lunch"]["menuCounts"]
 
+    def test_menu_bc_order_after_own_deadline_is_allowed_when_prevadzka_exempt(
+        self, authenticated_client, user
+    ):
+        """`menu_bc_same_deadline_as_lunch` (user 10.9.2026: piatkové Menu B
+        pre deti bez narýchlo dokupovania) — prísny 2-dňový termín sa na túto
+        prevádzku vôbec nevzťahuje, platí len bežná uzávierka obeda."""
+        prevadzka = user.profile.dostupne_prevadzky().first()
+        prevadzka.menu_bc_same_deadline_as_lunch = True
+        prevadzka.save(update_fields=["menu_bc_same_deadline_as_lunch"])
+        self._set_global_deadlines(
+            deadline_lunch=time(23, 0),
+            deadline_menu_bc=time(7, 30),
+            deadline_menu_bc_days_before=2,
+        )
+        target_date = date(2026, 3, 13)  # Friday
+        payload = {
+            "date": str(target_date),
+            "status": "submitted",
+            "data": {"lunch": {"menuCounts": {"B": 1}, "diets": {}}},
+        }
+
+        # Past the strict 2-day B/C deadline (Wed 07:30), but well before the
+        # meal's own deadline (Fri 23:00) — must go through for an exempt
+        # prevádzka.
+        with patch(
+            "api.serializers.timezone.localtime",
+            return_value=self._server_dt(2026, 3, 11, 7, 31),
+        ):
+            response = authenticated_client.post(
+                reverse("dailyorder-list"), payload, format="json"
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        order = DailyOrder.objects.get(user=user, date=target_date)
+        assert order.data["lunch"]["menuCounts"]["B"] == 1
+
+    def test_menu_bc_order_still_blocked_by_own_meal_deadline_when_exempt(
+        self, authenticated_client, user
+    ):
+        """Exemption only drops the EXTRA B/C rule — the normal per-meal
+        deadline still applies."""
+        prevadzka = user.profile.dostupne_prevadzky().first()
+        prevadzka.menu_bc_same_deadline_as_lunch = True
+        prevadzka.save(update_fields=["menu_bc_same_deadline_as_lunch"])
+        self._set_global_deadlines(
+            deadline_lunch=time(7, 30),
+            deadline_menu_bc=time(7, 30),
+            deadline_menu_bc_days_before=2,
+        )
+        target_date = date(2026, 3, 13)  # Friday
+        payload = {
+            "date": str(target_date),
+            "status": "submitted",
+            "data": {"lunch": {"menuCounts": {"B": 1}, "diets": {}}},
+        }
+
+        # Past even the meal's own deadline (Fri 07:30).
+        with patch(
+            "api.serializers.timezone.localtime",
+            return_value=self._server_dt(2026, 3, 13, 7, 31),
+        ):
+            response = authenticated_client.post(
+                reverse("dailyorder-list"), payload, format="json"
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert DailyOrder.objects.filter(user=user, date=target_date).count() == 0
+
     def test_admin_bypasses_menu_bc_deadline(self, admin_authenticated_client, user):
         prevadzka = user.profile.dostupne_prevadzky().first()
         self._set_global_deadlines(

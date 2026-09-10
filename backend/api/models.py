@@ -193,7 +193,11 @@ class ClosedDay(models.Model):
 
 
 class Diet(models.Model):
-    name = models.CharField(max_length=100, unique=True)
+    # 100 bolo pri kombinovaných diétach málo — 14-zložková kombinácia (napr.
+    # NoMilk/NoGluten/NoEgg/.../NoHorcica, user 10.9.2026) má cez 160 znakov a
+    # tvorba tíško padala na "Ensure this field has no more than 100
+    # characters", čo frontend hlásil ako zavádzajúce "možno už existuje".
+    name = models.CharField(max_length=255, unique=True)
     sort_order = models.PositiveSmallIntegerField(default=0, db_index=True)
     is_active = models.BooleanField(default=True)
     description = models.TextField(blank=True, null=True)
@@ -710,6 +714,18 @@ class Prevadzka(models.Model):
         blank=True,
         default="",
         help_text="Interná poznámka k objednávkam prevádzky v admin prehľadoch.",
+    )
+    menu_bc_same_deadline_as_lunch = models.BooleanField(
+        default=False,
+        help_text=(
+            "Keď je zapnuté, na Menu B/C tejto prevádzky sa NEVZŤAHUJE prísny "
+            "globálny 2-dňový termín nárastu (`GlobalSettings.deadline_menu_bc`) "
+            "— platí preň rovnaký termín ako na Menu A (bežná uzávierka daného "
+            "jedla). Určené pre školy, kde je Menu B/C pevná, vopred známa "
+            "voľba (napr. len v piatok cez `menu_day_restrictions`), nie "
+            "narýchlo dokupovaná porcia (user 10.9.2026: Múdre hranie Škola, "
+            "Benjamin Pezinok, Benjamin Senec, Pinocchio)."
+        ),
     )
     auto_order_paused = models.BooleanField(
         default=False,

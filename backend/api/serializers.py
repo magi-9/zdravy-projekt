@@ -531,6 +531,7 @@ class DailyOrderSerializer(serializers.ModelSerializer):
         new_data: Dict[str, Any],
         input_status: str,
         existing_data: Dict[str, Any] | None = None,
+        prevadzka: Prevadzka | None = None,
     ) -> None:
         changed_meals = cls._changed_meals(new_data, existing_data, input_status)
         changed_restricted_menus = cls._changed_restricted_menus(
@@ -566,13 +567,20 @@ class DailyOrderSerializer(serializers.ModelSerializer):
                     ),
                 )
 
-        if changed_restricted_menus:
+        if changed_restricted_menus and not (
+            prevadzka is not None and prevadzka.menu_bc_same_deadline_as_lunch
+        ):
             # Nahlásiť/zvýšiť Menu B/C má prísny 2-dňový termín (kuchyňa ich
             # dokupuje vopred) — ale ODHLÁSIŤ/znížiť sa dá až do rána v deň
             # výdaja, rovnaký termín ako bežné jedlo (user 2.9.2026: "nahlasit
             # si to vedia najviac 2 dni vopred ale odhlasit si to vedia az do
             # rana"). Bez tohto rozlíšenia by rodič nemohol odhlásiť dieťa
             # tesne pred obedom, len preto, že B/C termín už prešiel.
+            #
+            # Prevádzky s `menu_bc_same_deadline_as_lunch` (napr. piatkové
+            # Menu B pre deti, user 10.9.2026) tento prísnejší termín vôbec
+            # nevidia — Menu B/C tam podlieha len bežnej uzávierke jedla,
+            # ktorú už vynútil `changed_meals` loop vyššie.
             is_increase = cls._restricted_menus_increased(
                 new_data, existing_data, changed_restricted_menus
             )
@@ -841,6 +849,7 @@ class DailyOrderSerializer(serializers.ModelSerializer):
                     validated_data.get("data", {}),
                     input_status,
                     existing_order.data if existing_order else None,
+                    prevadzka,
                 )
             DailyOrder.objects.filter(
                 prevadzka=prevadzka, date=validated_data["date"]
@@ -874,6 +883,7 @@ class DailyOrderSerializer(serializers.ModelSerializer):
                 new_data,
                 input_status,
                 existing_order.data if existing_order else None,
+                prevadzka,
             )
 
         # Use select_for_update inside an atomic block to prevent race conditions
@@ -963,7 +973,11 @@ class DailyOrderSerializer(serializers.ModelSerializer):
 
         if not is_admin:
             self._validate_deadlines(
-                instance.date, new_data, input_status, instance.data
+                instance.date,
+                new_data,
+                input_status,
+                instance.data,
+                instance.prevadzka if instance.prevadzka_id else None,
             )
 
         if input_status != "draft" and instance.prevadzka_id:

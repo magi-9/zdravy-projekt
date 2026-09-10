@@ -187,7 +187,8 @@ const DietManager: React.FC = () => {
         fetchDiets();
         success("Diéta bola úspešne pridaná");
       } else {
-        error("Nepodarilo sa vytvoriť diétu (možno už existuje)");
+        const data = await res.json().catch(() => ({}));
+        error(data?.name?.[0] || "Nepodarilo sa vytvoriť diétu (možno už existuje)");
       }
     } catch (e) {
       logger.error(e);
@@ -236,7 +237,8 @@ const DietManager: React.FC = () => {
         await fetchDiets();
         success("Kombinovaná diéta bola vytvorená");
       } else {
-        error("Nepodarilo sa vytvoriť kombinovanú diétu (možno už existuje)");
+        const data = await res.json().catch(() => ({}));
+        error(data?.name?.[0] || "Nepodarilo sa vytvoriť kombinovanú diétu (možno už existuje)");
       }
     } catch (e) {
       logger.error(e);
@@ -291,7 +293,8 @@ const DietManager: React.FC = () => {
         fetchDiets();
         setRenameModal(null);
       } else {
-        error("Nepodarilo sa uložiť diétu (možno názov už existuje)");
+        const data = await res.json().catch(() => ({}));
+        error(data?.name?.[0] || "Nepodarilo sa uložiť diétu (možno názov už existuje)");
       }
     } catch (e) {
       logger.error(e);

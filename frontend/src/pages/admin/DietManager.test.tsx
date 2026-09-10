@@ -5,13 +5,14 @@ import { describe, expect, it, vi } from "vitest";
 import DietManager from "./DietManager";
 
 const mockApiFetch = vi.fn();
+const mockToastError = vi.fn();
 
 vi.mock("../../context/auth", () => ({
   useAuth: () => ({ apiFetch: mockApiFetch }),
 }));
 
 vi.mock("../../context/ToastContext", () => ({
-  useToast: () => ({ success: vi.fn(), error: vi.fn() }),
+  useToast: () => ({ success: vi.fn(), error: mockToastError }),
 }));
 
 const response = (payload: unknown) => ({ ok: true, json: async () => payload });
@@ -280,5 +281,50 @@ describe("DietManager text/background colour picker (#536)", () => {
     expect(editModal.queryByRole("group", { name: /^Farba diéty/ })).not.toBeInTheDocument();
     expect(editModal.getByRole("button", { name: "Vybrať Farba textu v PDF" })).toBeInTheDocument();
     expect(editModal.getByRole("button", { name: "Vybrať Farba pozadia v PDF" })).toBeInTheDocument();
+  });
+
+  it("surfaces the server's validation message instead of a generic guess (#name too long, 10.9.2026)", async () => {
+    mockToastError.mockClear();
+    mockApiFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes("/diets/") && init?.method === "POST") {
+        return Promise.resolve({
+          ok: false,
+          json: async () => ({
+            name: ["Ensure this field has no more than 255 characters."],
+          }),
+        });
+      }
+      if (url.includes("/diets/")) {
+        return Promise.resolve(
+          response([
+            { id: 1, name: "Bezlepková", sort_order: 0, is_active: true, description: "", base_diets: [] },
+            { id: 2, name: "Bez laktózy", sort_order: 1, is_active: true, description: "", base_diets: [] },
+          ]),
+        );
+      }
+      return Promise.resolve(response([]));
+    });
+
+    render(
+      <MemoryRouter>
+        <DietManager />
+      </MemoryRouter>,
+    );
+
+    await screen.findByText("Bezlepková");
+    await userEvent.click(screen.getByRole("button", { name: /Vytvoriť kombinovanú/ }));
+    const compositeModal = within(
+      screen.getByText("Vytvoriť kombinovanú diétu").closest(".zpa-modal") as HTMLElement,
+    );
+    await userEvent.click(compositeModal.getByRole("button", { name: /Bezlepková/ }));
+    await userEvent.click(compositeModal.getByRole("button", { name: /Bez laktózy/ }));
+    await userEvent.click(compositeModal.getByRole("button", { name: "Pokračovať na farby" }));
+    await userEvent.click(compositeModal.getByRole("button", { name: "Vytvoriť kombináciu" }));
+
+    await waitFor(() =>
+      expect(mockToastError).toHaveBeenCalledWith(
+        "Ensure this field has no more than 255 characters.",
+      ),
+    );
   });
 });
