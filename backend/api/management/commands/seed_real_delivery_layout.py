@@ -451,11 +451,8 @@ class Command(BaseCommand):
 
         blocks: dict[str, DeliveryBlock] = {}
         for name, sort_order, main_summary, extra_summary in BLOCKS:
-            # Tento seed rieši historický, jednotný (obedový) rozvoz —
-            # #dashboard-per-meal-routes.
             block, _ = DeliveryBlock.objects.update_or_create(
                 name=name,
-                meal_type="lunch",
                 defaults={
                     "sort_order": sort_order,
                     "include_in_main_summary": main_summary,
@@ -520,11 +517,8 @@ def _upsert_prevadzka(
         # doplníme rozvozové info. Zdroj EDUPAGE riešime na jej vlastnom celku.
         if row.address:
             existing.adresa = row.address
-        # Tento seed rieši historický, jednotný rozvoz — je to obedová trasa
-        # (#dashboard-per-meal-routes); raňajky/olovrant si admin nastaví
-        # samostatne cez "Trasy", ak/keď ich bude treba.
-        existing.delivery_route_lunch = route
-        existing.delivery_sort_order_lunch = sort_order
+        existing.delivery_route = route
+        existing.delivery_sort_order = sort_order
         existing.report_alias = row.alias
         existing.delivery_note = row.note
         existing.is_active = True
@@ -548,8 +542,8 @@ def _upsert_prevadzka(
         celok=celok,
         nazov=display_name,
         adresa=row.address or "",
-        delivery_route_lunch=route,
-        delivery_sort_order_lunch=sort_order,
+        delivery_route=route,
+        delivery_sort_order=sort_order,
         report_alias=row.alias,
         delivery_note=row.note,
         is_active=True,
@@ -580,7 +574,7 @@ def _candidate_names(row: DeliverySeedRow) -> Iterable[str]:
 def _delete_obsolete_celky() -> None:
     for celok in Celok.objects.filter(nazov__in=OBSOLETE_CELKY):
         if celok.prevadzky.filter(orders__isnull=False).exists():
-            celok.prevadzky.update(is_active=False, delivery_route_lunch=None)
+            celok.prevadzky.update(is_active=False, delivery_route=None)
             continue
         celok.prevadzky.all().delete()
         celok.delete()
