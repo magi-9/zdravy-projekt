@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.3.1](https://github.com/tomag-9/zdravy-projekt/compare/v3.3.0...v3.3.1) (2026-09-10)
+
+
+### Bug Fixes
+
+* **gramage:** dlhý názov diéty sa v PDF nerozpadal na písmená, S/Z odznak správnu výšku ([#627](https://github.com/tomag-9/zdravy-projekt/issues/627)) ([711d222](https://github.com/tomag-9/zdravy-projekt/commit/711d2228490e998b5187181157c3fe61e23150f1))
+
 ## [3.3.0](https://github.com/tomag-9/zdravy-projekt/compare/v3.2.3...v3.3.0) (2026-09-10)
 
 
