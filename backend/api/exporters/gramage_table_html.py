@@ -105,9 +105,21 @@ def _cell(cell: dict) -> str:
         if cell.get("swatch"):
             inner = _swatch(cell["swatch"]) + inner
         count = escape(str(cell["count"]))
+        # "S"/"Z" (10.9.2026, #568 nadväzba) — vedľa count-badge, nie v mene
+        # diéty (viď `_diet_pack_badge`). Oranžová, akonáhle je v odznaku
+        # čo i len jedno "Z" (aj composite "Z + S + Z").
+        pack_badge = str(cell.get("pack_badge") or "")
+        badge_html = (
+            (
+                f'<span class="pack-badge{" pack-badge--z" if "Z" in pack_badge else ""}">'
+                f"{escape(pack_badge)}</span>"
+            )
+            if pack_badge
+            else ""
+        )
         body = corner + (
             f'<span class="lbl-line"><span>{inner}</span>'
-            f'<span class="count-badge">{count}</span></span>'
+            f'<span class="count-badge">{count}</span>{badge_html}</span>'
         )
     else:
         body = corner + text

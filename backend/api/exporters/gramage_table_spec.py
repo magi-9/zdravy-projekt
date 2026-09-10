@@ -507,6 +507,115 @@ def _aggregate_diet_summary(rows_for_summary: list[dict]) -> list[dict]:
     return [totals[name] for name in order]
 
 
+def _diet_pack_state(data: dict, meal: str, diet_name: str) -> str:
+    """ "S" (spolu, default) alebo "Z" (zvlášť) pre (jedlo, diéta) — stav z
+    diet-component-merge boardu pre tento deň (`MealPlanService.gramage_dashboard`,
+    `data["diet_pack_state"]`, 10.9.2026, #568 nadväzba)."""
+    return (data.get("diet_pack_state") or {}).get(meal, {}).get(diet_name, "S")
+
+
+def _diet_pack_badge(
+    data: dict,
+    diet_name: str,
+    meal_counts: dict[str, object],
+    visible_bands: tuple[tuple[str, ...], ...],
+) -> str:
+    """ "S"/"Z" odznak(y) pri diéte, spojené "+" naprieč pásmi jedla, v
+    ktorých má TÁTO diéta rozpis (na rozdiel od `_composite_meal_count_text`
+    nevypisuje odznak pre pás, ktorý diéta vôbec nemá — ten by len fabrikoval
+    stav pre neexistujúcu porciu). Jedno písmeno bez "+", keď má diéta len
+    jeden pás — bežný prípad."""
+    parts = []
+    for meal_keys in visible_bands:
+        meal_with_count = next(
+            (k for k in meal_keys if _as_decimal(meal_counts.get(k))), None
+        )
+        if meal_with_count is None:
+            continue
+        parts.append(_diet_pack_state(data, meal_with_count, diet_name))
+    return " + ".join(parts)
+
+
+def _pack_together_row(
+    data: dict,
+    client_row: dict,
+    groups: list[dict],
+    hues: list[str],
+) -> dict | None:
+    """Súhrnný riadok „Zabaliť spolu:" hneď za VLASTNÝMI riadkami JEDNEJ
+    prevádzky (10.9.2026, #568 nadväzba).
+
+    Sčíta VŠETKO, čo sa dnes dá zabaliť spolu, jednej prevádzky
+    (`client_row["sub_rows"]`):
+    - štandardné porcie (`sub_row.type == "standard"`, hocijaké Menu/deti aj
+      dospelí) — vždy, ich počet už má odpočítané, čo klient označil ako
+      "zvlášť" (viď nižšie),
+    - diétne porcie (`sub_row.type == "diet"`), LEN keď je tá diéta pre dané
+      jedlo dnes na diet-component-merge boarde "spolu" (default,
+      `data["diet_pack_state"]`) — "zvlášť" diéta do súčtu nejde.
+
+    Vynecháva klientom vyžiadané "zvlášť"/"zvlášť do GN"
+    (`sub_row.type in ("zvlast", "zvlast_gn")`, napr. "dospelí zvlášť") — tie
+    majú svoj vlastný riadok a do spoločného balenia nepatria (štandardný aj
+    diétny riadok má ich časť už odpočítanú, viď `MealPlanService`).
+
+    Naprieč VIACERÝMI prevádzkami sa NIKDY nesčítava — nedá sa zabaliť spolu
+    obsah dvoch rôznych škôl, aj keby boli na tej istej trase/klastri, preto
+    volajúci posiela vždy len jeden `client_row` (viď `build_table_spec`,
+    volá sa za každým `_client_rows`).
+
+    `group_id`/`collapsible` kopírujú presne to, čo `_client_rows` dáva
+    ostatným detailným riadkom tej istej prevádzky (rovnaký vzorec kľúča) —
+    inak by tento riadok pri zbalenom klientovi na obrazovke ostal
+    "visieť" viditeľný bez kontextu, kým jeho sub-riadky sú skryté.
+
+    Nič z existujúcich riadkov (`_client_rows` atď.) sa týmto nemení — len
+    pribúda tento jeden riadok navyše. `None`, ak prevádzka nemá čo baliť
+    spolu (žiadny prázdny riadok).
+
+    Počíta len jedlá, čo sú aktuálne vidno (`groups`, filtrované cez
+    `sections`) — inak by pri filtrovanom exporte (napr. len olovrant)
+    ukázal počet z jedla, ktoré tabuľka vôbec nezobrazuje.
+    """
+    visible_meals = {g.get("meal") for _, g in groups}
+    total_count = Decimal("0")
+    col_grams: list | None = None
+    for sub_row in client_row.get("sub_rows") or []:
+        row_type = sub_row.get("type")
+        meal = sub_row.get("meal")
+        if row_type not in ("standard", "diet"):
+            continue
+        if meal not in visible_meals:
+            continue
+        if (
+            row_type == "diet"
+            and _diet_pack_state(data, str(meal), str(sub_row.get("diet_name") or ""))
+            != "S"
+        ):
+            continue
+        total_count += _as_decimal(sub_row.get("count"))
+        sub_grams = sub_row.get("col_grams") or []
+        col_grams = (
+            sub_grams if col_grams is None else _sum_col_grams(col_grams, sub_grams)
+        )
+    if not total_count:
+        return None
+    key = str(
+        client_row.get("row_key")
+        or client_row.get("client_id")
+        or client_row.get("client")
+        or ""
+    )
+    return {
+        "kind": "pack-together",
+        "css": "summ-diet pack-together",
+        "group_id": key,
+        "collapsible": True,
+        "cells": [_label_cell("Zabaliť spolu:", total_count)]
+        + _gram_cells(col_grams or [], groups, hues),
+    }
+
+
 def _diet_name_rows(
     rows_for_summary: list[dict],
     data: dict,
@@ -527,19 +636,22 @@ def _diet_name_rows(
         if not diet["count"]:
             continue
         text_hex, background_hex = _diet_style(data, diet)
-        label_cell = _label_cell(
-            diet["name"],
-            diet["count"],
-            swatch={
-                "color": f"#{diet_color(data, diet)}",
-                "base_colors": diet.get("base_colors") or [],
-            },
-        )
         # Viac ako jeden pás jedla v tabuľke (#560) — plochý `count` by rátal
         # to isté dieťa na raňajkách/obede/olovrante viackrát, rozpis
         # "0 + x + y" ukáže reálny počet za každý pás zvlášť (aj nulový,
         # keď ho tabuľka má, len táto diéta ho neobjednala).
         meal_counts = diet.get("meal_counts") or {}
+        name = str(diet["name"])
+        badge = _diet_pack_badge(data, name, meal_counts, visible_bands)
+        label_cell = _label_cell(
+            name,
+            diet["count"],
+            swatch={
+                "color": f"#{diet_color(data, diet)}",
+                "base_colors": diet.get("base_colors") or [],
+            },
+            pack_badge=badge,
+        )
         if len(visible_bands) > 1:
             label_cell["count"] = _composite_meal_count_text(meal_counts, visible_bands)
         diet_rows.append(
@@ -563,6 +675,7 @@ def build_table_spec(
     show_empty: bool = False,
     show_cluster_summary: bool = True,
     diet_clusters: list[str] | None = None,
+    pack_together: bool = True,
 ) -> dict:
     """Prevedie payload z `gramage_dashboard()` na hotový popis tabuľky.
 
@@ -571,6 +684,12 @@ def build_table_spec(
     zmysel len pri zbalenom klientovi (#510) — v statickom PDF exporte sú
     sub-riadky vždy "rozbalené" a súhrny by len duplikovali čísla o riadok
     vyššie, takže PDF volajúci túto funkciu volajú s `False`.
+
+    `pack_together=False` (prepínač "Použiť zlúčenie diét" na obrazovke)
+    vynechá súhrnný riadok "Zabaliť spolu:" (`_pack_together_row`, 10.9.2026)
+    — jediné miesto, kde tento prepínač čokoľvek mení; žiadny iný riadok sa
+    ním neovplyvňuje (pôvodné presúvanie gramáže do štandardu bolo
+    retirované, diéta má vždy vlastný riadok, viď `gramage_dashboard`).
 
     `show_empty=True` (nastavenia tabuľky, 2.9.2026) vykreslí aj trasy bez
     jedinej objednávky — inak sa v pôvodnom (default) správaní ticho
@@ -659,6 +778,15 @@ def build_table_spec(
                             include_summary_rows,
                         )
                     )
+                    # "Zabaliť spolu:" (10.9.2026, #568) — hneď za VLASTNÝMI
+                    # riadkami TEJTO prevádzky, nikdy naprieč viacerými (nedá
+                    # sa zabaliť spolu obsah dvoch rôznych škôl).
+                    if pack_together:
+                        pack_together_row = _pack_together_row(
+                            data, client_row, groups, hues
+                        )
+                        if pack_together_row:
+                            rows.append(pack_together_row)
             vydaj_rows = [
                 r
                 for route in vydaj.get("routes") or []
@@ -733,6 +861,12 @@ def build_table_spec(
                         include_summary_rows,
                     )
                 )
+                if pack_together:
+                    pack_together_row = _pack_together_row(
+                        data, client_row, groups, hues
+                    )
+                    if pack_together_row:
+                        rows.append(pack_together_row)
     else:
         for client_row in data.get("rows") or []:
             rows.extend(
@@ -740,6 +874,10 @@ def build_table_spec(
                     client_row, data, groups, hues, total_columns, include_summary_rows
                 )
             )
+            if pack_together:
+                pack_together_row = _pack_together_row(data, client_row, groups, hues)
+                if pack_together_row:
+                    rows.append(pack_together_row)
 
     if filtered:
         visible_rows = [
@@ -1097,17 +1235,6 @@ def _client_rows(
         else:
             base_label = sub_row.get("label") or ""
         label = _abbreviate_label(base_label)
-        # Interná poznámka k dvojici (prevádzka, diéta) — nastavená v detaile
-        # prevádzky (tab Diéty) — ide rovno za názov diéty, nech ju kuchyňa
-        # vidí aj v statickom PDF (tam sú tieto sub-riadky vždy rozbalené).
-        diet_note = str(sub_row.get("diet_note") or "").strip() if is_diet else ""
-        display_label = f"↳ {label}" if is_diet else label
-        if diet_note:
-            display_label = f"{display_label} — {diet_note}"
-        cell = _label_cell(
-            display_label,
-            sub_row.get("count"),
-        )
         # "zvlast"/"zvlast_gn" riadky sa naprieč jedlami nikdy nezlučujú (viď
         # `_merge_sub_rows_across_meals`) — nemajú preto `_meal_counts`, len
         # svoje vlastné (jedno) jedlo. Bez tohto fallbacku by composite text
@@ -1115,6 +1242,28 @@ def _client_rows(
         meal_counts = sub_row.get("_meal_counts") or {
             sub_row.get("meal"): sub_row.get("count")
         }
+        # Interná poznámka k dvojici (prevádzka, diéta) — nastavená v detaile
+        # prevádzky (tab Diéty) — ide rovno za názov diéty, nech ju kuchyňa
+        # vidí aj v statickom PDF (tam sú tieto sub-riadky vždy rozbalené).
+        diet_note = str(sub_row.get("diet_note") or "").strip() if is_diet else ""
+        display_label = f"↳ {label}" if is_diet else label
+        if diet_note:
+            display_label = f"{display_label} — {diet_note}"
+        # "S"/"Z" odznak (10.9.2026, #568 nadväzba) — spolu/zvlášť na
+        # diet-component-merge boarde, vedľa count-badge, nie v mene/poznámke
+        # (viď `_diet_pack_badge`).
+        badge = (
+            _diet_pack_badge(
+                data, str(sub_row.get("diet_name") or ""), meal_counts, visible_bands
+            )
+            if is_diet
+            else ""
+        )
+        cell = _label_cell(
+            display_label,
+            sub_row.get("count"),
+            pack_badge=badge,
+        )
         if len(visible_bands) > 1:
             cell["count"] = _composite_meal_count_text(meal_counts, visible_bands)
         text_hex = background_hex = None
@@ -1196,6 +1345,11 @@ def _client_rows(
         # Interná poznámka k dvojici (prevádzka, diéta) — pozri komentár pri
         # sub-riadku vyššie; tu ide na medzisúčtový riadok tej istej diéty.
         diet_note = str(diet.get("note") or "").strip()
+        # Viac ako jeden pás jedla v tabuľke (#560) — plochý súčet by rátal
+        # to isté dieťa na raňajkách/obede/olovrante viackrát, rozpis
+        # "0 + x + y" ukáže reálny počet za každý pás zvlášť.
+        meal_counts = diet_meal_counts.get(name) or {}
+        badge = _diet_pack_badge(data, name, meal_counts, visible_bands)
         label_cell = _label_cell(
             f"{name} — {diet_note}" if diet_note else name,
             diet_counts[name],
@@ -1203,11 +1357,8 @@ def _client_rows(
                 "color": f"#{hex_color}",
                 "base_colors": diet.get("base_colors") or [],
             },
+            pack_badge=badge,
         )
-        # Viac ako jeden pás jedla v tabuľke (#560) — plochý súčet by rátal
-        # to isté dieťa na raňajkách/obede/olovrante viackrát, rozpis
-        # "0 + x + y" ukáže reálny počet za každý pás zvlášť.
-        meal_counts = diet_meal_counts.get(name) or {}
         if len(visible_bands) > 1:
             label_cell["count"] = _composite_meal_count_text(meal_counts, visible_bands)
         out.append(

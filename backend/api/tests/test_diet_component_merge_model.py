@@ -1,5 +1,5 @@
-"""Model `DietComponentMerge` (#568) — zamyká uniqueness a default sémantiku
-"existencia riadku = spolu, chýbajúci riadok = zvlášť".
+"""Model `DietComponentMerge` (#568, flip 10.9.2026) — zamyká uniqueness a
+default sémantiku "existencia riadku = zvlášť, chýbajúci riadok = spolu".
 """
 
 import datetime

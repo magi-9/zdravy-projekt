@@ -328,16 +328,7 @@ class DailyMealPlanViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
             from ..cache_service import clear_gramage_dashboard_cache
 
             clear_gramage_dashboard_cache(date.isoformat())
-        # Prepínač "Použiť zlúčenie diét" (#568) — default zapnutý (kešovaná
-        # vetva). Vypnutý je zámerne nekešovaný, prepočíta sa nanovo — je to
-        # zriedkavý explicitný klik, nie niečo, čo treba škálovať.
-        merge_diets = _parse_bool_param(request, "merge_diets", True)
-        if merge_diets:
-            data = _cached_gramage_dashboard_data(date.isoformat())
-        else:
-            data = MealPlanService.gramage_dashboard(
-                date.isoformat(), merge_diets=False
-            )
+        data = _cached_gramage_dashboard_data(date.isoformat())
         # Hotový popis tabuľky — obrazovka aj PDF ho renderujú z rovnakého spec-u,
         # aby sa nemali ako rozísť (viď gramage_table_spec).
         from ..exporters.gramage_table_spec import build_table_spec
@@ -345,6 +336,10 @@ class DailyMealPlanViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
         sections = request.query_params.getlist("section") or None
         vydaje = request.query_params.getlist("vydaj") or None
         diet_clusters = request.query_params.getlist("diet_cluster") or None
+        # Prepínač "Použiť zlúčenie diét" (#568) — gatuje len súhrnný riadok
+        # "Zabaliť spolu:" (retirované 10.9.2026: samotné riadky tabuľky sa
+        # zapnutím/vypnutím nemenia, viď `build_table_spec` docstring).
+        pack_together = _parse_bool_param(request, "merge_diets", True)
         data["spec"] = build_table_spec(
             data,
             sections=sections,
@@ -353,6 +348,7 @@ class DailyMealPlanViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
             show_empty=_parse_bool_param(request, "show_empty", True),
             show_cluster_summary=_parse_bool_param(request, "cluster_summary", True),
             diet_clusters=diet_clusters,
+            pack_together=pack_together,
         )
         return Response(data)
 

@@ -81,21 +81,23 @@ DIET_COMPONENT_MERGE_MEALS = (
 )
 
 
-def resolve_diet_component_merges(date_str: str) -> dict[tuple[str, str], set[int]]:
-    """Ktoré (jedlo, diéta) zložky sú pre daný deň označené ako "spolu" (#568).
+def resolve_diet_component_separations(
+    date_str: str,
+) -> dict[tuple[str, str], set[int]]:
+    """Ktoré (jedlo, diéta) zložky sú pre daný deň explicitne označené ako
+    "zvlášť" (#568, flip 10.9.2026) — výnimka z default "spolu".
 
-    Vracia `{(meal, diet_name): {component_index, ...}}` — kľúč sa priamo
-    použije v `gramage_dashboard` na rozhodnutie, ktoré zložky diétneho
-    riadku sa majú pripočítať k štandardnému riadku namiesto vlastného
-    (`_split_diet_component_grams`). Chýbajúci kľúč = žiadna zložka daného
-    jedla/diéty nie je označená (default "zvlášť", viď model).
-    """
-    merges: dict[tuple[str, str], set[int]] = {}
+    Vracia `{(meal, diet_name): {component_index, ...}}`, priamo z toho, čo
+    je v `DietComponentMerge` uložené. Volajúci (board, gramage_dashboard) si
+    z tohto a z UNIVERZA platných indexov danej (jedlo, diéta) kombinácie
+    sám dopočíta efektívny "spolu" stav — táto funkcia sama univerzum
+    nepozná (nemá k dispozícii šablóny)."""
+    separations: dict[tuple[str, str], set[int]] = {}
     rows = DietComponentMerge.objects.filter(date=date_str).select_related("diet")
     for row in rows:
         key = (row.meal, row.diet.name)
-        merges.setdefault(key, set()).add(row.component_index)
-    return merges
+        separations.setdefault(key, set()).add(row.component_index)
+    return separations
 
 
 def _all_composites_of(diet: Diet) -> set[Diet]:
@@ -125,13 +127,14 @@ def apply_diet_component_merge_toggle(
     component_label: str = "",
 ) -> str | None:
     """Toggle "spolu/zvlášť" pre jednu bunku, vrátane kaskády pre kombinované
-    diéty (#568 nadväzba na diet-component-merge).
+    diéty (#568 nadväzba na diet-component-merge, flip sémantiky 10.9.2026).
 
-    Admin najprv odklikáva jednozložkové (základné) diéty — kombinovaná
-    diéta (`Diet.base_diets`) sa podľa nich riadi:
-    - kombinácia môže byť "spolu" len keď sú "spolu" VŠETKY jej základné
-      diéty pre tú istú (deň, jedlo, zložku) — inak sa požiadavka zamietne
-      (vráti sa chybové hlásenie, DB sa nezmení),
+    Admin najprv odklikáva jednozložkové (základné) diéty na "zvlášť" —
+    kombinovaná diéta (`Diet.base_diets`) sa podľa nich riadi:
+    - kombinácia sa môže vrátiť na "spolu" (zmazať jej zvlášť-riadok) len
+      keď sú "spolu" VŠETKY jej základné diéty pre tú istú (deň, jedlo,
+      zložku) — inak sa požiadavka zamietne (vráti sa chybové hlásenie, DB
+      sa nezmení),
     - nastavenie základnej diéty na "zvlášť" naopak automaticky vynúti
       "zvlášť" aj vo všetkých kombináciách, ktoré ju obsahujú (aj keby už
       boli explicitne "spolu" — nemá zmysel čakať na ďalší klik, keď jednej
@@ -140,12 +143,15 @@ def apply_diet_component_merge_toggle(
     kombinácií — tie môžu mať aj ďalšie základné diéty, čo ešte "spolu"
     nie sú, admin ich musí odkliknúť sám, až keď sú všetky pripravené.
 
-    Vracia chybové hlásenie (str), ak sa má požiadavka zamietnuť, inak None.
+    `merged=True` znamená "vráť na spolu" (zmaž zvlášť-riadok, default stav),
+    `merged=False` znamená "označ ako zvlášť" (vytvor zvlášť-riadok +
+    kaskáda). Vracia chybové hlásenie (str), ak sa má požiadavka zamietnuť,
+    inak None.
     """
     if merged:
         base_diets = list(diet.base_diets.all())
         if base_diets:
-            already_merged = set(
+            still_separate = set(
                 DietComponentMerge.objects.filter(
                     date=date,
                     meal=meal,
@@ -153,29 +159,33 @@ def apply_diet_component_merge_toggle(
                     diet__in=base_diets,
                 ).values_list("diet_id", flat=True)
             )
-            missing = [b.name for b in base_diets if b.id not in already_merged]
+            missing = [b.name for b in base_diets if b.id in still_separate]
             if missing:
                 return (
                     f"Kombinovaná diéta „{diet.name}“ môže byť spolu, až keď sú "
                     f"spolu všetky jej zložky: {', '.join(missing)}."
                 )
+        DietComponentMerge.objects.filter(
+            date=date, meal=meal, component_index=component_index, diet=diet
+        ).delete()
+        return None
+
+    DietComponentMerge.objects.update_or_create(
+        date=date,
+        meal=meal,
+        component_index=component_index,
+        diet=diet,
+        defaults={"updated_by": updated_by, "component_label": component_label},
+    )
+    composites = _all_composites_of(diet)
+    for composite in composites:
         DietComponentMerge.objects.update_or_create(
             date=date,
             meal=meal,
             component_index=component_index,
-            diet=diet,
+            diet=composite,
             defaults={"updated_by": updated_by, "component_label": component_label},
         )
-        return None
-
-    DietComponentMerge.objects.filter(
-        date=date, meal=meal, component_index=component_index, diet=diet
-    ).delete()
-    composites = _all_composites_of(diet)
-    if composites:
-        DietComponentMerge.objects.filter(
-            date=date, meal=meal, component_index=component_index, diet__in=composites
-        ).delete()
     return None
 
 
@@ -254,10 +264,15 @@ def collapse_breakfast_snack_components(components: list) -> list:
 
 
 def diet_component_merge_board(date_str: str) -> dict:
-    """Dáta pre klikací zoznam "spolu/zvlášť" (#568) — pre daný deň zoznam
-    zložiek raňajok/desiaty, obeda (len Menu A) a olovrantu (odvodené z
-    denného jedálničku), zoznam aktívnych diét a aktuálny stav zlúčenia
-    (`resolve_diet_component_merges`).
+    """Dáta pre klikací zoznam "spolu/zvlášť" (#568, flip 10.9.2026) — pre
+    daný deň zoznam zložiek raňajok/desiaty, obeda (len Menu A) a olovrantu
+    (odvodené z denného jedálničku), zoznam aktívnych diét a aktuálny "spolu"
+    stav (default, mínus explicitné "zvlášť" výnimky z
+    `resolve_diet_component_separations`).
+
+    `merged` v odpovedi teda vypisuje VŠETKY bunky, čo sú práve "spolu" —
+    typicky väčšina gridu (default), nie len výnimky. Frontend s tým narába
+    rovnako ako doteraz (bunka v `merged` = zaškrtnutá "spolu").
 
     Meal bez vybraného templatu (jedálniček ešte nenastavený) v odpovedi
     jednoducho chýba — frontend to má zobraziť ako "jedálniček zatiaľ nie
@@ -310,7 +325,7 @@ def diet_component_merge_board(date_str: str) -> dict:
                 }
             )
 
-    merges = resolve_diet_component_merges(date_str)
+    separations = resolve_diet_component_separations(date_str)
     diets = [
         {
             "id": diet.id,
@@ -329,15 +344,24 @@ def diet_component_merge_board(date_str: str) -> dict:
         }
         for diet in Diet.objects.filter(is_active=True).prefetch_related("base_diets")
     ]
+    merged: list[dict] = []
+    for meal_data in meals:
+        universe = set(range(len(meal_data["components"])))
+        for diet in diets:
+            separated = separations.get((meal_data["meal"], diet["name"]), set())
+            for index in sorted(universe - separated):
+                merged.append(
+                    {
+                        "meal": meal_data["meal"],
+                        "diet_name": diet["name"],
+                        "component_index": index,
+                    }
+                )
     return {
         "date": date_str,
         "meals": meals,
         "diets": diets,
-        "merged": [
-            {"meal": meal, "diet_name": diet_name, "component_index": index}
-            for (meal, diet_name), indices in merges.items()
-            for index in sorted(indices)
-        ],
+        "merged": merged,
     }
 
 
@@ -489,90 +513,6 @@ def _merge_soup_into_main_course(sub_rows: list[dict]) -> list[dict]:
             # polievkový riadok už neexistuje.
             target.setdefault("absorbed_meals", []).append(sub_row["meal"])
     return result
-
-
-def _translate_merged_indices_by_label(
-    merged_component_indices: set[int],
-    standard_components: list[dict],
-    diet_components: list[dict],
-) -> dict[int, int]:
-    """Prelozí zložky odklikané "spolu" (#568) z indexov v ŠTANDARDNEJ
-    šablóne (tak ich vidí klikací board, viď `diet_component_merge_board`)
-    na indexy v DIÉTNEJ šablóne, podľa `label`, nie podľa pozície.
-
-    Katalóg šablón nemá pevné poradie/počet zložiek naprieč receptami — napr.
-    Hlavný chod má varianty "Hlavná časť + Príloha" aj "Príloha + Omáčka" —
-    takže index `0` znamená v dvoch rôznych šablónach dve rôzne veci. Keď
-    diéta nemá vlastnú šablónu (bežný prípad, #568 v prvom rade rieši práve
-    tento), `diet_components` sú TIE ISTÉ ako `standard_components`, preklad
-    je vtedy identita. Zložka bez rovnomennej náprotivnej v diétnej šablóne sa
-    nikam neprekladá — fyzicky jej niet čo priradiť, radšej sa nepresunie nič
-    než nesprávna zložka pod nesprávnym menom.
-
-    Vracia `{diet_index: standard_index}` — obe smery sú potrebné: diétny
-    index na vybratie/vynulovanie správnej bunky v `_split_diet_component_grams`,
-    štandardný index na to, KAM sa presunutá hodnota má pripočítať (diétna a
-    štandardná šablóna majú zložky na rôznych pozíciách, takže tieto dva
-    indexy sa nesmú zamieňať).
-    """
-    diet_index_by_label: dict[str, int] = {}
-    for index, component in enumerate(diet_components):
-        label = str(component.get("label") or "")
-        if label and label not in diet_index_by_label:
-            diet_index_by_label[label] = index
-
-    translated: dict[int, int] = {}
-    for standard_index in merged_component_indices:
-        if standard_index >= len(standard_components):
-            continue
-        label = str(standard_components[standard_index].get("label") or "")
-        diet_index = diet_index_by_label.get(label)
-        if diet_index is not None:
-            translated[diet_index] = standard_index
-    return translated
-
-
-def _split_diet_component_grams(
-    diet_grams: list, merged_component_indices: set[int]
-) -> tuple[list, int | None, dict[int, Decimal]]:
-    """Vyberie zo serializovanej gramáže diétneho riadku zložky označené ako
-    "spolu" (`DietComponentMerge`, #568), aby ich volajúci mohol pripočítať
-    k štandardnému riadku.
-
-    `diet_grams` je gramáž presne v tvare, aký vracia `_col_grams_diet` —
-    zoznam skupín (jedna na stĺpcovú skupinu tabuľky), pričom dáta má
-    populované presne v JEDNEJ z nich. Vráti (nová gramáž diétneho riadku s
-    "spolu" zložkami vynulovanými, index tej jednej skupiny — `None` keď sa
-    nemá čo presúvať, presunuté hodnoty podľa indexu zložky). Vstup sa
-    nemení, vracia sa nová štruktúra (rovnaký vzor ako iné `_col_grams*`
-    helpery v tomto module).
-    """
-    if not merged_component_indices:
-        return diet_grams, None, {}
-    group_index = next((i for i, group in enumerate(diet_grams) if group), None)
-    if group_index is None:
-        return diet_grams, None, {}
-
-    moved: dict[int, Decimal] = {}
-    new_group = list(diet_grams[group_index])
-    for component_index in merged_component_indices:
-        if component_index >= len(new_group):
-            continue
-        raw = new_group[component_index]
-        if raw in (None, ""):
-            continue
-        value = Decimal(str(raw))
-        if value <= 0:
-            continue
-        moved[component_index] = value
-        new_group[component_index] = "0.00"
-
-    if not moved:
-        return diet_grams, None, {}
-
-    new_diet_grams = list(diet_grams)
-    new_diet_grams[group_index] = new_group
-    return new_diet_grams, group_index, moved
 
 
 def _extract_pack_counts(raw_value: Any) -> dict[str, int]:
@@ -826,20 +766,19 @@ class MealPlanService:
         return [MealPlanService.calculate_gramage(p) for p in plans]
 
     @staticmethod
-    def gramage_dashboard(date_str: str, merge_diets: bool = True) -> dict:
+    def gramage_dashboard(date_str: str) -> dict:
         """
         Aggregate orders × meal plan templates × portion type coefficients.
         Rows are grouped by client; each client contains standard menu rows and
         optional diet sub-rows.
         Returns structured data for the gramage dashboard table.
 
-        `merge_diets=False` (dashboard prepínač "Použiť zlúčenie diét", #568)
-        vypne `DietComponentMerge` úplne — tabuľka sa vykreslí presne tak, ako
-        keby žiadna zložka nebola označená "spolu" (zachytené dáta ostávajú,
-        len sa v tomto volaní ignorujú). Táto vetva sa nekešuje (viď
-        `gramage_pdf_service.get_cached_gramage_dashboard_data` — kešuje sa
-        len default `merge_diets=True`), je to zámerne zriedkavý, explicitný
-        admin klik, nie hot path.
+        `DietComponentMerge` (#568) NEOVPLYVŇUJE riadky samotné (retirované
+        10.9.2026, viď model docstring) — diéta má vždy vlastný, celý riadok.
+        Board sa premieta len do `data["diet_pack_state"]` ({meal: {diet_name:
+        "S"|"Z"}}) — vstup pre "S"/"Z" odznak pri diéte a pre "Zabaliť
+        spolu:" (`gramage_table_spec`), oboje sa počíta až nad hotovými
+        `sub_rows`, nie tu.
         """
         from ..models import (
             DailyMealPlan,
@@ -923,6 +862,20 @@ class MealPlanService:
             (pd.prevadzka_id, pd.diet.name): pd.note.strip()
             for pd in PrevadzkaDiet.objects.exclude(note="").select_related("diet")
         }
+
+        # "S"/"Z" odznak pri diéte (10.9.2026, #568 nadväzba) — per (jedlo,
+        # diéta) stav z diet-component-merge boardu pre tento deň. Default
+        # "S" (spolu, žiadny riadok); "Z" len keď má aspoň jednu explicitnú
+        # "zvlášť" zložku (`resolve_diet_component_separations`) — chef ju
+        # vidí za jedno rozhodnutie, nie po jednotlivých zložkách. Používa ho
+        # `gramage_table_spec` (odznak pri KAŽDOM riadku s diétou) aj
+        # "Zabaliť spolu:" (diéta so "Z" sa doň nepočíta).
+        diet_pack_state: dict[str, dict[str, str]] = {}
+        for (sep_meal, sep_diet_name), indices in resolve_diet_component_separations(
+            date_str
+        ).items():
+            if indices:
+                diet_pack_state.setdefault(sep_meal, {})[sep_diet_name] = "Z"
 
         def _normalize_variant(value: object) -> str:
             variant = str(value or "").strip()
@@ -1014,92 +967,6 @@ class MealPlanService:
         # so those meals pool all order variants into one column — same as soup,
         # breakfast_snack, and afternoon_snack always have.
         variant_meals = {cg["meal"] for cg in col_groups if cg["variant"]}
-
-        # ── Zlúčenie diétnych zložiek so štandardom (#568) ──────────────────────
-        # `diet_component_merges`: (jedlo, meno diéty) → indexy zložiek
-        # označených ako "spolu". `standard_group_index_by_meal`: kam v
-        # `col_groups` patrí ŠTANDARDNÝ (bezdiétny) riadok toho jedla — pri
-        # obede vždy Menu A (variant), inak jediná bezdiétna skupina toho
-        # jedla. Diétny riadok môže mať dáta v INEJ skupine (vlastný
-        # explicitný template), preto sa čítanie (z diétnej skupiny) a zápis
-        # (do štandardnej skupiny) musia robiť na dvoch rôznych indexoch.
-        diet_component_merges = (
-            resolve_diet_component_merges(date_str) if merge_diets else {}
-        )
-        standard_group_index_by_meal: dict[str, int] = {}
-        for group_index, cg in enumerate(col_groups):
-            if cg.get("diet_id"):
-                continue
-            cg_meal = cg["meal"]
-            if (
-                cg_meal == MealCategory.MAIN_COURSE
-                and _normalize_variant(cg.get("variant")) != "A"
-            ):
-                continue
-            if cg_meal not in standard_group_index_by_meal:
-                standard_group_index_by_meal[cg_meal] = group_index
-
-        def _add_merged_grams_to_standard_row(
-            sub_rows: list[dict],
-            meal: str,
-            portion_name: str,
-            group_index: int,
-            addition: dict[int, Decimal],
-            extra_count: int | Decimal = 0,
-            extra_heads: int | Decimal = 0,
-            extra_ms_recalc: Decimal = Decimal("0"),
-        ) -> None:
-            """Pripočíta presunuté zložky (#568) do štandardného sub-riadku
-            danej porcie/jedla (a do dňových/klientskych súčtov `totals`/
-            `client_standard_totals`) — vytvorí riadok (count 0, len
-            gramáž), ak ešte neexistuje (rovnaký vzor ako "Gramážna
-            korekcia" nižšie). `extra_count`/`extra_heads`/`extra_ms_recalc`
-            nesú aj počet hláv — len keď je diéta v danom jedle zlúčená
-            CELÁ (žiadny vlastný riadok jej neostáva, viď volanie nižšie)."""
-            group_addition = _empty_group_totals()
-            for component_index, value in addition.items():
-                group_addition[group_index][component_index] = value
-            _merge_group_totals(totals, group_addition)
-            _merge_group_totals(client_standard_totals, group_addition)
-            serialized = _serialize_group_totals(group_addition)
-            standard_variant = "A" if meal == MealCategory.MAIN_COURSE else ""
-            target = next(
-                (
-                    sr
-                    for sr in sub_rows
-                    if sr.get("type") == "standard"
-                    and sr.get("meal") == meal
-                    and (sr.get("variant") or "") == standard_variant
-                ),
-                None,
-            )
-            if target is None:
-                label = (
-                    f"{portion_name} - Menu {standard_variant}"
-                    if standard_variant
-                    else f"{portion_name} - {MEAL_LABELS.get(meal, meal)}"
-                )
-                sub_rows.append(
-                    {
-                        "type": "standard",
-                        "meal": meal,
-                        "variant": standard_variant,
-                        "portion_name": portion_name,
-                        "label": label,
-                        "count": extra_count,
-                        "_heads": extra_heads,
-                        "_ms_recalc": extra_ms_recalc,
-                        "col_grams": serialized,
-                    }
-                )
-                return
-            target["col_grams"] = _sum_col_grams(target["col_grams"], serialized)
-            if extra_count:
-                target["count"] = (target.get("count") or 0) + extra_count
-                target["_heads"] = (target.get("_heads") or 0) + extra_heads
-                target["_ms_recalc"] = (
-                    target.get("_ms_recalc") or Decimal("0")
-                ) + extra_ms_recalc
 
         # ── Portion types by name ────────────────────────────────────────────────
         active_portion_types = list(PortionType.objects.filter(is_active=True))
@@ -1595,93 +1462,6 @@ class MealPlanService:
                                 meal, diet_name, coeff, diet_count, portion_name
                             )
                             billed_diet_count = _billed_count(diet_count, billing_coeff)
-
-                            # Zlúčenie diétnych zložiek so štandardom (#568) —
-                            # zložky označené ako "spolu" (šéfkuchár) sa
-                            # vynulujú v diétnom riadku a ich gramáž sa
-                            # pripočíta k štandardnému riadku toho jedla.
-                            # Keď sú "spolu" VŠETKY zložky diéty v tomto
-                            # jedle, diéta sa v ňom od štandardu nedá
-                            # rozoznať — nedostane vlastný riadok vôbec, jej
-                            # počet (hlavy aj gramáž) sa celý presunie na
-                            # štandardný riadok, aby "spolu porcií" nestratilo
-                            # tieto deti (prázdny gramový riadok by ich inak
-                            # tichým filtrom v `gramage_table_spec` zmizol).
-                            standard_group_index = standard_group_index_by_meal.get(
-                                meal
-                            )
-                            merged_component_indices = (
-                                diet_component_merges.get((meal, diet_name), set())
-                                if meal in DIET_COMPONENT_MERGE_MEALS
-                                else set()
-                            )
-                            moved: dict[int, Decimal] = {}
-                            diet_group_index = None
-                            if (
-                                merged_component_indices
-                                and standard_group_index is not None
-                            ):
-                                # Klik z boardu adresuje zložku podľa mena, nie
-                                # pozície (viď `_translate_merged_indices_by_label`)
-                                # — bez tohto by sa pri diéte s vlastnou (inak
-                                # usporiadanou) šablónou presunula nesprávna
-                                # zložka.
-                                raw_diet_group_index = next(
-                                    (i for i, g in enumerate(diet_grams) if g), None
-                                )
-                                # {diet_index: standard_index} — extrakcia
-                                # nižšie beží na diétnych indexoch, pripočítanie
-                                # do štandardu (nižšie, `moved` remap) na
-                                # štandardných - tie sa nesmú zamieňať.
-                                index_map = (
-                                    _translate_merged_indices_by_label(
-                                        merged_component_indices,
-                                        col_groups[standard_group_index]["components"],
-                                        col_groups[raw_diet_group_index]["components"],
-                                    )
-                                    if raw_diet_group_index is not None
-                                    else {}
-                                )
-                                diet_grams, diet_group_index, moved = (
-                                    _split_diet_component_grams(
-                                        diet_grams, set(index_map.keys())
-                                    )
-                                )
-                                moved = {
-                                    index_map[diet_index]: value
-                                    for diet_index, value in moved.items()
-                                }
-                            fully_merged = False
-                            if moved and diet_group_index is not None:
-                                remaining = diet_grams[diet_group_index]
-                                fully_merged = bool(remaining) and all(
-                                    raw in (None, "") or Decimal(str(raw)) <= 0
-                                    for raw in remaining
-                                )
-
-                            if fully_merged and standard_group_index is not None:
-                                _add_merged_grams_to_standard_row(
-                                    sub_rows,
-                                    meal,
-                                    display_portion_name,
-                                    standard_group_index,
-                                    moved,
-                                    extra_count=billed_diet_count,
-                                    extra_heads=diet_count,
-                                    extra_ms_recalc=Decimal(diet_count) * coeff,
-                                )
-                                if count_towards_summary:
-                                    client_total_count += billed_diet_count
-                                continue
-
-                            if moved and standard_group_index is not None:
-                                _add_merged_grams_to_standard_row(
-                                    sub_rows,
-                                    meal,
-                                    display_portion_name,
-                                    standard_group_index,
-                                    moved,
-                                )
 
                             sub_rows.append(
                                 {
@@ -2306,4 +2086,5 @@ class MealPlanService:
             "diet_text_colors": diet_text_color_map,
             "diet_background_colors": diet_background_color_map,
             "diet_descriptions": diet_description_map,
+            "diet_pack_state": diet_pack_state,
         }

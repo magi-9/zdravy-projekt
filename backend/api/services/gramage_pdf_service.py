@@ -53,17 +53,18 @@ def render_gramage_dashboard_pdf(
 
     Tá istá tabuľka ako na obrazovke: rovnaký spec, rovnaké CSS, len namiesto
     Reactu ju do HTML zloží `gramage_table_html` a WeasyPrint z toho spraví
-    papier. `show_empty`/`show_cluster_summary`/`diet_clusters`/`merge_diets`
-    zrkadlia "Nastavenia tabuľky" na obrazovke (2.9.2026, #568) — PDF sa má
-    tlačiť presne v tom istom zobrazení, aké má admin práve otvorené.
+    papier. `show_empty`/`show_cluster_summary`/`diet_clusters` zrkadlia
+    "Nastavenia tabuľky" na obrazovke (2.9.2026, #568) — PDF sa má tlačiť
+    presne v tom istom zobrazení, aké má admin práve otvorené.
+
+    `merge_diets` (prepínač "Použiť zlúčenie diét") už neovplyvňuje samotné
+    riadky (#568 retirované 10.9.2026) — gatuje len súhrnný riadok "Zabaliť
+    spolu:" (`build_table_spec(pack_together=...)`), nič iné v tabuľke sa
+    zapnutím/vypnutím nemení.
     """
     from weasyprint import HTML  # ťažký import, len keď treba
 
-    data = (
-        get_cached_gramage_dashboard_data(date_str)
-        if merge_diets
-        else MealPlanService.gramage_dashboard(date_str, merge_diets=False)
-    )
+    data = get_cached_gramage_dashboard_data(date_str)
     # #510 — PDF nemá „zbalený" stav, sub-riadky sú vždy vidno, takže
     # medzisúčty za klienta by len duplikovali čísla o riadok vyššie.
     spec = build_table_spec(
@@ -74,5 +75,6 @@ def render_gramage_dashboard_pdf(
         show_empty=show_empty,
         show_cluster_summary=show_cluster_summary,
         diet_clusters=diet_clusters,
+        pack_together=merge_diets,
     )
     return HTML(string=render_document(spec)).write_pdf()
