@@ -1,5 +1,89 @@
 # Changelog
 
+## [3.2.3](https://github.com/tomag-9/zdravy-projekt/compare/v3.2.2...v3.2.3) (2026-09-10)
+
+
+### Bug Fixes
+
+* bump manifest to 3.2.2 (tag vytvorený manuálne, hotfix commit type release-please nerozpoznal) ([ff2149c](https://github.com/tomag-9/zdravy-projekt/commit/ff2149c8672913d9b953aaaf344b1a0266aaaa20))
+* bump manifest to 3.2.2 (tag vytvorený manuálne) ([#623](https://github.com/tomag-9/zdravy-projekt/issues/623)) ([0412642](https://github.com/tomag-9/zdravy-projekt/commit/04126423e9bff5d8abfa0b386377977484373fd6))
+
+## [3.2.0](https://github.com/tomag-9/zdravy-projekt/compare/v3.1.0...v3.2.0) (2026-09-10)
+
+
+### Features
+
+* samostatné trasy a tabuľky pre raňajky/obed/olovrant ([#613](https://github.com/tomag-9/zdravy-projekt/issues/613)) ([dda6fc1](https://github.com/tomag-9/zdravy-projekt/commit/dda6fc171d86a850fc02382af7f5628fae572ea0))
+
+
+### Reverts
+
+* main späť na v3.1.0 (odstrániť trasy + balenie diét z 3.2.0) ([#618](https://github.com/tomag-9/zdravy-projekt/issues/618)) ([d4bebfd](https://github.com/tomag-9/zdravy-projekt/commit/d4bebfd2bf6ef63d72d6be10a31b15aced768577))
+
+## [3.1.0](https://github.com/tomag-9/zdravy-projekt/compare/v3.0.0...v3.1.0) (2026-09-09)
+
+
+### Features
+
+* **admin:** show menu B/C deadline and regroup Nadchádzajúce as cards ([c82f7d5](https://github.com/tomag-9/zdravy-projekt/commit/c82f7d5615386cf19af0dfe1a8ad5812d3dc148a))
+* **edupage:** attention flag na Libelluse aj Stromčeku pre 'sA', s odklikaním ([a9e0869](https://github.com/tomag-9/zdravy-projekt/commit/a9e086919f7ddb737ee131962698f8f89733bca6))
+
+
+### Bug Fixes
+
+* **edupage:** Libellus sA zapíš ako diétu namiesto presmerovania na Stromček ([3f20d8e](https://github.com/tomag-9/zdravy-projekt/commit/3f20d8e19cc9aa1d1b78ad10e92a2db8640386c2))
+* **edupage:** olovrant/diet false-flags — ZŠ Fan config fix + dismiss rozšírený na všetky flagy ([aefea3d](https://github.com/tomag-9/zdravy-projekt/commit/aefea3d3b1cdfbfe372714ff44aaf09cf3d06ef1))
+* **edupage:** potvrdené uncertain diéty — Dobrodružstvo nPAR, Zdravé Brúško zšlaNM B ([e7916ef](https://github.com/tomag-9/zdravy-projekt/commit/e7916efeac463c71ed4ea8344420fbb1d48a97b4))
+
+## [3.0.0](https://github.com/tomag-9/zdravy-projekt/compare/v2.12.0...v3.0.0) (2026-09-08)
+
+
+### ⚠ BREAKING CHANGES
+
+* diet-component merge — zlučovanie diétnych zložiek so štandardným menu ([#568](https://github.com/tomag-9/zdravy-projekt/issues/568)) (#610)
+
+### Features
+
+* add scheduled maintenance mode ([51f2e93](https://github.com/tomag-9/zdravy-projekt/commit/51f2e933cfe73f36dda8e85da83acb6e91ca983a))
+* **admin:** auto-collapse diet-component-merge sekcie bez výnimiek ([6fee8e5](https://github.com/tomag-9/zdravy-projekt/commit/6fee8e54b91bc347f261fe3cc13b1319cdcd982b))
+* diet-component merge — zlučovanie diétnych zložiek so štandardným menu ([#568](https://github.com/tomag-9/zdravy-projekt/issues/568)) ([#610](https://github.com/tomag-9/zdravy-projekt/issues/610)) ([2533037](https://github.com/tomag-9/zdravy-projekt/commit/2533037a33081d1bab745d52abb7970c668b80d0))
+* **gramage:** kaskáda zlúčenia pre kombinované diéty + presné farby diét ([#568](https://github.com/tomag-9/zdravy-projekt/issues/568)) ([a51b7c8](https://github.com/tomag-9/zdravy-projekt/commit/a51b7c8c6ab01f93ae948fe4a6b0eaa72d88780a))
+* manage scheduled maintenance ([4075ae0](https://github.com/tomag-9/zdravy-projekt/commit/4075ae06ccad93daf1ca8f4a4e61d4d7b70a59a5))
+
+
+### Bug Fixes
+
+* **edupage:** desiata (British snack) prežije meal-type filter pri scrape ([19b4807](https://github.com/tomag-9/zdravy-projekt/commit/19b48070628c7f8545d3b9c83f8fa58d6fa2184a))
+* **edupage:** sčítaj presmerovaný sA scrape s appkovými objednávkami Stromčeka ([3b09d72](https://github.com/tomag-9/zdravy-projekt/commit/3b09d72f51816588429275d6accfdf3101d0d52b))
+* **test:** update Deutsche Schule diet expectation ([127cbd7](https://github.com/tomag-9/zdravy-projekt/commit/127cbd7b1ed2266b8408ed2976ced230a0d69f26))
+
+## [2.12.0](https://github.com/tomag-9/zdravy-projekt/compare/v2.11.1...v2.12.0) (2026-09-07)
+
+
+### Features
+
+* **delivery:** add cluster D ([a7898a3](https://github.com/tomag-9/zdravy-projekt/commit/a7898a32ee150300119b181cdb28c1eba03781d5))
+* **objednavanie:** vypínanie jedál per deň v týždni + auto-order rešpektuje deň ([#606](https://github.com/tomag-9/zdravy-projekt/issues/606)) ([0718763](https://github.com/tomag-9/zdravy-projekt/commit/07187635e1804757c73ff05440c6186b356284e6))
+
+
+### Bug Fixes
+
+* **admin:** rozliš počty odznakov podľa menu ([255f82b](https://github.com/tomag-9/zdravy-projekt/commit/255f82b2fc8bd41b36dad9b2b8e3a11cd3433153))
+* **admin:** stabilizuj British sumár a menu riadky ([4c0403f](https://github.com/tomag-9/zdravy-projekt/commit/4c0403f09fe7ff42b9c4ea396f1214f4956cea24))
+* **admin:** zarovnaj príznaky prevádzky ([d9f88e3](https://github.com/tomag-9/zdravy-projekt/commit/d9f88e3c9eee6cbdedb32be348d8e80a71eb6a2c))
+* **edupage:** include British diets in summary ([524389a](https://github.com/tomag-9/zdravy-projekt/commit/524389a5d30acedac1731cc174464361d83cb4e4))
+* **edupage:** route Libellus Stromcek meals ([1cae8e5](https://github.com/tomag-9/zdravy-projekt/commit/1cae8e570f1176fe43493adbf691ee80a83334d1))
+* **gramage:** validate component decimals ([1f02785](https://github.com/tomag-9/zdravy-projekt/commit/1f0278517093a359e951d2e51e30156198a5e9ae))
+* **tests:** update tests for child portion handling and menu variant separation ([140d2c9](https://github.com/tomag-9/zdravy-projekt/commit/140d2c9cb99bdd678efe6df6878d86152ace6051))
+
+## [2.11.1](https://github.com/tomag-9/zdravy-projekt/compare/v2.11.0...v2.11.1) (2026-09-06)
+
+
+### Bug Fixes
+
+* **docs:** refine language and remove unnecessary sections in CLAUDE.md ([7bed895](https://github.com/tomag-9/zdravy-projekt/commit/7bed8952829faf9d74896947cf408b037039e731))
+* **edupage:** refine British cluster summary ([0a9744f](https://github.com/tomag-9/zdravy-projekt/commit/0a9744f3939a35ba4bec60d41d1a9f04d277c1d1))
+
 ## [2.11.0](https://github.com/tomag-9/zdravy-projekt/compare/v2.10.0...v2.11.0) (2026-09-06)
 
 
