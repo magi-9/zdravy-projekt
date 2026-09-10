@@ -73,14 +73,9 @@ def get_gramage_dashboard_cache_key(date_str: str) -> str:
     return f"{GRAMAGE_DASHBOARD_CACHE_KEY_PREFIX}:{date_str}"
 
 
-def get_closed_day_pdf_cache_key(date_str: str, meal_type: str = "lunch") -> str:
-    """Return the cache key for a closed day's pre-rendered PDF snapshot.
-
-    Raňajky/obed/olovrant majú od #dashboard-per-meal-routes vlastné, na sebe
-    nezávislé PDF (vlastné trasy/poradie) — kľúč nesie aj `meal_type`, nech sa
-    predgenerovaný obed neservíruje omylom pod raňajkovou tabuľkou.
-    """
-    return f"{CLOSED_DAY_PDF_CACHE_KEY_PREFIX}:{date_str}:{meal_type}"
+def get_closed_day_pdf_cache_key(date_str: str) -> str:
+    """Return the cache key for a closed day's pre-rendered PDF snapshot (YYYY-MM-DD)."""
+    return f"{CLOSED_DAY_PDF_CACHE_KEY_PREFIX}:{date_str}"
 
 
 def get_cached(key: str) -> Optional[Any]:
@@ -296,8 +291,7 @@ def clear_closed_day_pdf_cache(date_str: str) -> None:
     alebo dokým sa neodomkne" tradeoff from #528, since orders become
     editable again and the cached PDF would otherwise outlive its validity.
     """
-    for meal_type in ("breakfast", "lunch", "olovrant"):
-        delete_cached(get_closed_day_pdf_cache_key(date_str, meal_type))
+    delete_cached(get_closed_day_pdf_cache_key(date_str))
 
 
 def get_cache_stats() -> dict:

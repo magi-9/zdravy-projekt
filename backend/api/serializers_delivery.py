@@ -4,22 +4,8 @@ from .models import DeliveryBlock, DeliveryRoute, Prevadzka
 
 
 class DeliveryPrevadzkaSerializer(serializers.ModelSerializer):
-    """Prevádzka s jej trasami pre všetky tri jedlá naraz.
-
-    Raňajky/obed/olovrant majú vlastné trasy (#dashboard-per-meal-routes) —
-    namiesto kontextovo prepínaného poľa serializer jednoducho vystavuje
-    všetky tri dvojice, frontend si podľa aktívneho tabu jedla vyberie
-    `delivery_route_{meal_type}` / `delivery_sort_order_{meal_type}`.
-    """
-
     celok = serializers.CharField(source="celok.nazov", read_only=True)
-    delivery_route_breakfast = serializers.PrimaryKeyRelatedField(
-        queryset=DeliveryRoute.objects.all(), required=False, allow_null=True
-    )
-    delivery_route_lunch = serializers.PrimaryKeyRelatedField(
-        queryset=DeliveryRoute.objects.all(), required=False, allow_null=True
-    )
-    delivery_route_olovrant = serializers.PrimaryKeyRelatedField(
+    delivery_route = serializers.PrimaryKeyRelatedField(
         queryset=DeliveryRoute.objects.all(), required=False, allow_null=True
     )
 
@@ -31,12 +17,8 @@ class DeliveryPrevadzkaSerializer(serializers.ModelSerializer):
             "report_alias",
             "adresa",
             "celok",
-            "delivery_route_breakfast",
-            "delivery_sort_order_breakfast",
-            "delivery_route_lunch",
-            "delivery_sort_order_lunch",
-            "delivery_route_olovrant",
-            "delivery_sort_order_olovrant",
+            "delivery_route",
+            "delivery_sort_order",
             "delivery_note",
             "is_active",
         ]
@@ -44,7 +26,7 @@ class DeliveryPrevadzkaSerializer(serializers.ModelSerializer):
 
 
 class DeliveryRouteSerializer(serializers.ModelSerializer):
-    prevadzky = serializers.SerializerMethodField()
+    prevadzky = DeliveryPrevadzkaSerializer(many=True, read_only=True)
 
     class Meta:
         model = DeliveryRoute
@@ -61,13 +43,6 @@ class DeliveryRouteSerializer(serializers.ModelSerializer):
             "prevadzky",
         ]
 
-    def get_prevadzky(self, route: DeliveryRoute) -> list:
-        meal_type = route.block.meal_type
-        prevadzky = getattr(route, f"prevadzky_{meal_type}").order_by(
-            f"delivery_sort_order_{meal_type}", "sort_order", "nazov"
-        )
-        return DeliveryPrevadzkaSerializer(prevadzky, many=True).data
-
 
 class DeliveryBlockSerializer(serializers.ModelSerializer):
     routes = DeliveryRouteSerializer(many=True, read_only=True)
@@ -76,7 +51,6 @@ class DeliveryBlockSerializer(serializers.ModelSerializer):
         model = DeliveryBlock
         fields = [
             "id",
-            "meal_type",
             "name",
             "sort_order",
             "include_in_main_summary",

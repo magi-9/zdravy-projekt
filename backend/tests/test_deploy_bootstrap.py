@@ -163,23 +163,22 @@ def test_real_delivery_layout_seed_is_idempotent_and_persistent(settings):
     assert Prevadzka.objects.filter(is_active=True).count() == len(DELIVERY_ROWS)
 
     nova_tulipa = Prevadzka.objects.get(nazov="Nova Tulipa")
-    assert nova_tulipa.delivery_route_lunch.name == "trasa 2 - 9:25 - Ivan/Heňo"
-    assert nova_tulipa.delivery_sort_order_lunch == 1
+    assert nova_tulipa.delivery_route.name == "trasa 2 - 9:25 - Ivan/Heňo"
+    assert nova_tulipa.delivery_sort_order == 1
 
     ivanka.refresh_from_db()
-    assert ivanka.delivery_route_lunch.name == "1.Trasa - Pezinská - Heňo/Ivan"
-    assert ivanka.delivery_sort_order_lunch == 5
+    assert ivanka.delivery_route.name == "1.Trasa - Pezinská - Heňo/Ivan"
+    assert ivanka.delivery_sort_order == 5
     assert ivanka.report_alias == "Ivanka"
 
     veterinarna.refresh_from_db()
     assert (
-        veterinarna.delivery_route_lunch.name
-        == "TRASA EXTRA ZABALENÉ ZVLÁŠŤ - do 11:00 MAJO"
+        veterinarna.delivery_route.name == "TRASA EXTRA ZABALENÉ ZVLÁŠŤ - do 11:00 MAJO"
     )
     assert veterinarna.report_alias == "SŠ VETERINÁRNA Pod brehmi 6"
 
     fan.refresh_from_db()
-    assert fan.delivery_route_lunch.name == "trasa 5 - RADKO - 10:00"
+    assert fan.delivery_route.name == "trasa 5 - RADKO - 10:00"
     assert fan.report_alias == "Fantastická škola"
 
     for name in [

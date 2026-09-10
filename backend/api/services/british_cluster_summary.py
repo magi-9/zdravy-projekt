@@ -145,14 +145,10 @@ def build_gramage_summary_only_clusters(date_str: str) -> list[dict[str, Any]]:
     """
     from ..models import DailyOrder, PortionType, Prevadzka, Vydaj
 
-    # Táto prevádzka nemá gram-plánovú mriežku, teda ani vlastné trasy per
-    # jedlo (#dashboard-per-meal-routes) — jej kusový sumár je jeden blok
-    # spoločný pre všetky jedlá, identita clustra/trasy sa preto berie z
-    # obedovej trasy (tá, do ktorej sa pôvodná spoločná trasa premigrovala).
     prevadzky = list(
         Prevadzka.objects.filter(
             gramage_summary_only=True, is_active=True
-        ).select_related("delivery_route_lunch__block")
+        ).select_related("delivery_route__block")
     )
     if not prevadzky:
         return []
@@ -170,7 +166,7 @@ def build_gramage_summary_only_clusters(date_str: str) -> list[dict[str, Any]]:
         order = orders_by_prevadzka.get(prevadzka.id)
         if order is None or not isinstance(order.data, dict) or not order.data:
             continue
-        route = prevadzka.delivery_route_lunch
+        route = prevadzka.delivery_route
         meals = meal_items_from_order_data(
             order.data,
             portion_coefficients,
