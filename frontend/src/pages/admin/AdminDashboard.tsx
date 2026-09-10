@@ -7,7 +7,7 @@ import { logger } from '../../lib/logger';
 import { useScrollToHashRow, scrollToRowAndHighlight } from "../../lib/scrollToHashRow";
 import { normalizeForSearch } from "../../lib/searchNormalize";
 import ConfirmationModal from "../client/components/ui/ConfirmationModal";
-import { AdminDateNav, Button, Card, Empty, Modal, Toggle, Checkbox, Textarea, SearchBox } from "./ui";
+import { AdminDateNav, Button, Card, Empty, Modal, Toggle, Checkbox, Textarea } from "./ui";
 import GramageTable, { type TableSpec, type SpecSection, type SpecVydaj } from "./GramageTable";
 import { dashboardMaxDate, dashboardDefaultDate } from "../../lib/businessDay";
 
@@ -19,16 +19,7 @@ const API = import.meta.env.VITE_API_URL || "/api";
 // prevádzky ani celku, len osobná preferencia toho, kto tabuľku pozerá —
 // preto localStorage, nie backend.
 const TABLE_PREFS_KEY = "zpa-gramage-table-prefs";
-// Raňajky/obed/olovrant majú vlastné, na sebe nezávislé trasy aj tabuľky
-// (#dashboard-per-meal-routes) — `mealType` si pamätá posledný otvorený tab.
-type MealType = "breakfast" | "lunch" | "olovrant";
-const MEAL_TYPES: { key: MealType; label: string }[] = [
-  { key: "breakfast", label: "Raňajky" },
-  { key: "lunch", label: "Obed" },
-  { key: "olovrant", label: "Olovrant" },
-];
 interface TablePrefs {
-  mealType: MealType;
   sections: string[];
   selectedVydaje: string[];
   showEmpty: boolean;
@@ -172,19 +163,6 @@ interface OrderMealSummary {
   total: number;
 }
 
-// Checkbox "táto diéta sa dnes balí zvlášť" (9.9.2026) —
-// `/api/admin/meal-plans/diet-packing-preferences/`.
-interface DietPackingItem {
-  id: number;
-  name: string;
-  // Vlastný záznam pre TÚTO diétu (checkbox stav priamo pre ňu).
-  pack_separately: boolean;
-  // Vrátane zdedenia cez `base_diets` (kombinovaná diéta obsahujúca inú,
-  // zvlášť označenú diétu) — kuchyňa ho vidí, ale nedá sa naň priamo
-  // kliknúť (odškrtne sa až zrušením zvlášť na základnej diéte).
-  effective_separately: boolean;
-}
-
 interface OrderReportRow {
   // Riadok je na objednávku, nie na používateľa — EduPage prevádzky zdieľajú
   // jeden systémový login, takže `user_id` nie je unikátne.
@@ -243,7 +221,6 @@ const AdminDashboard: React.FC = () => {
   // cez Nastavenia prevádzky, keď treba škôlke rýchlo niečo odkázať.
   const [noteEdit, setNoteEdit] = useState<{ prevadzkaId: number; text: string } | null>(null);
   const [savingNote, setSavingNote] = useState(false);
-  const [mealType, setMealType] = useState<MealType>(() => loadTablePrefs().mealType ?? "lunch");
   const [sections, setSections] = useState<string[]>(() => loadTablePrefs().sections ?? []);
   // Prázdny výber = všetky výdajné body; inak môže byť vybratých aj viac
   // (napr. Cluster A + B naraz).
@@ -261,12 +238,6 @@ const AdminDashboard: React.FC = () => {
   // "Rozbaliť všetko" — namiesto zbaleného per-klienta riadku ukáže rovno
   // rozbalený PDF-formát (bez opakovaného medzisúčtu) priamo na obrazovke.
   const [expanded, setExpanded] = useState(() => loadTablePrefs().expanded ?? false);
-  // Checkbox "táto diéta sa dnes balí zvlášť" (9.9.2026) — plošne naprieč
-  // prevádzkami pre daný deň, default (odškrtnuté) = spolu. Na rozdiel od
-  // ostatných "Nastavenia tabuľky" polí to NIE JE lokálna preferencia
-  // prehliadača (viď TABLE_PREFS_KEY vyššie) — ide do backendu, lebo
-  // ovplyvňuje aj to, čo vytlačí PDF komukoľvek inému, kto ho dnes otvorí.
-  const [dietPacking, setDietPacking] = useState<DietPackingItem[]>([]);
   // "Použiť zlúčenie diét" (#568) — diéty, ktoré šéfkuchár označil ako
   // pripravované spolu so štandardom (viď /admin/diet-component-merge), sa
   // do tabuľky zlúčia. Default zapnuté, vypnutím sa tabuľka na chvíľu vráti
@@ -276,27 +247,8 @@ const AdminDashboard: React.FC = () => {
   // Zapamätanie "Nastavenia tabuľky" (viď loadTablePrefs vyššie) — uloží sa
   // pri každej zmene, nech admin po návrate zo škôlky vidí presne to, čo mal.
   useEffect(() => {
-    saveTablePrefs({
-      mealType,
-      sections,
-      selectedVydaje,
-      showEmpty,
-      clusterSummary,
-      dietClusters,
-      expanded,
-      mergeDiets,
-    });
-  }, [mealType, sections, selectedVydaje, showEmpty, clusterSummary, dietClusters, expanded, mergeDiets]);
-
-  // Prepnutie tabu jedla mení celú množinu stĺpcov/trás pod sebou — staré
-  // "sections"/"selectedVydaje" (napr. "len Menu A") takmer isto nesedia na
-  // nové jedlo, tabuľka pri prepnutí radšej naskočí kompletná ako by mala
-  // ticho spadnúť na fallback (rovnaké chovanie ako neznámy filter v URL).
-  const handleMealTypeChange = useCallback((next: MealType) => {
-    setMealType(next);
-    setSections([]);
-    setSelectedVydaje([]);
-  }, []);
+    saveTablePrefs({ sections, selectedVydaje, showEmpty, clusterSummary, dietClusters, expanded, mergeDiets });
+  }, [sections, selectedVydaje, showEmpty, clusterSummary, dietClusters, expanded, mergeDiets]);
 
   // Ktoré sekcie (raňajky / polievka / menu / olovrant), výdajné body a
   // ostatné "Nastavenia tabuľky" sa zobrazujú. Prázdny výber = kompletná
@@ -304,7 +256,6 @@ const AdminDashboard: React.FC = () => {
   // to, čo vidíš.
   const sectionQuery = useMemo(() => {
     const parts = [
-      `&meal_type=${mealType}`,
       ...sections.map((key) => `&section=${encodeURIComponent(key)}`),
       ...selectedVydaje.map((key) => `&vydaj=${encodeURIComponent(key)}`),
       ...dietClusters.map((key) => `&diet_cluster=${encodeURIComponent(key)}`),
@@ -314,7 +265,7 @@ const AdminDashboard: React.FC = () => {
     if (expanded) parts.push("&expanded=1");
     if (!mergeDiets) parts.push("&merge_diets=0");
     return parts.join("");
-  }, [mealType, sections, selectedVydaje, dietClusters, showEmpty, clusterSummary, expanded, mergeDiets]);
+  }, [sections, selectedVydaje, dietClusters, showEmpty, clusterSummary, expanded, mergeDiets]);
 
   const fetchData = useCallback(async (refresh = false) => {
     // Zámerne NEnulujeme `data`/`orderReport` pred fetchom — Nastavenia
@@ -356,54 +307,6 @@ const AdminDashboard: React.FC = () => {
   }, [apiFetch, date, sectionQuery]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
-
-  const fetchDietPacking = useCallback(async () => {
-    try {
-      const res = await apiFetch(`${API}/admin/meal-plans/diet-packing-preferences/?date=${date}`);
-      if (res.ok) {
-        const body: { diets: DietPackingItem[] } = await res.json();
-        setDietPacking(body.diets);
-      }
-    } catch (e) {
-      logger.error(e);
-    }
-  }, [apiFetch, date]);
-
-  // Zoznam diét sa načíta len keď je modál naozaj otvorený — netreba ho ťahať
-  // pri každom otvorení dashboardu, len keď sa admin ide pozrieť na Nastavenia.
-  useEffect(() => {
-    if (settingsOpen) void fetchDietPacking();
-  }, [settingsOpen, fetchDietPacking]);
-
-  const handleToggleDietPacking = useCallback(
-    async (dietId: number, packSeparately: boolean) => {
-      // Optimistické prepnutie — kuchyňa klika rýchlo, čakanie na round-trip
-      // pri každom kliku by pôsobilo zaseknuto.
-      setDietPacking((current) =>
-        current.map((d) => (d.id === dietId ? { ...d, pack_separately: packSeparately } : d)),
-      );
-      try {
-        const res = await apiFetch(`${API}/admin/meal-plans/diet-packing-preferences/?date=${date}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ diet_id: dietId, pack_separately: packSeparately }),
-        });
-        if (res.ok) {
-          const body: { diets: DietPackingItem[] } = await res.json();
-          setDietPacking(body.diets);
-          void fetchData();
-        } else {
-          toastError("Nepodarilo sa uložiť balenie diéty.");
-          void fetchDietPacking();
-        }
-      } catch (e) {
-        logger.error(e);
-        toastError("Nepodarilo sa uložiť balenie diéty.");
-        void fetchDietPacking();
-      }
-    },
-    [apiFetch, date, fetchData, fetchDietPacking, toastError],
-  );
 
   const handleOpenNoteEdit = useCallback(
     (prevadzkaId: number) => {
@@ -466,14 +369,14 @@ const AdminDashboard: React.FC = () => {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `gramaz_${mealType}_${date}.${fmt}`;
+      a.download = `gramaz_${date}.${fmt}`;
       document.body.appendChild(a);
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
     } catch (e) { logger.error(e); toastError("Chyba pri generovaní súboru."); }
     finally { setFmt(false); }
-  }, [apiFetch, date, mealType, sectionQuery, toastError]);
+  }, [apiFetch, date, sectionQuery, toastError]);
 
   const submitClosedDayAction = useCallback(
     async (
@@ -563,24 +466,6 @@ const AdminDashboard: React.FC = () => {
           Dátum a search sú vľavo, akčné tlačidlá pevne vpravo (zpa-toolbar
           justify-content: space-between), nech pri zmene stavu (napr.
           "Deň je uzavretý") neposkakuje nič okrem tejto pravej skupiny. */}
-      {/* Raňajky/obed/olovrant sú od #dashboard-per-meal-routes samostatné
-          tabuľky (vlastné trasy aj poradie) — tab prepína, ktorú z troch
-          práve vidno; nikdy sa nezlievajú do jednej. */}
-      <div className="zpa-tabs" role="tablist" aria-label="Jedlo">
-        {MEAL_TYPES.map((item) => (
-          <button
-            key={item.key}
-            type="button"
-            role="tab"
-            aria-selected={mealType === item.key}
-            onClick={() => handleMealTypeChange(item.key)}
-            className={`zpa-tab${mealType === item.key ? " active" : ""}`}
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
-
       <div className="zpa-toolbar">
         <div className="zpa-toolbar-left">
           <AdminDateNav date={date} onChange={setDate} maxDate={maxDate} disabled={closing || unlocking} compact />
@@ -738,10 +623,6 @@ const AdminDashboard: React.FC = () => {
             setDietClusters((current) =>
               toggleSelection(current, key, (data.spec.vydaje ?? []).map((v) => v.key)),
             )
-          }
-          dietPacking={dietPacking}
-          onToggleDietPacking={(dietId, packSeparately) =>
-            void handleToggleDietPacking(dietId, packSeparately)
           }
           onShowEmptyChange={setShowEmpty}
           onClusterSummaryChange={setClusterSummary}
@@ -935,12 +816,10 @@ const TableSettingsModal: React.FC<{
   showEmpty: boolean;
   clusterSummary: boolean;
   expanded: boolean;
-  dietPacking: DietPackingItem[];
   mergeDiets: boolean;
   onToggleSection: (key: string) => void;
   onToggleVydaj: (key: string) => void;
   onToggleDietCluster: (key: string) => void;
-  onToggleDietPacking: (dietId: number, packSeparately: boolean) => void;
   onShowEmptyChange: (v: boolean) => void;
   onClusterSummaryChange: (v: boolean) => void;
   onExpandedChange: (v: boolean) => void;
@@ -954,12 +833,10 @@ const TableSettingsModal: React.FC<{
   showEmpty,
   clusterSummary,
   expanded,
-  dietPacking,
   mergeDiets,
   onToggleSection,
   onToggleVydaj,
   onToggleDietCluster,
-  onToggleDietPacking,
   onShowEmptyChange,
   onClusterSummaryChange,
   onExpandedChange,
@@ -968,12 +845,6 @@ const TableSettingsModal: React.FC<{
   onClose,
 }) => {
   const dietClusterOn = (key: string) => dietClusters.length === 0 || dietClusters.includes(key);
-  // Vyhľadávanie v zozname diét (9.9.2026) — zoznam vie byť dlhý naprieč
-  // všetkými prevádzkami, kuchyňa hľadá konkrétnu diétu podľa mena.
-  const [dietPackingSearch, setDietPackingSearch] = useState("");
-  const filteredDietPacking = dietPacking.filter((d) =>
-    normalizeForSearch(d.name).includes(normalizeForSearch(dietPackingSearch)),
-  );
   return (
     <Modal
       title="Nastavenia tabuľky"
@@ -1053,33 +924,6 @@ const TableSettingsModal: React.FC<{
                   {v.name}
                 </Checkbox>
               ))}
-            </div>
-          </div>
-        )}
-
-        {dietPacking.length > 0 && (
-          <div>
-            <div className="zpa-settings-lbl">Balenie diét</div>
-            <div style={{ fontSize: 12, color: "var(--ink-3)", marginBottom: 8 }}>
-              Default je „spolu" — zaškrtnutá diéta sa balí zvlášť a nepočíta sa do riadku „Zabaliť spolu:" na konci trasy. Kombinovaná diéta (napr. s No Milk) sa zvlášť odškrtne automaticky.
-            </div>
-            <div style={{ marginBottom: 8 }}>
-              <SearchBox value={dietPackingSearch} onChange={setDietPackingSearch} placeholder="Hľadať diétu…" />
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 220, overflowY: "auto" }}>
-              {filteredDietPacking.map((d) => (
-                <Checkbox
-                  key={d.id}
-                  on={d.effective_separately}
-                  onChange={() => onToggleDietPacking(d.id, !d.pack_separately)}
-                >
-                  {d.name}
-                  {!d.pack_separately && d.effective_separately ? " (zdedené)" : ""}
-                </Checkbox>
-              ))}
-              {filteredDietPacking.length === 0 && (
-                <div style={{ fontSize: 12, color: "var(--ink-3)" }}>Žiadna diéta nesedí na hľadaný text.</div>
-              )}
             </div>
           </div>
         )}
