@@ -36,7 +36,10 @@ from api.edupage.overrides.krasnanko import krasnanko_letter_hook
 from api.edupage.overrides.libellus import libellus_letter_hook
 from api.edupage.overrides.montessori import montessori_letter_hook
 from api.edupage.overrides.rozmanita import rozmanita_letter_hook
-from api.edupage.overrides.skolicka import skolicka_zs_payer_hook
+from api.edupage.overrides.skolicka import (
+    skolicka_zs_letter_hook,
+    skolicka_zs_payer_hook,
+)
 from api.edupage.overrides.skolickams import (
     skolickams_letter_hook,
     skolickams_payer_hook,
@@ -1433,6 +1436,91 @@ class TestSkolickaZsPayerHook(unittest.TestCase):
         """Hook rieši len diétu — prevádzku priraďuje `edupage_match` prefix."""
         rule = skolicka_zs_payer_hook("1.stupeň - BM")
         self.assertIsNone(rule.match_name)
+
+
+class TestSkolickaZsLetterHook(unittest.TestCase):
+    """Živý guest dump (10.9.2026, u6r7uz8): učiteľ s diétou (payer nazov
+    'učiteľ nM'/'učiteľ nMnG') smie podľa `povoleneMenu` objednať aj
+    klasické písmeno Menu B ('Klasik B', skratka 'B') alebo Menu C
+    ('Učiteľské menu', skratka 'C', menu písmeno 'G') namiesto svojej diéty —
+    je to ich zodpovednosť skontrolovať si alergén v jedálničku. Bez tohto
+    hooku `_parse` payer-level diétu vždy prebije na `effective_menu = "A"`
+    (`edupage_scraper.py` `effective_menu = "A" if effective_diet else ...`),
+    takže reálna voľba Menu B/C sa ticho stratí pod diétou (user 10.9.2026)."""
+
+    def test_menu_b_letter_suppresses_payer_diet(self):
+        rule = skolicka_zs_letter_hook("A", "B", "Klasik B")
+        self.assertEqual(rule.menu, "B")
+        self.assertTrue(rule.suppress_payer_diet)
+
+    def test_menu_c_letter_suppresses_payer_diet(self):
+        # "Učiteľské menu" nesie holú skratku "C" — to je Menu C, nie diéta.
+        rule = skolicka_zs_letter_hook("G", "C", "Učiteľské menu")
+        self.assertEqual(rule.menu, "C")
+        self.assertTrue(rule.suppress_payer_diet)
+
+    def test_klasik_a_falls_through_to_generic(self):
+        self.assertIsNone(skolicka_zs_letter_hook("A", "A", "Klasik A"))
+
+    def test_real_diet_letter_falls_through_to_generic(self):
+        # Letter C ("BezMlieka", skratka "nM") je skutočná diéta, nie Menu C.
+        self.assertIsNone(skolicka_zs_letter_hook("C", "nM", "BezMlieka"))
+
+
+class TestSkolickaZsTeacherMenuChoiceInParse(unittest.TestCase):
+    """End-to-end (10.9.2026): učiteľ s diétou 'nM' objedná pod písmenom
+    Menu B — má sa započítať ako Menu B, nie ako diéta pod Menu A."""
+
+    NASTAVENIA = [
+        {
+            "nazov": "vydaj_normal",
+            "hodnota": json.dumps({"2": {"vydaj_od": "11:00", "vydaj_do": "13:00"}}),
+        }
+    ]
+    TYPY = [
+        {
+            "hodnota": json.dumps(
+                {
+                    "1": {"nazov": "učiteľ klasik", "porcia": "3"},
+                    "2": {"nazov": "učiteľ nM", "porcia": "3"},
+                }
+            )
+        }
+    ]
+    NAZOV_MENU = {
+        "A": {"skratka": "A", "nazov": "Klasik A"},
+        "B": {"skratka": "B", "nazov": "Klasik B"},
+    }
+
+    def _parse(self, config):
+        prehlad = {
+            "prehlad": {
+                TARGET.isoformat(): {
+                    "2": {"B": {"typ_platitela": {"1": {"o": 3}, "2": {"o": 1}}}}
+                }
+            }
+        }
+        html = _make_html(prehlad, self.NAZOV_MENU, self.NASTAVENIA, self.TYPY)
+        return EdupageScraper()._parse(html, TARGET, config=config)
+
+    def test_teacher_diet_ordering_menu_b_counts_as_menu_b(self):
+        cfg = _cfg(
+            OlovrantMode.EDUPAGE,
+            payer_hook=skolicka_zs_payer_hook,
+            letter_hook=skolicka_zs_letter_hook,
+        )
+        res = self._parse(cfg)
+        dospely = res.order_data["lunch"]["Dospelý (SŠ)"]
+        self.assertEqual(dospely["menuCounts"].get("B"), 4)
+        self.assertNotIn("NO MILK", dospely.get("diets", {}))
+
+    def test_without_letter_hook_diet_wrongly_wins(self):
+        """Regresný dôkaz bugu: bez `letter_hook` sa diéta prepíše na Menu A."""
+        cfg = _cfg(OlovrantMode.EDUPAGE, payer_hook=skolicka_zs_payer_hook)
+        res = self._parse(cfg)
+        dospely = res.order_data["lunch"]["Dospelý (SŠ)"]
+        self.assertEqual(dospely["diets"].get("NO MILK"), 1)
+        self.assertEqual(dospely["menuCounts"].get("A"), 1)
 
 
 class TestSkolickamsLetterHook(unittest.TestCase):
