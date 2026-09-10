@@ -78,9 +78,6 @@ KUCHYNA_ALLOWED = {
     "/api/admin/meal-plans/gramage-dashboard-pdf/",
     "/api/admin/diet-component-merge/board/",
     "/api/admin/diet-component-merge/toggle/",
-    # Checkbox "zabaliť zvlášť" per diéta/deň (9.9.2026) — kuchyňa si ho
-    # smie sama prepínať priamo pri gramážnej tabuľke.
-    "/api/admin/meal-plans/diet-packing-preferences/",
 }
 
 #: Endpointy, ktoré sú verejné zámerne — prihlasovanie a údaje pre login obrazovku.

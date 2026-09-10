@@ -8,28 +8,14 @@ import { VYDAJE } from "./facility/constants";
 
 const API = import.meta.env.VITE_API_URL || "/api";
 
-// Raňajky/obed/olovrant majú vlastné, na sebe nezávislé trasy
-// (#dashboard-per-meal-routes) — prevádzka preto nesie všetky tri dvojice
-// naraz, aktívny tab (`MealType`) určuje, ktorú z nich táto stránka edituje.
-type MealType = "breakfast" | "lunch" | "olovrant";
-const MEAL_TYPES: { key: MealType; label: string }[] = [
-  { key: "breakfast", label: "Raňajky" },
-  { key: "lunch", label: "Obed" },
-  { key: "olovrant", label: "Olovrant" },
-];
-
 interface DeliveryPrevadzka {
   id: number;
   nazov: string;
   report_alias: string;
   adresa: string;
   celok: string;
-  delivery_route_breakfast: number | null;
-  delivery_sort_order_breakfast: number;
-  delivery_route_lunch: number | null;
-  delivery_sort_order_lunch: number;
-  delivery_route_olovrant: number | null;
-  delivery_sort_order_olovrant: number;
+  delivery_route: number | null;
+  delivery_sort_order: number;
   delivery_note: string;
   is_active: boolean;
 }
@@ -50,7 +36,6 @@ interface DeliveryRoute {
 
 interface DeliveryBlock {
   id: number;
-  meal_type: MealType;
   name: string;
   sort_order: number;
   include_in_main_summary: boolean;
@@ -76,9 +61,7 @@ interface ConfirmDialogState {
   onConfirm: () => void | Promise<void>;
 }
 
-function renumberLayout(layout: DeliveryLayout, mealType: MealType): DeliveryLayout {
-  const routeField = `delivery_route_${mealType}` as const;
-  const sortField = `delivery_sort_order_${mealType}` as const;
+function renumberLayout(layout: DeliveryLayout): DeliveryLayout {
   return {
     blocks: layout.blocks.map((block, bi) => ({
       ...block,
@@ -89,15 +72,15 @@ function renumberLayout(layout: DeliveryLayout, mealType: MealType): DeliveryLay
         block: block.id,
         prevadzky: route.prevadzky.map((prevadzka, pi) => ({
           ...prevadzka,
-          [routeField]: route.id,
-          [sortField]: pi + 1,
+          delivery_route: route.id,
+          delivery_sort_order: pi + 1,
         })),
       })),
     })),
     unassigned_prevadzky: layout.unassigned_prevadzky.map((prevadzka) => ({
       ...prevadzka,
-      [routeField]: null,
-      [sortField]: 0,
+      delivery_route: null,
+      delivery_sort_order: 0,
     })),
   };
 }
@@ -105,7 +88,6 @@ function renumberLayout(layout: DeliveryLayout, mealType: MealType): DeliveryLay
 const DeliveryLayoutAdmin: React.FC = () => {
   const { apiFetch } = useAuth();
   const { success, error: toastError } = useToast();
-  const [mealType, setMealType] = useState<MealType>("lunch");
   const [layout, setLayout] = useState<DeliveryLayout>(EMPTY_LAYOUT);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -142,15 +124,15 @@ const DeliveryLayoutAdmin: React.FC = () => {
   const fetchLayout = useCallback(async () => {
     setLoading(true);
     try {
-      const layoutRes = await apiFetch(`${API}/admin/delivery-blocks/layout/?meal_type=${mealType}`);
-      if (layoutRes.ok) setLayout(renumberLayout(await layoutRes.json(), mealType));
+      const layoutRes = await apiFetch(`${API}/admin/delivery-blocks/layout/`);
+      if (layoutRes.ok) setLayout(renumberLayout(await layoutRes.json()));
     } catch (e) {
       logger.error(e);
       toastError("Nepodarilo sa načítať rozvozový layout.");
     } finally {
       setLoading(false);
     }
-  }, [apiFetch, mealType, toastError]);
+  }, [apiFetch, toastError]);
 
   useEffect(() => {
     void fetchLayout();
@@ -161,7 +143,7 @@ const DeliveryLayoutAdmin: React.FC = () => {
     saveVersionRef.current = saveVersion;
     setSaving(true);
     try {
-      const payload = { ...renumberLayout(nextLayout, mealType), meal_type: mealType };
+      const payload = renumberLayout(nextLayout);
       const res = await apiFetch(`${API}/admin/delivery-blocks/reorder/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -172,7 +154,7 @@ const DeliveryLayoutAdmin: React.FC = () => {
         if (saveVersionRef.current === saveVersion) await fetchLayout();
         return;
       }
-      const savedLayout = renumberLayout(await res.json(), mealType);
+      const savedLayout = renumberLayout(await res.json());
       if (saveVersionRef.current === saveVersion) setLayout(savedLayout);
     } catch (e) {
       logger.error(e);
@@ -184,7 +166,7 @@ const DeliveryLayoutAdmin: React.FC = () => {
   };
 
   const updateLayout = (recipe: (draft: DeliveryLayout) => DeliveryLayout) => {
-    const nextLayout = renumberLayout(recipe(layout), mealType);
+    const nextLayout = renumberLayout(recipe(layout));
     setLayout(nextLayout);
     void persistLayout(nextLayout);
   };
@@ -370,11 +352,7 @@ const DeliveryLayoutAdmin: React.FC = () => {
     const res = await apiFetch(`${API}/admin/delivery-blocks/`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: newBlockName.trim(),
-        meal_type: mealType,
-        sort_order: layout.blocks.length + 1,
-      }),
+      body: JSON.stringify({ name: newBlockName.trim(), sort_order: layout.blocks.length + 1 }),
     });
     if (res.ok) {
       setNewBlockName("");
@@ -556,22 +534,6 @@ const DeliveryLayoutAdmin: React.FC = () => {
           </>
         }
       />
-
-      {/* Raňajky/obed/olovrant majú vlastné, na sebe nezávislé trasy aj bloky
-          (#dashboard-per-meal-routes) — tab prepína, ktorú z troch trojíc
-          `Prevadzka.delivery_route_{meal_type}` táto stránka práve edituje. */}
-      <div className="zpa-tabs">
-        {MEAL_TYPES.map((item) => (
-          <button
-            key={item.key}
-            type="button"
-            onClick={() => setMealType(item.key)}
-            className={`zpa-tab${mealType === item.key ? " active" : ""}`}
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
 
       {loading ? (
         <Empty>Načítavam rozvozový layout…</Empty>

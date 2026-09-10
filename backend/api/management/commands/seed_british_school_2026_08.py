@@ -151,11 +151,7 @@ class Command(BaseCommand):
                 f"{sorted(found_names)} zapnuté (visible_diets)"
             )
 
-        # British nemá gram-plánovú mriežku, teda ani vlastné trasy per jedlo
-        # (#dashboard-per-meal-routes) — jej trasa/blok je vždy tá obedová.
-        block = DeliveryBlock.objects.filter(
-            name=BRITISH_SCHOOL_ROUTE_BLOCK, meal_type="lunch"
-        ).first()
+        block = DeliveryBlock.objects.filter(name=BRITISH_SCHOOL_ROUTE_BLOCK).first()
         if block is None:
             self.stdout.write(
                 self.style.WARNING(
@@ -174,9 +170,9 @@ class Command(BaseCommand):
                     "is_active": True,
                 },
             )
-            if prevadzka.delivery_route_lunch_id != route.pk:
-                prevadzka.delivery_route_lunch = route
-                prevadzka.save(update_fields=["delivery_route_lunch"])
+            if prevadzka.delivery_route_id != route.pk:
+                prevadzka.delivery_route = route
+                prevadzka.save(update_fields=["delivery_route"])
             self.stdout.write(
                 "  British School: trasa "
                 f"{'vytvorená' if route_created else 'už existuje'} "

@@ -4,8 +4,6 @@ automatickým snapshotom pri uzavretí dňa (#528, viď `closed_day_views`)."""
 
 from __future__ import annotations
 
-import datetime
-
 from ..cache_service import (
     GRAMAGE_DASHBOARD_TIMEOUT,
     get_cached,
@@ -14,7 +12,7 @@ from ..cache_service import (
 )
 from ..exporters.gramage_table_html import render_document
 from ..exporters.gramage_table_spec import build_table_spec
-from .meal_plan_service import MealPlanService, resolve_diet_packing_preferences
+from .meal_plan_service import MealPlanService
 
 
 def get_cached_gramage_dashboard_data(date_str: str) -> dict:
@@ -44,7 +42,6 @@ def get_cached_gramage_dashboard_data(date_str: str) -> dict:
 def render_gramage_dashboard_pdf(
     date_str: str,
     *,
-    meal_type: str = "lunch",
     sections: list[str] | None = None,
     vydaje: list[str] | None = None,
     show_empty: bool = True,
@@ -52,7 +49,7 @@ def render_gramage_dashboard_pdf(
     diet_clusters: list[str] | None = None,
     merge_diets: bool = True,
 ) -> bytes:
-    """Zloží PDF gramáže pre daný deň a jedno jedlo (raňajky/obed/olovrant).
+    """Zloží PDF gramáže pre daný deň.
 
     Tá istá tabuľka ako na obrazovke: rovnaký spec, rovnaké CSS, len namiesto
     Reactu ju do HTML zloží `gramage_table_html` a WeasyPrint z toho spraví
@@ -71,15 +68,11 @@ def render_gramage_dashboard_pdf(
     # medzisúčty za klienta by len duplikovali čísla o riadok vyššie.
     spec = build_table_spec(
         data,
-        meal_type=meal_type,
         sections=sections,
         vydaje=vydaje,
         include_summary_rows=False,
         show_empty=show_empty,
         show_cluster_summary=show_cluster_summary,
         diet_clusters=diet_clusters,
-        diet_packing=resolve_diet_packing_preferences(
-            datetime.date.fromisoformat(date_str)
-        ),
     )
     return HTML(string=render_document(spec)).write_pdf()
