@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.2.3](https://github.com/tomag-9/zdravy-projekt/compare/v3.2.2...v3.2.3) (2026-09-10)
+
+
+### Bug Fixes
+
+* bump manifest to 3.2.2 (tag vytvorený manuálne, hotfix commit type release-please nerozpoznal) ([ff2149c](https://github.com/tomag-9/zdravy-projekt/commit/ff2149c8672913d9b953aaaf344b1a0266aaaa20))
+* bump manifest to 3.2.2 (tag vytvorený manuálne) ([#623](https://github.com/tomag-9/zdravy-projekt/issues/623)) ([0412642](https://github.com/tomag-9/zdravy-projekt/commit/04126423e9bff5d8abfa0b386377977484373fd6))
+
 ## [3.2.0](https://github.com/tomag-9/zdravy-projekt/compare/v3.1.0...v3.2.0) (2026-09-10)
 
 
