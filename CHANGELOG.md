@@ -1,5 +1,19 @@
 # Changelog
 
+## [3.4.0](https://github.com/tomag-9/zdravy-projekt/compare/v3.3.1...v3.4.0) (2026-09-10)
+
+
+### Features
+
+* **objednavky:** per-prevádzka výnimka z prísneho 2-dňového Menu B/C termínu ([ff0ec78](https://github.com/tomag-9/zdravy-projekt/commit/ff0ec781f2cea3fb4681ca65bff55d7993ad9509))
+
+
+### Bug Fixes
+
+* **diety:** base_diets pre 2 kombinácie z 10.9.2026 + Diet.name limit 100→255 ([3f2f29b](https://github.com/tomag-9/zdravy-projekt/commit/3f2f29b900883641d0a65432565a8d8c1611d979))
+* **diety:** diéta [#2](https://github.com/tomag-9/zdravy-projekt/issues/2) sa má naviazať na existujúce id=46 pod starým menom, nie duplikovať ([d9e2fd7](https://github.com/tomag-9/zdravy-projekt/commit/d9e2fd733726474583bc26448ed4ad936733b7ca))
+* **edupage:** Školička – učiteľ/žiak s diétou v stĺpci Menu B/C sa počíta ako B/C, nie ako diéta ([3382752](https://github.com/tomag-9/zdravy-projekt/commit/3382752a95e2096f90260e3f9da2a8d6f8ecfd0c))
+
 ## [3.3.1](https://github.com/tomag-9/zdravy-projekt/compare/v3.3.0...v3.3.1) (2026-09-10)
 
 
