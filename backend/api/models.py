@@ -193,7 +193,11 @@ class ClosedDay(models.Model):
 
 
 class Diet(models.Model):
-    name = models.CharField(max_length=100, unique=True)
+    # 100 bolo pri kombinovaných diétach málo — 14-zložková kombinácia (napr.
+    # NoMilk/NoGluten/NoEgg/.../NoHorcica, user 10.9.2026) má cez 160 znakov a
+    # tvorba tíško padala na "Ensure this field has no more than 100
+    # characters", čo frontend hlásil ako zavádzajúce "možno už existuje".
+    name = models.CharField(max_length=255, unique=True)
     sort_order = models.PositiveSmallIntegerField(default=0, db_index=True)
     is_active = models.BooleanField(default=True)
     description = models.TextField(blank=True, null=True)
