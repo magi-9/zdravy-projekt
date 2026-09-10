@@ -153,6 +153,31 @@ def _filter_col_groups_by_meal_type(
     ]
 
 
+def _has_snack_with_lunch_rows(data: dict, meal_type: str) -> bool:
+    """Má TÁTO tabuľka aspoň jednu prevádzku s "olovrant s obedom"
+    (#dashboard-per-meal-routes, 10.9.2026)?
+
+    Len obedová tabuľka pridáva olovrantový stĺpec navyše (žltý, vypĺňaný
+    len pre tieto prevádzky — viď `MealPlanService._row_for_meal_type`) — a
+    len keď ho má čo vyplniť, inak by aj bežná obedová tabuľka bez jedinej
+    takej prevádzky ukazovala navyše prázdny stĺpec.
+    """
+    if meal_type != "lunch":
+        return False
+    vydaje_by_meal = data.get("vydaje_by_meal")
+    if vydaje_by_meal is not None:
+        rows = [
+            row
+            for vydaj in vydaje_by_meal.get(meal_type) or []
+            for route in vydaj.get("routes") or []
+            for row in route.get("rows") or []
+        ]
+        rows += list((data.get("unassigned_rows_by_meal") or {}).get(meal_type) or [])
+    else:
+        rows = data.get("rows") or []
+    return any(row.get("snack_with_lunch") for row in rows)
+
+
 def _gram_cells(
     col_grams: list,
     groups: list[dict],
@@ -675,7 +700,7 @@ def _diet_name_rows(
             },
             pack_badge=badge,
         )
-        if len(visible_bands) > 1:
+        if visible_bands:
             label_cell["count"] = _composite_meal_count_text(meal_counts, visible_bands)
         diet_rows.append(
             {
@@ -745,6 +770,8 @@ def build_table_spec(
 
     all_groups = data.get("col_groups") or []
     meal_type_keep = set(_filter_col_groups_by_meal_type(all_groups, meal_type))
+    if _has_snack_with_lunch_rows(data, meal_type):
+        meal_type_keep |= set(_filter_col_groups_by_meal_type(all_groups, "olovrant"))
     keep = [
         index
         for index in _filter_col_groups(all_groups, sections)
@@ -1307,7 +1334,7 @@ def _client_rows(
             sub_row.get("count"),
             pack_badge=badge,
         )
-        if len(visible_bands) > 1:
+        if visible_bands:
             cell["count"] = _composite_meal_count_text(meal_counts, visible_bands)
         text_hex = background_hex = None
         if is_diet:
@@ -1407,7 +1434,7 @@ def _client_rows(
             },
             pack_badge=badge,
         )
-        if len(visible_bands) > 1:
+        if visible_bands:
             label_cell["count"] = _composite_meal_count_text(meal_counts, visible_bands)
         out.append(
             {

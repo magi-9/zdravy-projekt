@@ -1793,6 +1793,14 @@ class MealPlanService:
                         "snack_with_lunch": bool(
                             getattr(prevadzka, "olovrant_s_obedom", False)
                         ),
+                        # Ktoré jedlá táto prevádzka vôbec ponúka
+                        # (#dashboard-per-meal-routes, 10.9.2026) — prevádzka bez
+                        # raňajok/olovrantu sa nemá ukázať ani ako "Nepriradená" v
+                        # tabuľke jedla, ktoré vôbec neobjednáva.
+                        "visible_meals": list(
+                            getattr(prevadzka, "visible_meals", None)
+                            or ORDER_MEAL_TYPES
+                        ),
                         "sub_rows": sub_rows,
                     }
                 )
@@ -1840,6 +1848,7 @@ class MealPlanService:
                     "admin_order_note": str(prevadzka.admin_order_note or "").strip(),
                     "special_diet_note": "",
                     "snack_with_lunch": bool(prevadzka.olovrant_s_obedom),
+                    "visible_meals": list(prevadzka.visible_meals or ORDER_MEAL_TYPES),
                     "sub_rows": [],
                     # Odlišuje hlavičku bez objednávky od riadku so samými
                     # nulami — frontend/PDF ju môže vykresliť viditeľne inak
@@ -1852,6 +1861,82 @@ class MealPlanService:
         # Definitívne poradie riadkov je per-jedlo (raňajky/obed/olovrant majú
         # vlastné trasy, #dashboard-per-meal-routes) — zoradí sa až vnútri
         # `_vydaje_payload_for_meal`, nie tu globálne.
+
+        def _row_for_meal_type(row: dict, meal_type: str) -> dict | None:
+            """Per-jedlo variant klientského riadku (#dashboard-per-meal-routes,
+            10.9.2026) — orezáva sub_rows aj súhrny na jedlá, ktoré TÁTO
+            konkrétna tabuľka smie ukázať (inak by napr. obedová tabuľka
+            (po rozšírení o olovrantový stĺpec nižšie) zobrazila aj olovrant
+            prevádzok, ktoré ho vozia zvlášť popoludní).
+
+            "Olovrant s obedom" (`snack_with_lunch`) je jediná výnimka z
+            prísneho 1:1 mapovania stĺpec↔trasa: taká prevádzka do
+            samostatnej olovrantovej tabuľky vôbec nepatrí (vráti `None`,
+            vylúči sa aj z "Nepriradené") — jej olovrant sa objaví v
+            OBEDOVEJ tabuľke ako dodatočný (žltý) stĺpec vedľa obeda.
+            """
+            if meal_type == "olovrant" and row.get("snack_with_lunch"):
+                return None
+            allowed_meals = set(ORDER_MEAL_TO_PLAN_MEALS.get(meal_type, ()))
+            if meal_type == "lunch" and row.get("snack_with_lunch"):
+                allowed_meals |= set(ORDER_MEAL_TO_PLAN_MEALS.get("olovrant", ()))
+            allowed_indexes = {
+                index
+                for index, cg in enumerate(col_groups)
+                if cg["meal"] in allowed_meals
+            }
+
+            def _zero_outside(grid: list) -> list:
+                return [
+                    values if index in allowed_indexes else []
+                    for index, values in enumerate(grid)
+                ]
+
+            new_row = dict(row)
+            new_row["sub_rows"] = [
+                sr
+                for sr in row.get("sub_rows") or []
+                if sr.get("meal") in allowed_meals
+            ]
+            new_row["standard_col_grams"] = _zero_outside(
+                row.get("standard_col_grams") or []
+            )
+            new_row["standard_total_count"] = _tidy_count(
+                sum(
+                    (
+                        Decimal(str(sr.get("count") or 0))
+                        for sr in new_row["sub_rows"]
+                        if not sr.get("diet_name")
+                    ),
+                    Decimal("0"),
+                )
+            )
+            new_diet_summary_rows = []
+            for diet in row.get("diet_summary_rows") or []:
+                meal_counts = {
+                    meal: count
+                    for meal, count in (diet.get("meal_counts") or {}).items()
+                    if meal in allowed_meals
+                }
+                diet_count = sum(
+                    (Decimal(str(c or 0)) for c in meal_counts.values()), Decimal("0")
+                )
+                if not diet_count:
+                    continue
+                new_diet = dict(diet)
+                new_diet["meal_counts"] = meal_counts
+                new_diet["count"] = _tidy_count(diet_count)
+                new_diet["col_grams"] = _zero_outside(diet.get("col_grams") or [])
+                new_diet_summary_rows.append(new_diet)
+            new_row["diet_summary_rows"] = new_diet_summary_rows
+            new_row["total_count"] = _tidy_count(
+                Decimal(str(new_row["standard_total_count"]))
+                + sum(
+                    (Decimal(str(d["count"])) for d in new_diet_summary_rows),
+                    Decimal("0"),
+                )
+            )
+            return new_row
 
         def _vydaje_payload_for_meal(
             rows_for_payload: list[dict], meal_type: str
@@ -1866,7 +1951,14 @@ class MealPlanService:
             """
             route_rows: dict[int, list[dict]] = {}
             unassigned_rows = []
-            for row in rows_for_payload:
+            for raw_row in rows_for_payload:
+                # Prevádzka, ktorá toto jedlo vôbec neponúka, sa nemá ukázať
+                # ani ako "Nepriradená" (#dashboard-per-meal-routes).
+                if meal_type not in (raw_row.get("visible_meals") or ORDER_MEAL_TYPES):
+                    continue
+                row = _row_for_meal_type(raw_row, meal_type)
+                if row is None:
+                    continue
                 meal_delivery = row["delivery_by_meal"][meal_type]
                 route_id = meal_delivery.get("delivery_route_id")
                 if route_id is None:

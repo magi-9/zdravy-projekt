@@ -117,25 +117,21 @@ def test_badge_is_per_diet_other_diets_stay_unaffected():
 
 
 def test_composite_badge_joins_S_and_Z_across_meal_bands_in_order():
-    """Rovnaká diéta na raňajkách (zvlášť) aj obede (spolu) a olovrante
-    (zvlášť) — zlúčený riadok (#527) dostane "Z + S + Z", v poradí
-    raňajky → obed → olovrant, nie v poradí, ako prišli v `sub_rows`."""
+    """Rovnaká diéta na obede (spolu) aj olovrante (zvlášť) — zlúčený riadok
+    (#527) dostane "S + Z", v poradí obed → olovrant, nie v poradí, ako
+    prišli v `sub_rows`.
+
+    Len tieto dva pásy sa dajú spojiť v JEDNEJ tabuľke
+    (#dashboard-per-meal-routes, 10.9.2026): raňajky majú vlastnú
+    samostatnú trasu/tabuľku vždy, olovrant len vtedy, keď prevádzka NEMÁ
+    "olovrant s obedom" (`snack_with_lunch`) — vtedy sa spája s obedom."""
     payload = _payload(
         diet_pack_state={
-            "breakfast_snack": {"No Milk": "Z"},
             "main_course": {"No Milk": "S"},
             "afternoon_snack": {"No Milk": "Z"},
         }
     )
     payload["col_groups"] = [
-        {
-            "key": "breakfast_snack",
-            "meal": "breakfast_snack",
-            "variant": "",
-            "label": "Raňajky",
-            "template_name": "Chlieb",
-            "components": [GRAMS],
-        },
         payload["col_groups"][0],
         {
             "key": "afternoon_snack",
@@ -147,22 +143,13 @@ def test_composite_badge_joins_S_and_Z_across_meal_bands_in_order():
         },
     ]
     row = payload["rows"][0]
-    row["standard_col_grams"] = [["1600.00"], ["1600.00"], ["1600.00"]]
-    row["diet_summary_rows"][0]["col_grams"] = [["400.00"], ["400.00"], ["400.00"]]
+    # Obedová tabuľka pridá olovrantový stĺpec navyše, len keď má aspoň
+    # jednu takú prevádzku (`_has_snack_with_lunch_rows`).
+    row["snack_with_lunch"] = True
+    row["standard_col_grams"] = [["1600.00"], ["1600.00"]]
+    row["diet_summary_rows"][0]["col_grams"] = [["400.00"], ["400.00"]]
     for sub_row in row["sub_rows"]:
-        sub_row["col_grams"] = [[], sub_row["col_grams"][0], []]
-    row["sub_rows"].append(
-        {
-            "type": "diet",
-            "meal": "breakfast_snack",
-            "portion_name": "Škôlka",
-            "label": "No Milk",
-            "diet_name": "No Milk",
-            "diet_color": "#F59E0B",
-            "count": 1,
-            "col_grams": [["100.00"], [], []],
-        }
-    )
+        sub_row["col_grams"] = [sub_row["col_grams"][0], []]
     row["sub_rows"].append(
         {
             "type": "diet",
@@ -172,14 +159,14 @@ def test_composite_badge_joins_S_and_Z_across_meal_bands_in_order():
             "diet_name": "No Milk",
             "diet_color": "#F59E0B",
             "count": 1,
-            "col_grams": [[], [], ["100.00"]],
+            "col_grams": [[], ["100.00"]],
         }
     )
-    payload["totals"] = [["1600.00"], ["1600.00"], ["1600.00"]]
+    payload["totals"] = [["1600.00"], ["1600.00"]]
 
     spec = build_table_spec(payload)
 
-    assert _sub_row_cell(spec)["pack_badge"] == "Z + S + Z"
+    assert _sub_row_cell(spec)["pack_badge"] == "S + Z"
     assert _sub_row_cell(spec)["text"] == "↳ No Milk"
 
 

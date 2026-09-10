@@ -292,8 +292,8 @@ class GramageDashboardMergeDietsToggleApiTest(APITestCase):
         # "Nepriradené", ktoré túto vetvu nemá, tak jej priradíme reálnu.
         block = DeliveryBlock.objects.create(name="Trasa", sort_order=1)
         route = DeliveryRoute.objects.create(name="Trasa 1", block=block, sort_order=1)
-        prevadzka.delivery_route = route
-        prevadzka.save(update_fields=["delivery_route"])
+        prevadzka.delivery_route_lunch = route
+        prevadzka.save(update_fields=["delivery_route_lunch"])
         user = User.objects.create_user(username="dcm-order@example.com", password="x")
         DailyOrder.objects.create(
             user=user,
