@@ -11,7 +11,8 @@ vi.mock("../../context/auth", () => ({
 
 const emptyBoard = { date: "2026-09-10", meals: [], diets: [], merged: [] };
 
-const boardWithMainCourse = {
+// Default (10.9.2026) je "spolu" — bez výnimiek sú OBIDVE zložky v `merged`.
+const boardAllSpolu = {
   date: "2026-09-10",
   meals: [
     {
@@ -25,8 +26,20 @@ const boardWithMainCourse = {
     },
   ],
   diets: [{ id: 1, name: "Bez lepku" }],
-  merged: [],
+  merged: [
+    { meal: "main_course", diet_name: "Bez lepku", component_index: 0 },
+    { meal: "main_course", diet_name: "Bez lepku", component_index: 1 },
+  ],
 };
+
+// Index 0 chýba v `merged` → je to dnešná výnimka "zvlášť".
+const boardWithOneException = {
+  ...boardAllSpolu,
+  merged: [{ meal: "main_course", diet_name: "Bez lepku", component_index: 1 }],
+};
+
+// Obe zložky chýbajú v `merged` → obe sú "zvlášť" (žiadny default zlúčený).
+const boardBothSeparate = { ...boardAllSpolu, merged: [] };
 
 beforeEach(() => {
   mockApiFetch.mockReset();
@@ -43,19 +56,20 @@ describe("DietComponentMergePage", () => {
     ).toBeInTheDocument();
   });
 
-  it("collapses a meal section by default when it has no merges today", async () => {
-    mockApiFetch.mockResolvedValue({ ok: true, json: async () => boardWithMainCourse });
+  it("collapses a meal section by default when everything is spolu today", async () => {
+    mockApiFetch.mockResolvedValue({ ok: true, json: async () => boardAllSpolu });
 
     render(<MemoryRouter><DietComponentMergePage /></MemoryRouter>);
 
     expect(await screen.findByText("Hlavný chod")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /rozbaliť/i })).toBeInTheDocument();
+    expect(screen.getByText(/dnes všetko spolu/i)).toBeInTheDocument();
     expect(screen.queryByText("Hlavná časť")).not.toBeInTheDocument();
     expect(screen.queryByText("Bez lepku")).not.toBeInTheDocument();
   });
 
-  it("expands a collapsed meal section on click, revealing the grid unchecked by default", async () => {
-    mockApiFetch.mockResolvedValue({ ok: true, json: async () => boardWithMainCourse });
+  it("expands a collapsed meal section on click, revealing the grid checked as spolu by default", async () => {
+    mockApiFetch.mockResolvedValue({ ok: true, json: async () => boardAllSpolu });
 
     render(<MemoryRouter><DietComponentMergePage /></MemoryRouter>);
 
@@ -64,33 +78,28 @@ describe("DietComponentMergePage", () => {
     expect(await screen.findByText("Hlavná časť")).toBeInTheDocument();
     expect(screen.getByText("Príloha")).toBeInTheDocument();
     expect(screen.getByText("Bez lepku")).toBeInTheDocument();
-    expect(screen.getAllByText("zvlášť")).toHaveLength(2);
-    expect(screen.queryByText("spolu")).not.toBeInTheDocument();
+    expect(screen.getAllByText("spolu")).toHaveLength(2);
+    expect(screen.queryByText("zvlášť")).not.toBeInTheDocument();
   });
 
-  it("expands a meal section by default when it already has a merge today", async () => {
+  it("expands a meal section by default when it has an exception (zvlášť) today", async () => {
     mockApiFetch.mockResolvedValue({
       ok: true,
-      json: async () => ({
-        ...boardWithMainCourse,
-        merged: [{ meal: "main_course", diet_name: "Bez lepku", component_index: 0 }],
-      }),
+      json: async () => boardWithOneException,
     });
 
     render(<MemoryRouter><DietComponentMergePage /></MemoryRouter>);
 
     expect(await screen.findByText("spolu")).toBeInTheDocument();
     expect(screen.getByText("zvlášť")).toBeInTheDocument();
+    expect(screen.getByText(/1 zvlášť/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /zbaliť/i })).toBeInTheDocument();
   });
 
-  it("highlights a merged cell with a distinct background from a separate one", async () => {
+  it("highlights a merged (spolu) cell with a distinct background from a separate one", async () => {
     mockApiFetch.mockResolvedValue({
       ok: true,
-      json: async () => ({
-        ...boardWithMainCourse,
-        merged: [{ meal: "main_course", diet_name: "Bez lepku", component_index: 0 }],
-      }),
+      json: async () => boardWithOneException,
     });
 
     render(<MemoryRouter><DietComponentMergePage /></MemoryRouter>);
@@ -105,7 +114,7 @@ describe("DietComponentMergePage", () => {
     mockApiFetch.mockResolvedValue({
       ok: true,
       json: async () => ({
-        ...boardWithMainCourse,
+        ...boardAllSpolu,
         diets: [
           {
             id: 1,
@@ -130,18 +139,17 @@ describe("DietComponentMergePage", () => {
     mockApiFetch.mockResolvedValue({
       ok: true,
       json: async () => ({
-        ...boardWithMainCourse,
+        ...boardBothSeparate,
         diets: [
           { id: 1, name: "NoMilk", base_diet_names: [] },
           { id: 2, name: "NoMilk+Bez lepku", base_diet_names: ["NoMilk", "Bez lepku"] },
         ],
-        merged: [],
       }),
     });
 
     render(<MemoryRouter><DietComponentMergePage /></MemoryRouter>);
 
-    fireEvent.click(await screen.findByRole("button", { name: /rozbaliť/i }));
+    // Board je celý "zvlášť" (žiadny default spolu) — sekcia sa rozbalí sama.
     await screen.findByText("NoMilk+Bez lepku");
     const buttons = screen.getAllByText("zvlášť").map((el) => el.closest("button"));
     // Riadok NoMilk (bez base) je klikateľný, riadok kombinácie (chýbajú obe
@@ -156,7 +164,7 @@ describe("DietComponentMergePage", () => {
     mockApiFetch.mockResolvedValue({
       ok: true,
       json: async () => ({
-        ...boardWithMainCourse,
+        ...boardAllSpolu,
         diets: [
           { id: 1, name: "NoMilk", base_diet_names: [] },
           { id: 2, name: "Bez lepku", base_diet_names: [] },
@@ -178,7 +186,7 @@ describe("DietComponentMergePage", () => {
   });
 
   it("surfaces the server's rejection message when a toggle is refused", async () => {
-    mockApiFetch.mockResolvedValueOnce({ ok: true, json: async () => boardWithMainCourse });
+    mockApiFetch.mockResolvedValueOnce({ ok: true, json: async () => boardBothSeparate });
     mockApiFetch.mockResolvedValueOnce({
       ok: false,
       json: async () => ({ error: "Kombinovaná diéta „X“ môže byť spolu, až keď…" }),
@@ -186,28 +194,25 @@ describe("DietComponentMergePage", () => {
 
     render(<MemoryRouter><DietComponentMergePage /></MemoryRouter>);
 
-    fireEvent.click(await screen.findByRole("button", { name: /rozbaliť/i }));
+    // Board je celý "zvlášť" — sekcia sa rozbalí sama.
     const buttons = await screen.findAllByText("zvlášť");
     fireEvent.click(buttons[0]);
 
     expect(await screen.findByText(/kombinovaná diéta „x“/i)).toBeInTheDocument();
   });
 
-  it("clicking a cell POSTs a toggle with the right key and applies the refreshed board", async () => {
-    mockApiFetch.mockResolvedValueOnce({ ok: true, json: async () => boardWithMainCourse });
+  it("clicking a zvlášť cell POSTs a toggle with the right key and applies the refreshed board", async () => {
+    mockApiFetch.mockResolvedValueOnce({ ok: true, json: async () => boardBothSeparate });
     mockApiFetch.mockResolvedValueOnce({
       ok: true,
-      json: async () => ({
-        ...boardWithMainCourse,
-        merged: [{ meal: "main_course", diet_name: "Bez lepku", component_index: 0 }],
-      }),
+      json: async () => boardWithOneException,
     });
 
     render(<MemoryRouter><DietComponentMergePage /></MemoryRouter>);
 
-    fireEvent.click(await screen.findByRole("button", { name: /rozbaliť/i }));
+    // Board je celý "zvlášť" — sekcia sa rozbalí sama.
     const buttons = await screen.findAllByText("zvlášť");
-    fireEvent.click(buttons[0]);
+    fireEvent.click(buttons[1]);
 
     await waitFor(() => expect(mockApiFetch).toHaveBeenCalledTimes(2));
     const [url, options] = mockApiFetch.mock.calls[1];
@@ -215,11 +220,81 @@ describe("DietComponentMergePage", () => {
     const body = JSON.parse((options as RequestInit).body as string);
     expect(body).toMatchObject({
       meal: "main_course",
-      component_index: 0,
+      component_index: 1,
       diet_id: 1,
       merged: true,
     });
 
     await waitFor(() => expect(screen.getByText("spolu")).toBeInTheDocument());
+  });
+
+  it("clicking a spolu cell POSTs merged:false (marks zvlášť) and checks the box", async () => {
+    mockApiFetch.mockResolvedValueOnce({ ok: true, json: async () => boardAllSpolu });
+    mockApiFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => boardWithOneException,
+    });
+
+    render(<MemoryRouter><DietComponentMergePage /></MemoryRouter>);
+
+    fireEvent.click(await screen.findByRole("button", { name: /rozbaliť/i }));
+    const buttons = await screen.findAllByText("spolu");
+    fireEvent.click(buttons[0]);
+
+    await waitFor(() => expect(mockApiFetch).toHaveBeenCalledTimes(2));
+    const [, options] = mockApiFetch.mock.calls[1];
+    const body = JSON.parse((options as RequestInit).body as string);
+    expect(body).toMatchObject({
+      meal: "main_course",
+      component_index: 0,
+      diet_id: 1,
+      merged: false,
+    });
+  });
+
+  it("checkbox is unchecked by default for spolu and checked for the zvlášť exception", async () => {
+    mockApiFetch.mockResolvedValue({
+      ok: true,
+      json: async () => boardWithOneException,
+    });
+
+    render(<MemoryRouter><DietComponentMergePage /></MemoryRouter>);
+
+    const spoluButton = (await screen.findByText("spolu")).closest("button");
+    const zvlastButton = screen.getByText("zvlášť").closest("button");
+    expect(spoluButton?.className).not.toMatch(/\bon\b/);
+    expect(zvlastButton?.className).toMatch(/\bon\b/);
+  });
+
+  it("filters diet rows in a meal section by the search box", async () => {
+    mockApiFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        ...boardAllSpolu,
+        diets: [
+          { id: 1, name: "Bez lepku" },
+          { id: 2, name: "Bez laktózy" },
+        ],
+        merged: [
+          { meal: "main_course", diet_name: "Bez lepku", component_index: 0 },
+          { meal: "main_course", diet_name: "Bez lepku", component_index: 1 },
+          { meal: "main_course", diet_name: "Bez laktózy", component_index: 0 },
+          { meal: "main_course", diet_name: "Bez laktózy", component_index: 1 },
+        ],
+      }),
+    });
+
+    render(<MemoryRouter><DietComponentMergePage /></MemoryRouter>);
+
+    fireEvent.click(await screen.findByRole("button", { name: /rozbaliť/i }));
+    await screen.findByText("Bez lepku");
+    expect(screen.getByText("Bez laktózy")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText(/hľadať diétu/i), {
+      target: { value: "lepku" },
+    });
+
+    expect(screen.getByText("Bez lepku")).toBeInTheDocument();
+    expect(screen.queryByText("Bez laktózy")).not.toBeInTheDocument();
   });
 });

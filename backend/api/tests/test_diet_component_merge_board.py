@@ -1,6 +1,7 @@
-"""`diet_component_merge_board` (#568) — dáta pre klikací zoznam "spolu/
-zvlášť": zložky dňa (raňajky/desiata, obed len Menu A, olovrant), aktívne
-diéty a aktuálny stav zlúčenia."""
+"""`diet_component_merge_board` (#568, flip 10.9.2026) — dáta pre klikací
+zoznam "spolu/zvlášť": zložky dňa (raňajky/desiata, obed len Menu A,
+olovrant), aktívne diéty a aktuálny "spolu" stav (default, mínus explicitné
+"zvlášť" výnimky)."""
 
 import datetime
 
@@ -136,20 +137,54 @@ def test_diet_specific_meal_plan_items_are_ignored():
     assert main["components"] == [{"index": 0, "label": "Hlavná časť"}]
 
 
-def test_merged_state_reflects_existing_diet_component_merge_rows():
+def test_all_components_are_merged_by_default_with_no_separation_rows():
     plan = DailyMealPlan.objects.create(date=datetime.date(2026, 9, 24))
-    diet = Diet.objects.create(name="Bez lepku")
-    DietComponentMerge.objects.create(
-        date=plan.date,
-        meal=MealCategory.MAIN_COURSE,
-        component_index=0,
-        diet=diet,
+    Diet.objects.create(name="Bez lepku")
+    MealPlanItem.objects.create(
+        meal_plan=plan,
+        template=MealTemplate.objects.create(
+            name="Obed A",
+            category="main_course",
+            components=[{"label": "Hlavná časť", "grams": "200", "unit": "g"}],
+            base_weight_grams="200",
+        ),
+        category="main_course",
+        menu_variant="A",
     )
 
     board = diet_component_merge_board(plan.date.isoformat())
 
     assert board["merged"] == [
         {"meal": "main_course", "diet_name": "Bez lepku", "component_index": 0}
+    ]
+
+
+def test_explicit_separation_row_excludes_that_cell_from_the_default_merge():
+    plan = DailyMealPlan.objects.create(date=datetime.date(2026, 9, 24))
+    diet_separated = Diet.objects.create(name="Bez lepku")
+    Diet.objects.create(name="Bez laktózy")
+    MealPlanItem.objects.create(
+        meal_plan=plan,
+        template=MealTemplate.objects.create(
+            name="Obed A",
+            category="main_course",
+            components=[{"label": "Hlavná časť", "grams": "200", "unit": "g"}],
+            base_weight_grams="200",
+        ),
+        category="main_course",
+        menu_variant="A",
+    )
+    DietComponentMerge.objects.create(
+        date=plan.date,
+        meal=MealCategory.MAIN_COURSE,
+        component_index=0,
+        diet=diet_separated,
+    )
+
+    board = diet_component_merge_board(plan.date.isoformat())
+
+    assert board["merged"] == [
+        {"meal": "main_course", "diet_name": "Bez laktózy", "component_index": 0}
     ]
 
 

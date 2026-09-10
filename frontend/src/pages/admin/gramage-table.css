@@ -211,6 +211,17 @@ tr.zpa-row-highlight td { animation: zpa-row-highlight 2s ease-out; }
     font-family: var(--font-display); font-size: 11px; font-weight: 700;
     font-variant-numeric: tabular-nums;
 }
+/* "S"/"Z" (10.9.2026, #568 nadväzba) — spolu/zvlášť na diet-component-merge
+ * boarde, hneď vedľa count-badge (nie v mene/poznámke diéty). Zelená pre
+ * čisté "S", oranžová hneď ako je v odznaku aspoň jedno "Z" (composite
+ * "Z + S + Z" atď.) — kuchyňa má vidieť výnimku na prvý pohľad. */
+.zpa-gram .pack-badge {
+    display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
+    min-width: 18px; height: 19px; padding: 0 5px; border-radius: var(--radius-pill);
+    background: rgba(26,77,46,0.10); color: var(--green-900);
+    font-family: var(--font-display); font-size: 10px; font-weight: 700;
+}
+.zpa-gram .pack-badge--z { background: rgba(244,107,36,0.16); color: var(--orange-600); }
 .zpa-gram .cell-num { position: relative; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; color: var(--green-900); }
 .zpa-gram .cell-empty { position: relative; text-align: right; color: var(--line); }
 /* Počet presne pre túto stĺpcovú skupinu/menu; je mimo toku gramáže. */
@@ -221,6 +232,16 @@ tr.zpa-row-highlight td { animation: zpa-row-highlight 2s ease-out; }
  * summ-std riadku, inak žltá zmizne presne tam, kde ju kuchyňa vidí najprv. */
 .zpa-gram .summ-std td.mh-snacklunch-cell { background: #FDE68A; }
 .zpa-gram .summ-diet td { color: inherit; border-top: 1px solid var(--line-soft); font-weight: 700; }
+/* "Zabaliť spolu:" (10.9.2026) — súhrn za JEDNU prevádzku, hneď po jej
+ * vlastných riadkoch. Výrazné čiary nad/pod, nech ho ten, čo nakladá,
+ * ľahko nájde a nemusí si to sám prácne spočítať z riadkov vyššie. */
+.zpa-gram .pack-together td {
+    background: rgba(244,107,36,0.12);
+    color: var(--orange-600);
+    border-top: 2px solid var(--orange-600);
+    border-bottom: 2px solid var(--orange-600);
+    font-weight: 700;
+}
 .zpa-gram tfoot .band td { background: var(--green-800); color: var(--peach-400); font-family: var(--font-display); font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: var(--tracking-caps); padding: 9px 16px; }
 .zpa-gram tfoot .total td { background: var(--green-900); color: #fff; font-family: var(--font-display); font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
 .zpa-gram tfoot .total .corner { background: var(--green-900); text-align: left; }

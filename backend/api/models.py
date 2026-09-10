@@ -1330,14 +1330,16 @@ class PrevadzkaLoadingConfirmation(models.Model):
 
 class DietComponentMerge(models.Model):
     """Šéfkuchár per deň/jedlo/zložku odklikáva, že sa diéta v tú zložku
-    pripraví spolu so štandardným jedlom, nie samostatne (#568).
+    pripraví ZVLÁŠŤ, nie spolu so štandardným jedlom (#568, flip 10.9.2026).
 
-    Existuje len riadok pre VÝNIMKU "spolu" — default (žiadny riadok) je
-    "zvlášť", šéfkuchár označuje len tie zložky, čo môžu ísť spolu. Pri
-    obede sa `component_index` viaže výhradne na **Menu A** danéh dňa
-    (jediný variant, ktorý táto funkcia rieši), pri raňajkách/olovrante na
-    jediný template toho jedla — index je pozícia v `MealTemplate.components`
-    tak, ako ju vidí gramážová tabuľka (`col_groups[i]["components"]`).
+    Existuje len riadok pre VÝNIMKU "zvlášť" — default (žiadny riadok) je
+    "spolu", šéfkuchár označuje len tie zložky, čo musia ísť zvlášť (pôvodne
+    to bolo naopak — riadok = "spolu"; zmenené, lebo v drvivej väčšine
+    prípadov ide diéta spolu so štandardom, výnimky sú zriedkavé). Pri obede
+    sa `component_index` viaže výhradne na **Menu A** danéh dňa (jediný
+    variant, ktorý táto funkcia rieši), pri raňajkách/olovrante na jediný
+    template toho jedla — index je pozícia v `MealTemplate.components` tak,
+    ako ju vidí gramážová tabuľka (`col_groups[i]["components"]`).
 
     `component_label` je denormalizovaný text pre čitateľnosť v adminovi/DB
     (šablóny sa môžu meniť deň čo deň, index sám o sebe nič nehovorí).

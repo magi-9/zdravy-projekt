@@ -1,4 +1,5 @@
-"""API pre klikací zoznam "spolu/zvlášť" (#568): `board` + `toggle`."""
+"""API pre klikací zoznam "spolu/zvlášť" (#568, flip 10.9.2026): `board` +
+`toggle`. Default je "spolu", riadok v DB je "zvlášť" výnimka."""
 
 import datetime
 
@@ -11,6 +12,8 @@ from api.models import (
     Celok,
     DailyMealPlan,
     DailyOrder,
+    DeliveryBlock,
+    DeliveryRoute,
     Diet,
     DietComponentMerge,
     MealCategory,
@@ -76,7 +79,11 @@ class DietComponentMergeApiTest(APITestCase):
             "text_color": "",
             "background_color": "",
         } in data["diets"]
-        assert data["merged"] == []
+        # Default je "spolu" — bez výnimiek sú obe zložky zlúčené.
+        assert sorted(data["merged"], key=lambda m: m["component_index"]) == [
+            {"meal": "main_course", "diet_name": "Bez lepku", "component_index": 0},
+            {"meal": "main_course", "diet_name": "Bez lepku", "component_index": 1},
+        ]
 
     def test_board_lists_the_diets_own_explicit_colors(self):
         self.diet.text_color = "#123456"
@@ -101,7 +108,7 @@ class DietComponentMergeApiTest(APITestCase):
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    def test_toggle_merged_true_creates_the_row(self):
+    def test_toggle_merged_false_creates_the_separation_row(self):
         response = self.client.post(
             "/api/admin/diet-component-merge/toggle/",
             {
@@ -109,20 +116,21 @@ class DietComponentMergeApiTest(APITestCase):
                 "meal": MealCategory.MAIN_COURSE,
                 "component_index": 0,
                 "diet_id": self.diet.id,
-                "merged": True,
+                "merged": False,
                 "component_label": "Hlavná časť",
             },
             format="json",
         )
         assert response.status_code == status.HTTP_200_OK, response.content
+        # Index 0 je teraz explicitne zvlášť, index 1 ostáva default spolu.
         assert response.json()["merged"] == [
-            {"meal": "main_course", "diet_name": "Bez lepku", "component_index": 0}
+            {"meal": "main_course", "diet_name": "Bez lepku", "component_index": 1}
         ]
         row = DietComponentMerge.objects.get()
         assert row.component_label == "Hlavná časť"
         assert row.updated_by_id == self.admin.id
 
-    def test_toggle_merged_false_deletes_the_row(self):
+    def test_toggle_merged_true_deletes_the_separation_row(self):
         DietComponentMerge.objects.create(
             date=self.plan.date,
             meal=MealCategory.MAIN_COURSE,
@@ -136,12 +144,17 @@ class DietComponentMergeApiTest(APITestCase):
                 "meal": MealCategory.MAIN_COURSE,
                 "component_index": 0,
                 "diet_id": self.diet.id,
-                "merged": False,
+                "merged": True,
             },
             format="json",
         )
         assert response.status_code == status.HTTP_200_OK, response.content
-        assert response.json()["merged"] == []
+        assert sorted(
+            response.json()["merged"], key=lambda m: m["component_index"]
+        ) == [
+            {"meal": "main_course", "diet_name": "Bez lepku", "component_index": 0},
+            {"meal": "main_course", "diet_name": "Bez lepku", "component_index": 1},
+        ]
         assert DietComponentMerge.objects.count() == 0
 
     def test_toggle_rejects_soup_as_unsupported_meal(self):
@@ -192,13 +205,7 @@ class DietComponentMergeApiTest(APITestCase):
         milk = Diet.objects.create(name="NoMilk")
         combo = Diet.objects.create(name="NoMilk+Bez lepku")
         combo.base_diets.set([milk, self.diet])
-        for d in (milk, self.diet, combo):
-            DietComponentMerge.objects.create(
-                date=self.plan.date,
-                meal=MealCategory.MAIN_COURSE,
-                component_index=0,
-                diet=d,
-            )
+        # Default "spolu" pre všetky tri — žiadny zvlášť-riadok zatiaľ.
 
         response = self.client.post(
             "/api/admin/diet-component-merge/toggle/",
@@ -213,15 +220,27 @@ class DietComponentMergeApiTest(APITestCase):
         )
 
         assert response.status_code == status.HTTP_200_OK, response.content
-        merged_names = {m["diet_name"] for m in response.json()["merged"]}
-        assert merged_names == {"Bez lepku"}
+        # NoMilk aj kombinácia (kaskáda) sú teraz zvlášť — vypadli z merged
+        # setu pre index 0; index 1 ostáva default spolu pre všetky diéty.
+        merged_at_index_0 = {
+            m["diet_name"]
+            for m in response.json()["merged"]
+            if m["component_index"] == 0
+        }
+        assert merged_at_index_0 == {"Bez lepku"}
 
-    def test_toggling_a_composite_to_together_is_rejected_while_a_base_is_separate(
+    def test_toggling_a_composite_to_spolu_is_rejected_while_a_base_is_separate(
         self,
     ):
         milk = Diet.objects.create(name="NoMilk")
         combo = Diet.objects.create(name="NoMilk+Bez lepku")
         combo.base_diets.set([milk, self.diet])
+        DietComponentMerge.objects.create(
+            date=self.plan.date,
+            meal=MealCategory.MAIN_COURSE,
+            component_index=0,
+            diet=milk,
+        )
 
         response = self.client.post(
             "/api/admin/diet-component-merge/toggle/",
@@ -237,11 +256,14 @@ class DietComponentMergeApiTest(APITestCase):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "NoMilk" in response.json()["error"]
-        assert DietComponentMerge.objects.count() == 0
+        assert DietComponentMerge.objects.filter(diet=combo).count() == 0
 
 
 class GramageDashboardMergeDietsToggleApiTest(APITestCase):
-    """Prepínač `?merge_diets=` (#568) na gramage-dashboard endpointe."""
+    """Prepínač `?merge_diets=` (#568, retirované 10.9.2026) na
+    gramage-dashboard endpointe — gatuje LEN súhrnný riadok "Zabaliť
+    spolu:" (`spec.rows`), samotné `sub_rows` (diétny riadok) sa ním
+    nemenia vôbec (viď `build_table_spec` docstring)."""
 
     def setUp(self):
         self.admin = User.objects.create_user(
@@ -263,14 +285,15 @@ class GramageDashboardMergeDietsToggleApiTest(APITestCase):
             category="main_course",
             menu_variant="A",
         )
-        DietComponentMerge.objects.create(
-            date=self.plan.date,
-            meal=MealCategory.MAIN_COURSE,
-            component_index=0,
-            diet=self.diet,
-        )
         celok = Celok.objects.create(nazov="MŠ Testovacia")
         prevadzka = Prevadzka.objects.create(celok=celok, nazov="MŠ Testovacia")
+        # `_pack_together_row` sa počíta len v rámci vydajov/trás
+        # (`build_table_spec`, per prevádzka) — prevádzka bez trasy padá do
+        # "Nepriradené", ktoré túto vetvu nemá, tak jej priradíme reálnu.
+        block = DeliveryBlock.objects.create(name="Trasa", sort_order=1)
+        route = DeliveryRoute.objects.create(name="Trasa 1", block=block, sort_order=1)
+        prevadzka.delivery_route = route
+        prevadzka.save(update_fields=["delivery_route"])
         user = User.objects.create_user(username="dcm-order@example.com", password="x")
         DailyOrder.objects.create(
             user=user,
@@ -290,17 +313,25 @@ class GramageDashboardMergeDietsToggleApiTest(APITestCase):
     def _sub_row_types(self, payload):
         return [sr["type"] for sr in payload["rows"][0]["sub_rows"]]
 
-    def test_default_applies_the_full_merge(self):
+    def _spec_kinds(self, payload):
+        return [row["kind"] for row in payload["spec"]["rows"]]
+
+    def test_default_shows_the_pack_together_row(self):
         response = self.client.get(
             f"/api/admin/meal-plans/gramage-dashboard/?date={self.plan.date.isoformat()}"
         )
         assert response.status_code == status.HTTP_200_OK
-        assert self._sub_row_types(response.json()) == ["standard"]
+        payload = response.json()
+        assert self._sub_row_types(payload) == ["standard", "diet"]
+        assert "pack-together" in self._spec_kinds(payload)
 
-    def test_merge_diets_0_falls_back_to_the_unmerged_table(self):
+    def test_merge_diets_0_hides_the_pack_together_row_only(self):
         response = self.client.get(
             "/api/admin/meal-plans/gramage-dashboard/"
             f"?date={self.plan.date.isoformat()}&merge_diets=0"
         )
         assert response.status_code == status.HTTP_200_OK
-        assert self._sub_row_types(response.json()) == ["standard", "diet"]
+        payload = response.json()
+        # sub_rows (skutočná tabuľka) sa prepínačom nemenia vôbec.
+        assert self._sub_row_types(payload) == ["standard", "diet"]
+        assert "pack-together" not in self._spec_kinds(payload)

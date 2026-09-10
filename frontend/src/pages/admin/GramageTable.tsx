@@ -25,6 +25,9 @@ export interface SpecCell {
   note?: string | null;
   label?: string;
   swatch?: { color: string; base_colors: string[] };
+  /** "S"/"Z" (10.9.2026, #568 nadväzba) — spolu/zvlášť na diet-component-merge
+   * boarde, napr. "S" alebo composite "Z + S + Z". */
+  pack_badge?: string;
 }
 
 export interface SpecRow {
@@ -86,6 +89,11 @@ const SpecCells: React.FC<{ cells: SpecCell[] }> = ({ cells }) => (
               {cell.text}
             </span>
             <span className="count-badge">{cell.count}</span>
+            {cell.pack_badge && (
+              <span className={`pack-badge${cell.pack_badge.includes("Z") ? " pack-badge--z" : ""}`}>
+                {cell.pack_badge}
+              </span>
+            )}
           </span>
         ) : (
           cell.text

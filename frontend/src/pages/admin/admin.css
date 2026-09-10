@@ -530,6 +530,9 @@ a.zpa-ovrow-link .nm:hover, a.zpa-ovrow-link .nm:focus-visible { text-decoration
     background-repeat: no-repeat; background-position: right 12px center; padding-right: 38px;
 }
 .zpa-search { position: relative; }
+/* Vyhľadávanie diét v diet-component-merge (10.9.2026) — jedno na každú
+ * časť jedla, nad tabuľkou, nie na celú šírku karty. */
+.zpa-diet-merge-search { max-width: 280px; margin: 0 0 10px; }
 .zpa-search .zpa-input { padding-left: 42px; }
 .zpa-search svg { position: absolute; left: 15px; top: 50%; transform: translateY(-50%); width: 17px; height: 17px; color: var(--ink-mute); }
 /* Hlavička gramážnej tabuľky (2.9.2026) — dátumový prepínač, vyhľadávanie a

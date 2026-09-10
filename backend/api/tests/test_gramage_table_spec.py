@@ -195,6 +195,7 @@ def test_notes_come_before_the_subtotals():
         "note-delivery",
         "summary-std",
         "summary-diet",
+        "pack-together",
     ]
 
 
@@ -207,7 +208,7 @@ def test_include_summary_rows_false_drops_client_subtotals():
     kinds = _kinds(spec)
     assert "summary-std" not in kinds
     assert "summary-diet" not in kinds
-    assert kinds == ["client", "sub-row", "sub-row", "note-delivery"]
+    assert kinds == ["client", "sub-row", "sub-row", "note-delivery", "pack-together"]
 
 
 def test_zero_grams_render_as_a_dash_not_a_zero():
@@ -814,6 +815,7 @@ def test_a_diet_absent_from_the_visible_sections_is_not_summarised():
         "sub-row",
         "note-delivery",
         "summary-std",
+        "pack-together",
     ]
 
 
