@@ -1,4 +1,4 @@
-import { CATEGORIES, DIETS, GROUP_CONFIG, SPECIAL_DIET_NAME } from '../config/constants';
+import { ALL_MENU_LETTERS, CATEGORIES, DIETS, GROUP_CONFIG, SPECIAL_DIET_NAME } from '../config/constants';
 
 export interface DietCounts {
     [key: string]: number;
@@ -85,9 +85,11 @@ class OrderService {
         return { text: `${weekdayCapitalized} ${dayMonth}`, emphasized: false };
     }
 
-    static createEmptyCategory(categoryName: string): CategoryData {
-        const availableMenus = GROUP_CONFIG[categoryName] || ['A'];
-        const menuCounts = availableMenus.reduce((acc, menu) => ({ ...acc, [menu]: 0 }), {} as MenuCounts);
+    static createEmptyCategory(): CategoryData {
+        // Kategória (vek/porcia) menu neobmedzuje — schéma drží VŠETKY možné
+        // menu písmená, skutočný výber robí až prevádzka (visible_menus /
+        // menu_day_restrictions) filtrovaním v CategoryRow.
+        const menuCounts = ALL_MENU_LETTERS.reduce((acc, menu) => ({ ...acc, [menu]: 0 }), {} as MenuCounts);
 
         return {
             menuCounts,
@@ -98,11 +100,11 @@ class OrderService {
     }
 
     static createEmptyMeal(): MealData {
-        return CATEGORIES.reduce((acc, cat) => ({ ...acc, [cat]: this.createEmptyCategory(cat) }), {} as MealData);
+        return CATEGORIES.reduce((acc, cat) => ({ ...acc, [cat]: this.createEmptyCategory() }), {} as MealData);
     }
 
     static createEmptyMealFor(categories: string[]): MealData {
-        return categories.reduce((acc, cat) => ({ ...acc, [cat]: this.createEmptyCategory(cat) }), {} as MealData);
+        return categories.reduce((acc, cat) => ({ ...acc, [cat]: this.createEmptyCategory() }), {} as MealData);
     }
 
     static createEmptyOrder(): DailyOrder {
@@ -349,8 +351,10 @@ class OrderService {
      * by sa pri načítaní ticho zahodila, prepísala do `currentOrder` aj
      * localStorage, a najbližšie odoslanie by ju vynulovalo aj v DB.
      *
-     * `menuCounts` zámerne NIE je v zozname: tam je filtrovanie podľa
-     * `GROUP_CONFIG` úmyselné (kategória má pevnú množinu menu variantov).
+     * `menuCounts` zámerne NIE je v zozname: schéma drží kanonickú množinu
+     * `ALL_MENU_LETTERS`, takže filtrovanie neznámych kľúčov (napr. cudzí
+     * scrape formát) tu ostáva žiaduce — skutočné obmedzenie „čo sa ponúka“
+     * ale robí až prevádzka (visible_menus), nie táto schéma.
      */
     private static readonly OPEN_COUNT_MAP_KEYS = new Set(['diets']);
 
