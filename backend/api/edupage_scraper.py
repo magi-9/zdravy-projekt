@@ -394,6 +394,12 @@ class EdupageScraper:
         canonical_diet_names: dict[str, str] | None = None,
         visible_diets_by_prevadzka: dict[str, set[str]] | None = None,
     ) -> ScrapeResult:
+        canonical_diet_names = canonical_diet_names or getattr(
+            self, "canonical_diet_names", None
+        )
+        visible_diets_by_prevadzka = visible_diets_by_prevadzka or getattr(
+            self, "visible_diets_by_prevadzka", None
+        )
         url = self._inject_date(mealsguest_url, target_date)
         html = self._fetch(url)
         config = config_pre_url(mealsguest_url)

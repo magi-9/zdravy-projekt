@@ -151,13 +151,13 @@ class AdminEdupageConnectionViewSet(viewsets.ModelViewSet):
                 continue
 
             try:
+                scraper.canonical_diet_names = dict(MAPPINGS)
+                scraper.visible_diets_by_prevadzka = visible_diets_by_prevadzka
                 result = scraper.scrape(
                     operation["url"],
                     target_date,
                     prevadzka_matches=matches if len(prevadzky) > 1 else None,
                     allowed_diets=allowed_diets,
-                    canonical_diet_names=dict(MAPPINGS),
-                    visible_diets_by_prevadzka=visible_diets_by_prevadzka,
                 )
             except Exception:
                 logger.exception(
