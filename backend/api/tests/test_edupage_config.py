@@ -691,13 +691,26 @@ class TestZdravebruskoLetterHook(unittest.TestCase):
         plnú kombináciu (user 1.9.2026)."""
         self.assertEqual(
             self._rule("dsbNNN SJ").diet,
-            "NoNoNo - No Soja - No Jablko - No Telacie",
+            "NO MILK – NO GLUTEN – NO EGG – NO SOJA – NO JABLKO – NO TELACIE",
         )
 
     def test_zs_malokarpatska_nm_variant_b_confirmed(self):
-        """'zšlaNM B' (rovnaká diéta ako 'zšlaNM', iný riadok) — potvrdené
-        NO MILK (user 9.9.2026)."""
-        self.assertEqual(self._rule("zšlaNM B").diet, "NO MILK")
+        """`zšlaNM B` je obedová diéta NoMilk + NoBanán, nie čisté NoMilk.
+
+        EduPage ju vypisuje ako `ZŠLamačNoMilk banán`; nesmie sa stratiť
+        banánové obmedzenie len preto, že stará appka túto kombináciu ešte
+        nemala založenú (potvrdené userom 11.9.2026).
+        """
+        self.assertEqual(
+            self._rule("zšlaNM B").diet,
+            "NO MILK – NO BANÁN",
+        )
+
+    def test_dsb_nono_soja_jablko_telacie_is_canonical_combo(self):
+        self.assertEqual(
+            self._rule("dsbNNN SJ").diet,
+            "NO MILK – NO GLUTEN – NO EGG – NO SOJA – NO JABLKO – NO TELACIE",
+        )
 
     def test_heyrovskeho_gluten_confirmed(self):
         self.assertEqual(self._rule("mšHey. NG").diet, "NO GLUTEN")
@@ -781,6 +794,15 @@ class TestZdravebruskoPayerHook(unittest.TestCase):
 
     def test_deutsche_schule_payer_untouched(self):
         self.assertIsNone(zdravebrusko_payer_hook("MŠ Klasik"))
+
+    def test_deutsche_nono_payer_keeps_full_confirmed_combo(self):
+        rule = zdravebrusko_payer_hook("MŠ NoNoNo Bez Sóje a Jablka")
+        self.assertIsNotNone(rule)
+        self.assertEqual(
+            rule.diet,
+            "NO MILK – NO GLUTEN – NO EGG – NO SOJA – NO JABLKO – NO TELACIE",
+        )
+        self.assertFalse(rule.force_match)
 
     def test_unrelated_payer_untouched(self):
         self.assertIsNone(zdravebrusko_payer_hook("1.stupeň Lamač"))
