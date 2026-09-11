@@ -15,3 +15,13 @@ export const GROUP_CONFIG: Record<string, string[]> = {
     'ZŠ 2.stupeň': ['A', 'B', 'V'],
     'Dospelý (SŠ)': ['A', 'B', 'C', 'D', 'V']
 };
+
+/**
+ * Kompletná množina menu písmen, ktoré môže mať kategória v `menuCounts`.
+ * Skutočné obmedzenie, čo sa naozaj ponúkne, robí až prevádzka
+ * (`visible_menus`/`menu_day_restrictions`) v `CategoryRow`/`filterMenusByDay` —
+ * kategória (vek/porcia) menu sama o sebe neobmedzuje. `GROUP_CONFIG` sa
+ * naďalej používa len pre diéty (`getAvailableDiets` — vylúčenie
+ * „Vegetariánske“, keď kategória ponúka Menu V).
+ */
+export const ALL_MENU_LETTERS = ['A', 'B', 'C', 'D', 'V'];
