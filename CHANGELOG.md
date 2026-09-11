@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.6.1](https://github.com/tomag-9/zdravy-projekt/compare/v3.6.0...v3.6.1) (2026-09-11)
+
+
+### Bug Fixes
+
+* **trasy:** oprav 0113, ktorá raňajky/olovrant nasmerovala na obedovú trasu ([56307dd](https://github.com/tomag-9/zdravy-projekt/commit/56307dd6f5e960252cefc974b5ad0910e1ae6942))
+
 ## [3.6.0](https://github.com/tomag-9/zdravy-projekt/compare/v3.5.1...v3.6.0) (2026-09-11)
 
 
