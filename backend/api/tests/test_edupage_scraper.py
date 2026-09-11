@@ -158,7 +158,7 @@ class TestResolveDietName(unittest.TestCase):
         self.assertIsNotNone(rule)
         self.assertEqual(
             rule.diet,
-            "NoNoNo - No Soja - No Jablko - No Telacie",
+            "NO MILK – NO GLUTEN – NO EGG – NO SOJA – NO JABLKO – NO TELACIE",
         )
 
     def test_known_skratka_case_insensitive(self):

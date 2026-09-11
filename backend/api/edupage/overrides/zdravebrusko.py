@@ -52,7 +52,9 @@ from ..base import LetterRule, PayerRule
 _RULES: dict[str, LetterRule] = {
     "DSBNMNE": LetterRule(diet="NO MILK/NO EGG"),
     "DSBNM": LetterRule(diet="NO MILK"),
-    "DSBNNN SJ": LetterRule(diet="NoNoNo - No Soja - No Jablko - No Telacie"),
+    "DSBNNN SJ": LetterRule(
+        diet="NO MILK – NO GLUTEN – NO EGG – NO SOJA – NO JABLKO – NO TELACIE"
+    ),
     "DSBNGNM": LetterRule(diet="NO MILK – NO GLUTEN"),
     "DSBNO": LetterRule(diet="NO ORECH"),
     "MŠHEY. NG": LetterRule(diet="NO GLUTEN"),
@@ -61,7 +63,7 @@ _RULES: dict[str, LetterRule] = {
     "ZŠLANG": LetterRule(diet="NO GLUTEN"),
     "ZŠLANMNENONJ": LetterRule(diet="NO MILK – NO EGG – NO ORECH – NO JABLKO"),
     "ZŠLANM": LetterRule(diet="NO MILK"),
-    "ZŠLANM B": LetterRule(diet="NO MILK"),
+    "ZŠLANM B": LetterRule(diet="NO MILK – NO BANÁN"),
     "SŠVV": LetterRule(menu="V"),
 }
 
@@ -88,6 +90,14 @@ def zdravebrusko_payer_hook(payer_name: str) -> PayerRule | None:
     olovrante (viď modul docstring) — `force_match=True` aj vlastná diéta
     odvodená z payera, nie zo zdieľaného písmena."""
     key = _fold_letters(payer_name)
+    # Deutsche Schule: menu písmeno `dsbA` znamená Klasik. Diéta je až v
+    # payerovi „MŠ NoNoNo Bez Sóje a Jablka“. Generický keyword matcher z neho
+    # vybral iba `NO SOJA`; skutočná, potvrdená kombinácia je táto plná diéta.
+    # Nevnucujeme match prevádzky — `dsb` v skratke menu ju už určuje správne.
+    if "NONONOBEZSOJEAJABLKA" in key:
+        return PayerRule(
+            diet="NO MILK – NO GLUTEN – NO EGG – NO SOJA – NO JABLKO – NO TELACIE"
+        )
     if key.startswith("MSMAL"):
         match_name = "mšMal"
     elif key.startswith("MSHEY"):

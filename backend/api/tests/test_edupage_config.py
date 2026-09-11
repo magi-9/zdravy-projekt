@@ -198,6 +198,28 @@ class TestConfigPreUrl(unittest.TestCase):
         self.assertIsNotNone(cfg.letter_hook)
         self.assertTrue(cfg.ranajky_z_obedu)
 
+    def test_dobrodruzstvo_olovrant_missing_ok_covers_zs(self):
+        """ZŠ Dobrodružstvo (starší žiaci) olovrant cez EduPage nikdy neobjednáva
+        — MŠ Dobrodružstvo ho má bežne (user 11.9.2026, živé dáta: MŠ 11/11 dní
+        s obedom malo aj olovrant, ZŠ 0/11). Bez tejto výnimky `_apply_olovrant_config`
+        každý deň False-flagoval 'olovrant chýba' na ZŠ vetve."""
+        cfg = config_pre_url("https://dobrodruzstvo.edupage.org/menu/mealsGuest?id=x")
+        self.assertIn("ZŠ Dobrodružstvo", cfg.olovrant_missing_ok)
+
+    def test_rozmanita_olovrant_missing_ok_covers_skola(self):
+        """Rozmanitá Škola (ZŠ) olovrant cez EduPage nikdy neobjednáva — MŠ
+        Rozmanitá ho má (user 11.9.2026, živé dáta)."""
+        cfg = config_pre_url("https://rozmanita.edupage.org/menu/mealsGuest?id=x")
+        self.assertIn("Rozmanita Škola", cfg.olovrant_missing_ok)
+
+    def test_skolicka_zs_olovrant_mode_is_mimo_appky(self):
+        """Školička ZŠ (1./2. stupeň) — bez MŠ vetvy na tejto connection,
+        olovrant sa cez EduPage nikdy reálne neobjednáva (živé dáta 11.9.2026:
+        jediný 'olovrant' záznam bol nulová štruktúra, nie skutočná objednávka).
+        `NEZNAMY` každý deň False-flagoval oba stupne 'olovrant_mode nepotvrdený'."""
+        cfg = config_pre_url("https://skolicka.edupage.org/menu/mealsGuest?id=x")
+        self.assertEqual(cfg.olovrant_mode, OlovrantMode.MIMO_APPKY)
+
     def test_cmspezinok_has_letter_hook(self):
         cfg = config_pre_url("https://cmspezinok.edupage.org/menu/mealsGuest?id=x")
         self.assertIsNotNone(cfg)
@@ -309,6 +331,31 @@ class TestApplyConfigOlovrant(unittest.TestCase):
         self.assertTrue(
             any("Deutsche schule" in n and "olovrant" in n for n in res.config_notes)
         )
+
+    def test_olovrant_missing_ok_does_not_leak_note_to_sibling_prevadzka(self):
+        """MŠ Dobrodružstvo má olovrant, ZŠ Dobrodružstvo nikdy — regresný test
+        pre presne nahlásený prípad (user 11.9.2026): keď je ZŠ vetva vo
+        `olovrant_missing_ok`, jej nota sa nemá objaviť vôbec, teda sa ani
+        nemá čím 'preliať' na sesterskú MŠ prevádzku pri uložení (tasks.py
+        zdieľa `config_notes` celok-wide)."""
+        res = ScrapeResult(
+            date=TARGET,
+            order_data={"lunch": LUNCH_DATA, "olovrant": LUNCH_DATA},
+            order_data_by_prevadzka={
+                "MŠ Dobrodružstvo": {"lunch": LUNCH_DATA, "olovrant": LUNCH_DATA},
+                "ZŠ Dobrodružstvo": {"lunch": LUNCH_DATA},
+            },
+        )
+
+        apply_config(
+            res,
+            _cfg(
+                OlovrantMode.EDUPAGE,
+                olovrant_missing_ok=frozenset({"ZŠ Dobrodružstvo"}),
+            ),
+        )
+
+        self.assertEqual(res.config_notes, [])
 
     def test_neznamy_does_not_guess(self):
         """Ivanka: kým nemáme dáta, radšej warning než tichý odhad."""
@@ -644,13 +691,26 @@ class TestZdravebruskoLetterHook(unittest.TestCase):
         plnú kombináciu (user 1.9.2026)."""
         self.assertEqual(
             self._rule("dsbNNN SJ").diet,
-            "NoNoNo - No Soja - No Jablko - No Telacie",
+            "NO MILK – NO GLUTEN – NO EGG – NO SOJA – NO JABLKO – NO TELACIE",
         )
 
     def test_zs_malokarpatska_nm_variant_b_confirmed(self):
-        """'zšlaNM B' (rovnaká diéta ako 'zšlaNM', iný riadok) — potvrdené
-        NO MILK (user 9.9.2026)."""
-        self.assertEqual(self._rule("zšlaNM B").diet, "NO MILK")
+        """`zšlaNM B` je obedová diéta NoMilk + NoBanán, nie čisté NoMilk.
+
+        EduPage ju vypisuje ako `ZŠLamačNoMilk banán`; nesmie sa stratiť
+        banánové obmedzenie len preto, že stará appka túto kombináciu ešte
+        nemala založenú (potvrdené userom 11.9.2026).
+        """
+        self.assertEqual(
+            self._rule("zšlaNM B").diet,
+            "NO MILK – NO BANÁN",
+        )
+
+    def test_dsb_nono_soja_jablko_telacie_is_canonical_combo(self):
+        self.assertEqual(
+            self._rule("dsbNNN SJ").diet,
+            "NO MILK – NO GLUTEN – NO EGG – NO SOJA – NO JABLKO – NO TELACIE",
+        )
 
     def test_heyrovskeho_gluten_confirmed(self):
         self.assertEqual(self._rule("mšHey. NG").diet, "NO GLUTEN")
@@ -734,6 +794,15 @@ class TestZdravebruskoPayerHook(unittest.TestCase):
 
     def test_deutsche_schule_payer_untouched(self):
         self.assertIsNone(zdravebrusko_payer_hook("MŠ Klasik"))
+
+    def test_deutsche_nono_payer_keeps_full_confirmed_combo(self):
+        rule = zdravebrusko_payer_hook("MŠ NoNoNo Bez Sóje a Jablka")
+        self.assertIsNotNone(rule)
+        self.assertEqual(
+            rule.diet,
+            "NO MILK – NO GLUTEN – NO EGG – NO SOJA – NO JABLKO – NO TELACIE",
+        )
+        self.assertFalse(rule.force_match)
 
     def test_unrelated_payer_untouched(self):
         self.assertIsNone(zdravebrusko_payer_hook("1.stupeň Lamač"))
