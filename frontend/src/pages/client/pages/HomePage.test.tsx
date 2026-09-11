@@ -232,5 +232,13 @@ describe("HomePage history", () => {
       expect.objectContaining({ date: today, prevadzka: 7, status: "submitted" }),
       expect.objectContaining({ date: today, prevadzka: 9, status: "submitted" }),
     ]);
+    // Jarabinka 11.9.2026: explicitné vynulovanie musí označiť všetky tri
+    // jedlá ako touched, inak auto-order cron doplní "chýbajúci" obed
+    // šablónou z predošlého dňa napriek tomu, že klient chcel nulu.
+    for (const post of posts) {
+      expect(post).toMatchObject({
+        touched_meals: ["breakfast", "lunch", "olovrant"],
+      });
+    }
   });
 });

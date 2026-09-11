@@ -179,6 +179,81 @@ class TestOrderUpdate:
 
 
 @pytest.mark.django_db
+class TestTouchedMeals:
+    """`touched_meals` (Jarabinka 11.9.2026) — jedlo, ktoré klient/admin
+    v zápise skutočne riešil (aj na nulu), sa musí uložiť a naprieč ďalšími
+    zápismi na ten istý deň len zjednocovať, nikdy strácať."""
+
+    def test_create_persists_touched_meals(self, authenticated_client, user):
+        url = reverse("dailyorder-list")
+        response = authenticated_client.post(
+            url,
+            {"date": str(MONDAY), "data": {}, "touched_meals": ["lunch"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        order = DailyOrder.objects.get()
+        assert order.touched_meals == ["lunch"]
+
+    def test_touched_meals_default_empty(self, authenticated_client, user):
+        """Bez `touched_meals` v requeste (staré klienty, iné integrácie)
+        ostáva pole prázdne — spätne kompatibilné."""
+        url = reverse("dailyorder-list")
+        response = authenticated_client.post(
+            url, {"date": str(MONDAY), "data": NON_EMPTY_DATA}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        order = DailyOrder.objects.get()
+        assert order.touched_meals == []
+
+    def test_second_post_unions_touched_meals(self, authenticated_client, user):
+        """Deň sa rieši postupne (raňajky večer, obed ráno) — druhý POST na
+        ten istý deň nesmie stratiť, čo bolo touched skôr."""
+        url = reverse("dailyorder-list")
+        authenticated_client.post(
+            url,
+            {"date": str(MONDAY), "data": {}, "touched_meals": ["breakfast"]},
+            format="json",
+        )
+
+        response = authenticated_client.post(
+            url,
+            {"date": str(MONDAY), "data": {}, "touched_meals": ["lunch"]},
+            format="json",
+        )
+
+        assert response.status_code in [status.HTTP_200_OK, status.HTTP_201_CREATED]
+        order = DailyOrder.objects.get()
+        assert set(order.touched_meals) == {"breakfast", "lunch"}
+
+    def test_patch_unions_touched_meals(self, authenticated_client, user):
+        order = DailyOrder.objects.create(
+            user=user, date=MONDAY, data=EMPTY_DATA, touched_meals=["breakfast"]
+        )
+
+        url = reverse("dailyorder-detail", args=[order.id])
+        response = authenticated_client.patch(
+            url, {"data": NON_EMPTY_DATA, "touched_meals": ["lunch"]}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        order.refresh_from_db()
+        assert set(order.touched_meals) == {"breakfast", "lunch"}
+
+    def test_invalid_meal_key_rejected(self, authenticated_client, user):
+        url = reverse("dailyorder-list")
+        response = authenticated_client.post(
+            url,
+            {"date": str(MONDAY), "data": {}, "touched_meals": ["desiata"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.django_db
 class TestOrderRetrieval:
     """Test order retrieval endpoints."""
 

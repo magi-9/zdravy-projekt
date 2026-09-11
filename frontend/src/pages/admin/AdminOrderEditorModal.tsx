@@ -434,6 +434,11 @@ const AdminOrderEditorModal: React.FC<Props> = ({
                     : (activeMeals.olovrant ? snapshot.olovrant : emptyMeal),
                 special_diet_note: specialDietNote.trim() || undefined,
             };
+            // Admin editor je "nastav celý deň naraz" nástroj — každý zobrazený
+            // chod je preto vždy explicitne odkontrolovaný (aj keď ostal 0),
+            // nikdy nie "zatiaľ nedotknutý". Auto-order cron ho už nesmie
+            // ticho doplniť (Jarabinka 11.9.2026, `DailyOrder.touched_meals`).
+            const touchedMealsPayload = visibleMealsList.map((meal) => meal.key);
 
             const query = clientId ? `?user_id=${encodeURIComponent(String(clientId))}` : '';
 
@@ -441,7 +446,7 @@ const AdminOrderEditorModal: React.FC<Props> = ({
                 const res = await apiFetch(`${API_URL}/orders/${existingOrder.id}/?prevadzka=${encodeURIComponent(String(prevadzkaId))}`, {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ data: payloadData, prevadzka: prevadzkaId }),
+                    body: JSON.stringify({ data: payloadData, prevadzka: prevadzkaId, touched_meals: touchedMealsPayload }),
                 });
                 if (!res.ok) {
                     const body = await res.json().catch(() => ({}));
@@ -453,7 +458,7 @@ const AdminOrderEditorModal: React.FC<Props> = ({
                 const res = await apiFetch(`${API_URL}/orders/${query}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ date, data: payloadData, prevadzka: prevadzkaId }),
+                    body: JSON.stringify({ date, data: payloadData, prevadzka: prevadzkaId, touched_meals: touchedMealsPayload }),
                 });
                 if (!res.ok) {
                     const body = await res.json().catch(() => ({}));

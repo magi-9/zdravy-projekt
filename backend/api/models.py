@@ -104,6 +104,25 @@ class DailyOrder(models.Model):
     is_auto = models.BooleanField(
         default=False, help_text="True if this order was auto-generated after deadline"
     )
+    touched_meals = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=(
+            "Ktoré jedlá (breakfast/lunch/olovrant) klient/admin V TOMTO RIADKU "
+            "skutočne odklikol/rozhodol — aj keď výsledok je nula (napr. "
+            "'Vymazať'/'Vynulovať'). Union naprieč zápismi (`update()` pridáva, "
+            "nikdy neuberá). `apply_auto_orders` (scoped beh, #issue Jarabinka "
+            "11.9.2026) toto jedlo potom nikdy neprepíše, aj keď dáta pre neho "
+            "vyzerajú prázdne — bez tohto rozlíšenia doterajší "
+            "`_scoped_is_empty` count-based check nevedel odlíšiť 'klient "
+            "explicitne zadal 0' od 'klient sa k jedlu vôbec nedostal', a "
+            "auto-cron tichým `save(update_fields=['data'])` (bez EventLogu, "
+            "bez `updated_at`) prepísal zámerne vynulovaný deň šablónou z "
+            "predošlého dňa. Prázdny zoznam (default, aj historické riadky "
+            "spred tohto poľa) = žiadne jedlo nie je chránené, teda sa preň "
+            "použije pôvodné (count-based) správanie — spätne kompatibilné."
+        ),
+    )
     attention_dismissed = models.BooleanField(
         default=False,
         help_text=(
