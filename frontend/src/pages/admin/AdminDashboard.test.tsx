@@ -50,6 +50,9 @@ const mockDashboardRequests = (
     if (url.includes("/admin/meal-plans/gramage-dashboard/")) {
       return Promise.resolve(makeMockResponse(gramage));
     }
+    if (url.includes("/admin/meal-plans/gramage-dashboard-pdf/")) {
+      return Promise.resolve(makeMockResponse(new Blob()));
+    }
     if (url.includes("/admin/summary/daily-report/") && orderReport) {
       return Promise.resolve(makeMockResponse(orderReport));
     }
@@ -335,6 +338,11 @@ const cell = (text: string, css = "") => ({ text, css });
 
 const GRAMAGE_WITH_ROWS = {
   ...EMPTY_GRAMAGE,
+  // Tabuľka s riadkami vzniká len z platného jedálneho lístka. Bez ID by
+  // dashboard správne prepol na fallback denného reportu, čo táto fixture
+  // netestuje a pri refetchi nechávalo neobslúžený request.
+  meal_plan_id: 1,
+  col_groups: [{ key: "menuA" }],
   spec: {
     total_columns: 2,
     sections: [
