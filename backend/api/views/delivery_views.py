@@ -3,6 +3,7 @@ from django.db.models import Prefetch
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
 from .. import sections
@@ -101,7 +102,12 @@ class DeliveryBlockViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
                 block_id = block_payload.get("id")
                 if block_id is None:
                     continue
-                DeliveryBlock.objects.filter(pk=block_id, meal_type=meal_type).update(
+                block = DeliveryBlock.objects.filter(
+                    pk=block_id, meal_type=meal_type
+                ).first()
+                if block is None:
+                    raise ValidationError({"blocks": "Blok nepatrí k vybranému jedlu."})
+                DeliveryBlock.objects.filter(pk=block.id).update(
                     sort_order=block_payload.get("sort_order", block_index)
                 )
 
@@ -112,10 +118,15 @@ class DeliveryBlockViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
                     route_id = route_payload.get("id")
                     if route_id is None:
                         continue
-                    DeliveryRoute.objects.filter(
+                    route = DeliveryRoute.objects.filter(
                         pk=route_id, block__meal_type=meal_type
-                    ).update(
-                        block_id=block_id,
+                    ).first()
+                    if route is None:
+                        raise ValidationError(
+                            {"routes": "Trasa nepatrí k vybranému jedlu."}
+                        )
+                    DeliveryRoute.objects.filter(pk=route.id).update(
+                        block_id=block.id,
                         sort_order=route_payload.get("sort_order", route_index),
                     )
 

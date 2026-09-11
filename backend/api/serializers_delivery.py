@@ -42,6 +42,21 @@ class DeliveryPrevadzkaSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["nazov", "adresa", "celok", "is_active"]
 
+    def validate(self, attrs):
+        for meal_type in ("breakfast", "lunch", "olovrant"):
+            field_name = f"delivery_route_{meal_type}"
+            route = attrs.get(field_name)
+            if route is not None and route.block.meal_type != meal_type:
+                raise serializers.ValidationError(
+                    {
+                        field_name: (
+                            f"Trasa patrí k jedlu {route.block.get_meal_type_display()}, "
+                            f"nie k jedlu {meal_type}."
+                        )
+                    }
+                )
+        return attrs
+
 
 class DeliveryRouteSerializer(serializers.ModelSerializer):
     prevadzky = serializers.SerializerMethodField()
@@ -67,6 +82,18 @@ class DeliveryRouteSerializer(serializers.ModelSerializer):
             f"delivery_sort_order_{meal_type}", "sort_order", "nazov"
         )
         return DeliveryPrevadzkaSerializer(prevadzky, many=True).data
+
+    def validate(self, attrs):
+        block = attrs.get("block")
+        if (
+            block is not None
+            and self.instance is not None
+            and block.meal_type != self.instance.block.meal_type
+        ):
+            raise serializers.ValidationError(
+                {"block": "Trasu nemožno presunúť medzi rôznymi jedlami."}
+            )
+        return attrs
 
 
 class DeliveryBlockSerializer(serializers.ModelSerializer):

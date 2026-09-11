@@ -86,6 +86,55 @@ def test_delivery_layout_reorder_moves_prevadzky_between_routes(
     assert second.delivery_sort_order_lunch == 1
 
 
+def test_delivery_routes_cannot_be_assigned_to_the_wrong_meal_type(
+    admin_authenticated_client,
+):
+    """Každé pole prevádzky má vlastnú trasu, ale len rovnakého typu jedla."""
+    lunch_block = DeliveryBlock.objects.create(name="Obed", meal_type="lunch")
+    breakfast_block = DeliveryBlock.objects.create(
+        name="Raňajky", meal_type="breakfast"
+    )
+    breakfast_route = DeliveryRoute.objects.create(
+        block=breakfast_block, name="Ranná trasa"
+    )
+    lunch_route = DeliveryRoute.objects.create(block=lunch_block, name="Obedová trasa")
+    prevadzka = _prevadzka("Správne priradenie")
+
+    patch_response = admin_authenticated_client.patch(
+        f"/api/admin/prevadzky-delivery/{prevadzka.id}/",
+        {"delivery_route_lunch": breakfast_route.id},
+        format="json",
+    )
+    reorder_response = admin_authenticated_client.post(
+        "/api/admin/delivery-blocks/reorder/",
+        {
+            "meal_type": "lunch",
+            "blocks": [
+                {
+                    "id": lunch_block.id,
+                    "routes": [
+                        {"id": breakfast_route.id, "prevadzky": [{"id": prevadzka.id}]}
+                    ],
+                }
+            ],
+        },
+        format="json",
+    )
+    route_move_response = admin_authenticated_client.patch(
+        f"/api/admin/delivery-routes/{lunch_route.id}/",
+        {"block": breakfast_block.id},
+        format="json",
+    )
+
+    assert patch_response.status_code == 400
+    assert reorder_response.status_code == 400
+    assert route_move_response.status_code == 400
+    prevadzka.refresh_from_db()
+    assert prevadzka.delivery_route_lunch_id is None
+    lunch_route.refresh_from_db()
+    assert lunch_route.block_id == lunch_block.id
+
+
 def test_route_vydaj_can_be_switched(admin_authenticated_client):
     """Výdaj sa prepína na trase — je to jediné miesto, kde sa nastavuje."""
     block = DeliveryBlock.objects.create(name="Bežné trasy", sort_order=1)

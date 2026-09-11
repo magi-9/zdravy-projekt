@@ -133,6 +133,9 @@ const DeliveryLayoutAdmin: React.FC = () => {
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
   const saveVersionRef = useRef(0);
+  // Prepnutie tabu spustí nový fetch; odpoveď zo starého tabu nesmie neskôr
+  // prepísať layout, ktorý už patrí aktuálne vybranému jedlu.
+  const fetchVersionRef = useRef(0);
 
   const routeOptions = useMemo(
     () => layout.blocks.flatMap((block) => block.routes.map((route) => ({ route, block }))),
@@ -140,15 +143,24 @@ const DeliveryLayoutAdmin: React.FC = () => {
   );
 
   const fetchLayout = useCallback(async () => {
+    const fetchVersion = fetchVersionRef.current + 1;
+    fetchVersionRef.current = fetchVersion;
     setLoading(true);
     try {
       const layoutRes = await apiFetch(`${API}/admin/delivery-blocks/layout/?meal_type=${mealType}`);
-      if (layoutRes.ok) setLayout(renumberLayout(await layoutRes.json(), mealType));
+      if (layoutRes.ok) {
+        const nextLayout = await layoutRes.json();
+        if (fetchVersionRef.current === fetchVersion) {
+          setLayout(renumberLayout(nextLayout, mealType));
+        }
+      }
     } catch (e) {
-      logger.error(e);
-      toastError("Nepodarilo sa načítať rozvozový layout.");
+      if (fetchVersionRef.current === fetchVersion) {
+        logger.error(e);
+        toastError("Nepodarilo sa načítať rozvozový layout.");
+      }
     } finally {
-      setLoading(false);
+      if (fetchVersionRef.current === fetchVersion) setLoading(false);
     }
   }, [apiFetch, mealType, toastError]);
 
