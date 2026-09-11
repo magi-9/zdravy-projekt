@@ -297,4 +297,41 @@ describe("DietComponentMergePage", () => {
     expect(screen.getByText("Bez lepku")).toBeInTheDocument();
     expect(screen.queryByText("Bez laktózy")).not.toBeInTheDocument();
   });
+
+  it("renders soup as its own section, independent from and before the main course", async () => {
+    // 11.9.2026: polievka je nezávislá bunka od hlavného jedla — má vlastný
+    // riadok/sekciu na boarde, aj keď v gramážnej tabuľke/PDF ostáva
+    // zlúčená do obeda.
+    mockApiFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        ...boardAllSpolu,
+        meals: [
+          {
+            meal: "soup",
+            label: "Polievka",
+            template_name: "Slepačia polievka",
+            components: [{ index: 0, label: "Polievka" }],
+          },
+          ...boardAllSpolu.meals,
+        ],
+        merged: [
+          { meal: "soup", diet_name: "Bez lepku", component_index: 0 },
+          ...boardAllSpolu.merged,
+        ],
+      }),
+    });
+
+    render(<MemoryRouter><DietComponentMergePage /></MemoryRouter>);
+
+    const sections = await screen.findAllByRole("button", { name: /rozbaliť|zbaliť/i });
+    const headings = sections.map((s) => s.textContent);
+    const soupIndex = headings.findIndex((t) => t?.includes("Polievka"));
+    const mainCourseIndex = headings.findIndex((t) => t?.includes("Hlavný chod"));
+    expect(soupIndex).toBeGreaterThanOrEqual(0);
+    expect(mainCourseIndex).toBeGreaterThan(soupIndex);
+
+    fireEvent.click(sections[soupIndex]);
+    expect(await screen.findByText("Slepačia polievka")).toBeInTheDocument();
+  });
 });

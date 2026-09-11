@@ -29,7 +29,7 @@ def test_no_meal_plan_returns_no_meals_but_still_lists_diets():
     assert any(d["name"] == "NO MILK" for d in board["diets"])
 
 
-def test_lists_components_for_the_three_relevant_meals_only():
+def test_lists_components_for_all_four_relevant_meals():
     plan = DailyMealPlan.objects.create(date=datetime.date(2026, 9, 21))
     MealPlanItem.objects.create(
         meal_plan=plan,
@@ -69,9 +69,11 @@ def test_lists_components_for_the_three_relevant_meals_only():
     board = diet_component_merge_board(plan.date.isoformat())
 
     meals_by_key = {m["meal"]: m for m in board["meals"]}
-    # Polievka nie je súčasťou tohto boardu (patrí pod obed, nie je vlastná
-    # zložka zo šéfkuchárskeho pohľadu).
-    assert set(meals_by_key) == {"main_course", "afternoon_snack"}
+    # Polievka (11.9.2026) je od hlavného jedla nezávislá voľba v tomto
+    # boarde — má vlastný riadok, aj keď v `gramage_table_spec` ostáva
+    # zlúčená do riadku obeda (`_merge_soup_into_main_course`).
+    assert set(meals_by_key) == {"soup", "main_course", "afternoon_snack"}
+    assert meals_by_key["soup"]["components"] == [{"index": 0, "label": "Polievka"}]
     assert meals_by_key["main_course"]["components"] == [
         {"index": 0, "label": "Hlavná časť"},
         {"index": 1, "label": "Príloha"},
@@ -79,6 +81,54 @@ def test_lists_components_for_the_three_relevant_meals_only():
     assert meals_by_key["afternoon_snack"]["components"] == [
         {"index": 0, "label": "Olovrant"}
     ]
+
+
+def test_soup_and_main_course_are_toggled_independently():
+    """Polievka a hlavné jedlo sú v tomto boarde samostatné bunky — diéta
+    môže byť "zvlášť" len pri polievke, len pri hlavnom jedle, alebo pri
+    oboch, nezávisle."""
+    plan = DailyMealPlan.objects.create(date=datetime.date(2026, 9, 25))
+    Diet.objects.create(name="Bez lepku")
+    MealPlanItem.objects.create(
+        meal_plan=plan,
+        template=MealTemplate.objects.create(
+            name="Polievka",
+            category="soup",
+            components=[{"label": "Polievka", "grams": "200", "unit": "g"}],
+            base_weight_grams="200",
+        ),
+        category="soup",
+    )
+    MealPlanItem.objects.create(
+        meal_plan=plan,
+        template=MealTemplate.objects.create(
+            name="Obed A",
+            category="main_course",
+            components=[{"label": "Hlavná časť", "grams": "200", "unit": "g"}],
+            base_weight_grams="200",
+        ),
+        category="main_course",
+        menu_variant="A",
+    )
+    DietComponentMerge.objects.create(
+        date=plan.date,
+        meal="soup",
+        component_index=0,
+        diet=Diet.objects.get(name="Bez lepku"),
+    )
+
+    board = diet_component_merge_board(plan.date.isoformat())
+
+    assert {
+        "meal": "soup",
+        "diet_name": "Bez lepku",
+        "component_index": 0,
+    } not in board["merged"]
+    assert {
+        "meal": "main_course",
+        "diet_name": "Bez lepku",
+        "component_index": 0,
+    } in board["merged"]
 
 
 def test_only_menu_a_is_considered_for_main_course():
