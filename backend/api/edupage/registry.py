@@ -185,10 +185,15 @@ _CONFIGS: tuple[PrevadzkaConfig, ...] = (
             "1.stupeň porcia-kód (4 z 5 skupín majú v EduPage zle nastavené "
             "porcia=2 namiesto 1, user 3.9.2026: 'spojilo 1. a 2. stupeň') "
             "rieši payer_hook. nPAR bol uncertain fuzzy match — letter_hook "
-            "potvrdzuje na NO PARADAJKA (user 9.9.2026)."
+            "potvrdzuje na NO PARADAJKA (user 9.9.2026). ZŠ Dobrodružstvo "
+            "(starší žiaci) olovrant cez EduPage nikdy neobjednáva — MŠ "
+            "Dobrodružstvo ho má bežne (user 11.9.2026, živé dáta: MŠ 11/11 "
+            "dní s obedom malo aj olovrant, ZŠ 0/11) — v `olovrant_missing_ok`, "
+            "rovnaký princíp ako ZŠ Malokarpatská na zdravebrusko."
         ),
         letter_hook=dobrodruzstvo_letter_hook,
         payer_hook=dobrodruzstvo_payer_hook,
+        olovrant_missing_ok=frozenset({"ZŠ Dobrodružstvo"}),
     ),
     PrevadzkaConfig(
         subdomena="msfilipaneriho",
@@ -247,9 +252,12 @@ _CONFIGS: tuple[PrevadzkaConfig, ...] = (
         poznamka=(
             "Split MŠ/ZŠ. NONONO chýba pri olovrante — reconcile (krok 5). "
             "'NoMO' bol uncertain fuzzy match (len NO MILK) — letter_hook "
-            "potvrdzuje na NO MILK – NO ORECH (user 1.9.2026)."
+            "potvrdzuje na NO MILK – NO ORECH (user 1.9.2026). Rozmanitá "
+            "Škola (ZŠ) olovrant cez EduPage nikdy neobjednáva — MŠ Rozmanitá "
+            "ho má (user 11.9.2026, živé dáta) — v `olovrant_missing_ok`."
         ),
         letter_hook=rozmanita_letter_hook,
+        olovrant_missing_ok=frozenset({"Rozmanita Škola"}),
     ),
     PrevadzkaConfig(
         subdomena="skolickams",
@@ -267,9 +275,14 @@ _CONFIGS: tuple[PrevadzkaConfig, ...] = (
     PrevadzkaConfig(
         subdomena="skolicka",
         ucty=("Školička 1.stupeň", "Školička 2. stupeň"),
-        olovrant_mode=OlovrantMode.NEZNAMY,
+        olovrant_mode=OlovrantMode.MIMO_APPKY,
         poznamka=(
-            "Nový onboarding (#564, 2.9.2026) — olovrant_mode zatiaľ nepotvrdený. "
+            "Bez MŠ vetvy na tejto connection — olovrant sa cez EduPage nikdy "
+            "reálne neobjednáva (user 11.9.2026, živé dáta: jediný 'olovrant' "
+            "záznam za celé obdobie bola nulová štruktúra, nie skutočná "
+            "objednávka). Bývalý `NEZNAMY` každý deň False-flagoval oba "
+            "stupne 'olovrant_mode nepotvrdený' — `MIMO_APPKY` mlčí, rovnaký "
+            "princíp ako szsfan. "
             "Payer labely 'X.stupeň - variant': variant je 'klasik' (bez diéty), "
             "'vege'/'histamín' (celé slovo, chytí generický engine), alebo skratka "
             "B/N (bez/no, prvé písmeno sa ignoruje) + M/G (mlieko/gluten) — "
