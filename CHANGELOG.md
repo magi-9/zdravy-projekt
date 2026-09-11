@@ -1,5 +1,24 @@
 # Changelog
 
+## [3.6.3](https://github.com/tomag-9/zdravy-projekt/compare/v3.6.2...v3.6.3) (2026-09-11)
+
+
+### Bug Fixes
+
+* **ci:** zoradiť EduPage importy ([416fe15](https://github.com/tomag-9/zdravy-projekt/commit/416fe15f9a06a0805254dfb0010832487291c4c0))
+* **edupage:** deklarovať kontext scrapera ([7c9c000](https://github.com/tomag-9/zdravy-projekt/commit/7c9c000e4100ba6148f9e3ea28c4ab1991078ba4))
+* **edupage:** rešpektovať viditeľné diéty prevádzky ([8ee7d11](https://github.com/tomag-9/zdravy-projekt/commit/8ee7d1136fc29aa314b41f751a594659f4bdddd9))
+* **edupage:** rešpektovať viditeľné diéty prevádzky ([#645](https://github.com/tomag-9/zdravy-projekt/issues/645)) ([3a677e7](https://github.com/tomag-9/zdravy-projekt/commit/3a677e7cd6dca089fb8e4cffccd0ad39054aaf89))
+* **edupage:** zachovať kompatibilitu scrape testov ([4bd63cf](https://github.com/tomag-9/zdravy-projekt/commit/4bd63cfbbffced639030937ecf603e3c87ded7f9))
+
+## [3.6.2](https://github.com/tomag-9/zdravy-projekt/compare/v3.6.1...v3.6.2) (2026-09-11)
+
+
+### Bug Fixes
+
+* **diety:** bezpečne prepojiť potvrdené duplicity ([f79b5e9](https://github.com/tomag-9/zdravy-projekt/commit/f79b5e97a534484fb9b947932feb8efb6229647e))
+* **diety:** bezpečne prepojiť potvrdené duplicity ([#643](https://github.com/tomag-9/zdravy-projekt/issues/643)) ([3f858aa](https://github.com/tomag-9/zdravy-projekt/commit/3f858aa5fc20826620a35820700543eb6784c690))
+
 ## [3.6.1](https://github.com/tomag-9/zdravy-projekt/compare/v3.6.0...v3.6.1) (2026-09-11)
 
 

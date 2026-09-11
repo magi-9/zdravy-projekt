@@ -384,9 +384,9 @@ class ScrapeResult:
 
 class EdupageScraper:
     TIMEOUT = 15
-    # Optional per-run context. Tasks/views set these before calling `scrape`
-    # so older wrappers that only accept the original call signature remain
-    # compatible; direct keyword arguments still take precedence.
+    # Kontext konkrétneho behu nastavuje cron/admin view. Je tu deklarovaný aj
+    # typovo, aby volanie `scrape()` ostalo spätne kompatibilné s testovacími
+    # mockmi so starou signatúrou.
     canonical_diet_names: dict[str, str] | None = None
     visible_diets_by_prevadzka: dict[str, set[str]] | None = None
 
@@ -399,10 +399,12 @@ class EdupageScraper:
         canonical_diet_names: dict[str, str] | None = None,
         visible_diets_by_prevadzka: dict[str, set[str]] | None = None,
     ) -> ScrapeResult:
-        if canonical_diet_names is None:
-            canonical_diet_names = self.canonical_diet_names
-        if visible_diets_by_prevadzka is None:
-            visible_diets_by_prevadzka = self.visible_diets_by_prevadzka
+        canonical_diet_names = canonical_diet_names or getattr(
+            self, "canonical_diet_names", None
+        )
+        visible_diets_by_prevadzka = visible_diets_by_prevadzka or getattr(
+            self, "visible_diets_by_prevadzka", None
+        )
         url = self._inject_date(mealsguest_url, target_date)
         html = self._fetch(url)
         config = config_pre_url(mealsguest_url)
