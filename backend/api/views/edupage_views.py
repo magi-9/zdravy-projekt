@@ -15,8 +15,8 @@ from ..edupage_scraper import (
     nest_order_data_by_category,
     prevadzky_without_match,
 )
-from ..models import DailyOrder, EdupageConnection, EventLog
 from ..management.commands.repoint_deduplicated_diets_2026_09 import MAPPINGS
+from ..models import DailyOrder, EdupageConnection, EventLog
 from ..permissions import IsAdminOrAbove, SectionAccess
 from ..serializers import DailyOrderSerializer
 from ..services.edupage_connection_service import edupage_operations
@@ -151,13 +151,13 @@ class AdminEdupageConnectionViewSet(viewsets.ModelViewSet):
                 continue
 
             try:
+                scraper.canonical_diet_names = dict(MAPPINGS)
+                scraper.visible_diets_by_prevadzka = visible_diets_by_prevadzka
                 result = scraper.scrape(
                     operation["url"],
                     target_date,
                     prevadzka_matches=matches if len(prevadzky) > 1 else None,
                     allowed_diets=allowed_diets,
-                    canonical_diet_names=dict(MAPPINGS),
-                    visible_diets_by_prevadzka=visible_diets_by_prevadzka,
                 )
             except Exception:
                 logger.exception(
@@ -208,6 +208,14 @@ class AdminEdupageConnectionViewSet(viewsets.ModelViewSet):
             written = []
             with transaction.atomic():
                 for nazov, prevadzka in by_nazov.items():
+                    if len(prevadzky) > 1:
+                        attention = result.attention_by_prevadzka.get(nazov, [])
+                        unmapped = result.unmapped_by_prevadzka.get(nazov, [])
+                        uncertain = result.uncertain_by_prevadzka.get(nazov, [])
+                    else:
+                        attention = result.attention
+                        unmapped = result.unmapped_letters
+                        uncertain = result.uncertain_letters
                     order_data = nest_order_data_by_category(
                         data_by_nazov.get(nazov, {}), nazov
                     )
@@ -215,7 +223,16 @@ class AdminEdupageConnectionViewSet(viewsets.ModelViewSet):
                     order, created = DailyOrder.objects.update_or_create(
                         prevadzka=prevadzka,
                         date=target_date,
-                        defaults={"user": operation["user"], "data": order_data},
+                        defaults={
+                            "user": operation["user"],
+                            "data": order_data,
+                            "scrape_flags": {
+                                "attention": list(attention),
+                                "config_notes": list(result.config_notes),
+                                "unmapped_diets": list(unmapped),
+                                "uncertain_diets": list(uncertain),
+                            },
+                        },
                     )
                     written.append(
                         {
