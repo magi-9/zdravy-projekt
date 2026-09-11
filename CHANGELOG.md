@@ -1,5 +1,77 @@
 # Changelog
 
+## [3.6.1](https://github.com/tomag-9/zdravy-projekt/compare/v3.6.0...v3.6.1) (2026-09-11)
+
+
+### Bug Fixes
+
+* **trasy:** oprav 0113, ktorá raňajky/olovrant nasmerovala na obedovú trasu ([56307dd](https://github.com/tomag-9/zdravy-projekt/commit/56307dd6f5e960252cefc974b5ad0910e1ae6942))
+
+## [3.6.0](https://github.com/tomag-9/zdravy-projekt/compare/v3.5.1...v3.6.0) (2026-09-11)
+
+
+### Features
+
+* **diety:** polievka samostatná zložka v diet-component-merge boarde ([0b6f97f](https://github.com/tomag-9/zdravy-projekt/commit/0b6f97f8272c84aee92d6d557a0343d07c1aee7b))
+* samostatné trasy a tabuľky pre raňajky/obed/olovrant (redo, zmergované s [#568](https://github.com/tomag-9/zdravy-projekt/issues/568)) ([#630](https://github.com/tomag-9/zdravy-projekt/issues/630)) ([4648c2e](https://github.com/tomag-9/zdravy-projekt/commit/4648c2e075ba72ec03a7eee835b99a1dad3349c9))
+
+
+### Bug Fixes
+
+* **objednavky:** align client order state with automation ([7b7e3d5](https://github.com/tomag-9/zdravy-projekt/commit/7b7e3d5e6f0907179d593ad553f904ea293dad9c))
+* **objednavky:** auto-order nesmie prepísať explicitne vynulovaný chod ([ada26cf](https://github.com/tomag-9/zdravy-projekt/commit/ada26cf6647dc5383f8c1ba1929afa596096a787))
+* **objednavky:** complete concurrent scoped auto-orders ([2cb0c36](https://github.com/tomag-9/zdravy-projekt/commit/2cb0c3669e9ca3b846c6003555c543dc3029991e))
+* **objednavky:** N+1 v predikcii a prepis nedotknutého draftu prázdnym GET ([2b57586](https://github.com/tomag-9/zdravy-projekt/commit/2b57586d81c059e4947f539ace4ea68b76fa67dd))
+* **objednavky:** serialize auto-order and explicit resets ([c2bc418](https://github.com/tomag-9/zdravy-projekt/commit/c2bc418adad55d61725cd8f81aedcfe034da486b))
+* **trasy:** backfill meal routes from lunch ([a60ee36](https://github.com/tomag-9/zdravy-projekt/commit/a60ee36258e7f281f9e1faa7db4f6f31db83811b))
+
+## [3.5.1](https://github.com/tomag-9/zdravy-projekt/compare/v3.5.0...v3.5.1) (2026-09-11)
+
+
+### Bug Fixes
+
+* **objednavky:** kategória menu neobmedzuje, len visible_menus prevádzky ([#636](https://github.com/tomag-9/zdravy-projekt/issues/636)) ([bda7dee](https://github.com/tomag-9/zdravy-projekt/commit/bda7dee0122b8fb39a42c8fa2b4779a4721ed7bd))
+
+## [3.5.0](https://github.com/tomag-9/zdravy-projekt/compare/v3.4.0...v3.5.0) (2026-09-11)
+
+
+### Features
+
+* **admin:** checkbox pre menu_bc_same_deadline_as_lunch v nastaveniach prevádzky ([33bf27a](https://github.com/tomag-9/zdravy-projekt/commit/33bf27a8966ee2fd16b8769830e31eebd52bdf48))
+
+
+### Bug Fixes
+
+* **diety:** dry-run náhľad fix_combined_diet_base_links_2026_09 hlásil zavádzajúce 'založím novú diétu' ([7c59e8e](https://github.com/tomag-9/zdravy-projekt/commit/7c59e8ec784941c3386eb8a3fa31884616fdf7b8))
+
+## [3.4.0](https://github.com/tomag-9/zdravy-projekt/compare/v3.3.1...v3.4.0) (2026-09-10)
+
+
+### Features
+
+* **objednavky:** per-prevádzka výnimka z prísneho 2-dňového Menu B/C termínu ([ff0ec78](https://github.com/tomag-9/zdravy-projekt/commit/ff0ec781f2cea3fb4681ca65bff55d7993ad9509))
+
+
+### Bug Fixes
+
+* **diety:** base_diets pre 2 kombinácie z 10.9.2026 + Diet.name limit 100→255 ([3f2f29b](https://github.com/tomag-9/zdravy-projekt/commit/3f2f29b900883641d0a65432565a8d8c1611d979))
+* **diety:** diéta [#2](https://github.com/tomag-9/zdravy-projekt/issues/2) sa má naviazať na existujúce id=46 pod starým menom, nie duplikovať ([d9e2fd7](https://github.com/tomag-9/zdravy-projekt/commit/d9e2fd733726474583bc26448ed4ad936733b7ca))
+* **edupage:** Školička – učiteľ/žiak s diétou v stĺpci Menu B/C sa počíta ako B/C, nie ako diéta ([3382752](https://github.com/tomag-9/zdravy-projekt/commit/3382752a95e2096f90260e3f9da2a8d6f8ecfd0c))
+
+## [3.3.1](https://github.com/tomag-9/zdravy-projekt/compare/v3.3.0...v3.3.1) (2026-09-10)
+
+
+### Bug Fixes
+
+* **gramage:** dlhý názov diéty sa v PDF nerozpadal na písmená, S/Z odznak správnu výšku ([#627](https://github.com/tomag-9/zdravy-projekt/issues/627)) ([711d222](https://github.com/tomag-9/zdravy-projekt/commit/711d2228490e998b5187181157c3fe61e23150f1))
+
+## [3.3.0](https://github.com/tomag-9/zdravy-projekt/compare/v3.2.3...v3.3.0) (2026-09-10)
+
+
+### Features
+
+* **gramage:** diet-component-merge default "spolu", "Zabaliť spolu:" per prevádzka, S/Z odznak ([11fa5bc](https://github.com/tomag-9/zdravy-projekt/commit/11fa5bce02642262d5cccf7e960108b5962df185))
+
 ## [3.2.3](https://github.com/tomag-9/zdravy-projekt/compare/v3.2.2...v3.2.3) (2026-09-10)
 
 
