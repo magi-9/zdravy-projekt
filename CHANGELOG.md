@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.6.2](https://github.com/tomag-9/zdravy-projekt/compare/v3.6.1...v3.6.2) (2026-09-11)
+
+
+### Bug Fixes
+
+* **diety:** bezpečne prepojiť potvrdené duplicity ([f79b5e9](https://github.com/tomag-9/zdravy-projekt/commit/f79b5e97a534484fb9b947932feb8efb6229647e))
+* **diety:** bezpečne prepojiť potvrdené duplicity ([#643](https://github.com/tomag-9/zdravy-projekt/issues/643)) ([3f858aa](https://github.com/tomag-9/zdravy-projekt/commit/3f858aa5fc20826620a35820700543eb6784c690))
+
 ## [3.6.1](https://github.com/tomag-9/zdravy-projekt/compare/v3.6.0...v3.6.1) (2026-09-11)
 
 
