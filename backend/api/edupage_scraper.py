@@ -384,6 +384,11 @@ class ScrapeResult:
 
 class EdupageScraper:
     TIMEOUT = 15
+    # Kontext konkrétneho behu nastavuje cron/admin view. Je tu deklarovaný aj
+    # typovo, aby volanie `scrape()` ostalo spätne kompatibilné s testovacími
+    # mockmi so starou signatúrou.
+    canonical_diet_names: dict[str, str] | None = None
+    visible_diets_by_prevadzka: dict[str, set[str]] | None = None
 
     def scrape(
         self,
