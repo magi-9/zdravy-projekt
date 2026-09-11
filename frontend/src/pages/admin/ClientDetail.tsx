@@ -455,7 +455,10 @@ const ClientDetail: React.FC = () => {
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ data: {} }),
+          body: JSON.stringify({
+            data: { breakfast: {}, lunch: {}, olovrant: {} },
+            touched_meals: ["breakfast", "lunch", "olovrant"],
+          }),
         },
       );
       if (res.ok) {
@@ -484,7 +487,14 @@ const ClientDetail: React.FC = () => {
       const res = await apiFetch(`${API}/orders/${query}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date: today, data: copyOrderTarget.data, prevadzka: facility.id }),
+        body: JSON.stringify({
+          date: today,
+          data: copyOrderTarget.data,
+          prevadzka: facility.id,
+          // Kopírovanie je vedomé nastavenie celého dňa, aj keď zdrojový
+          // chod obsahuje nulu.
+          touched_meals: ["breakfast", "lunch", "olovrant"],
+        }),
       });
       if (res.ok) {
         success("Objednávka bola skopírovaná na dnešný deň.");

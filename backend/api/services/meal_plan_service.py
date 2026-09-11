@@ -72,10 +72,17 @@ def resolve_diet_menu_variants(date: datetime.date) -> dict[str, str]:
 
 
 # Jedlá, kde má zlúčenie diétnych zložiek (#568) zmysel — pri obede sa vždy
-# viaže výhradne na Menu A (viď `DietComponentMerge` docstring), polievka nie
-# je samostatná "zložka" zo šéfkuchárskeho pohľadu (patrí pod obed).
+# viaže výhradne na Menu A (viď `DietComponentMerge` docstring). Polievka
+# (`soup`) je od 11.9.2026 samostatná voľba nezávislá od hlavného jedla —
+# diétna polievka sa niekedy pripravuje/balí zvlášť aj vtedy, keď hlavné
+# jedlo ide spolu so štandardom (a naopak), takže potrebuje vlastný riadok
+# v tomto boarde. Toto sa netýka `gramage_table_spec`/PDF — tam ostáva
+# polievka zlúčená do riadku hlavného jedla (`_merge_soup_into_main_course`),
+# lebo obe sa varia z tej istej obedovej hlavy a produkčný výstup by sa
+# duplikoval; tento board je len referencia "spolu/zvlášť" pre kuchyňu.
 DIET_COMPONENT_MERGE_MEALS = (
     "breakfast_snack",
+    "soup",
     "main_course",
     "afternoon_snack",
 )
@@ -265,7 +272,8 @@ def collapse_breakfast_snack_components(components: list) -> list:
 
 def diet_component_merge_board(date_str: str) -> dict:
     """Dáta pre klikací zoznam "spolu/zvlášť" (#568, flip 10.9.2026) — pre
-    daný deň zoznam zložiek raňajok/desiaty, obeda (len Menu A) a olovrantu
+    daný deň zoznam zložiek raňajok/desiaty, polievky, obeda (len Menu A) a
+    olovrantu
     (odvodené z denného jedálničku), zoznam aktívnych diét a aktuálny "spolu"
     stav (default, mínus explicitné "zvlášť" výnimky z
     `resolve_diet_component_separations`).
@@ -800,6 +808,50 @@ class MealPlanService:
             "snack": ["afternoon_snack"],
             "olovrant": ["afternoon_snack"],
         }
+        # Raňajky/obed/olovrant majú vlastné, na sebe nezávislé trasy
+        # (#dashboard-per-meal-routes) — toto je jediné miesto, kde sa plán-jedlo
+        # (stĺpcový `meal`, napr. "soup"/"main_course") mapuje na jedlo trasy
+        # (`Prevadzka.delivery_route_{meal_type}`).
+        ORDER_MEAL_TYPES = ("breakfast", "lunch", "olovrant")
+        PLAN_MEAL_TO_ORDER_MEAL_TYPE = {
+            "breakfast_snack": "breakfast",
+            "soup": "lunch",
+            "main_course": "lunch",
+            "afternoon_snack": "olovrant",
+        }
+
+        def _delivery_by_meal(prevadzka) -> dict:
+            """Rozvozové metadáta prevádzky, samostatne pre každé jedlo."""
+            result = {}
+            for meal_type in ORDER_MEAL_TYPES:
+                route = (
+                    prevadzka.delivery_route_for(meal_type)
+                    if prevadzka is not None
+                    else None
+                )
+                block = getattr(route, "block", None) if route is not None else None
+                result[meal_type] = {
+                    "delivery_block_id": block.id if block is not None else None,
+                    "delivery_block_name": block.name if block is not None else "",
+                    "delivery_block_sort_order": (
+                        block.sort_order if block is not None else 9999
+                    ),
+                    "delivery_route_id": route.id if route is not None else None,
+                    "delivery_route_name": route.name if route is not None else "",
+                    "delivery_route_sort_order": (
+                        route.sort_order if route is not None else 9999
+                    ),
+                    "delivery_sort_order": (
+                        prevadzka.delivery_sort_order_for(meal_type)
+                        if prevadzka is not None
+                        else 9999
+                    ),
+                    # Výdaj berie prevádzka z trasy — tabuľku riadia trasy,
+                    # nie jednotlivé prevádzky.
+                    "vydaj": route.vydaj if route is not None else str(Vydaj.A),
+                }
+            return result
+
         # Single source of truth for category labels: MealCategory.choices.
         MEAL_LABELS = dict(MealCategory.choices)
         # Polievka a hlavné jedlo sa v tejto tabuľke vždy vykazujú v jednom
@@ -1144,17 +1196,15 @@ class MealPlanService:
                 "user",
                 "user__profile",
                 "prevadzka__celok",
-                "prevadzka__delivery_route__block",
+                "prevadzka__delivery_route_breakfast__block",
+                "prevadzka__delivery_route_lunch__block",
+                "prevadzka__delivery_route_olovrant__block",
             )
             .prefetch_related("prevadzka__celok__prevadzky")
-            .order_by(
-                "prevadzka__delivery_route__block__sort_order",
-                "prevadzka__delivery_route__sort_order",
-                "prevadzka__delivery_sort_order",
-                "prevadzka__sort_order",
-                "prevadzka__nazov",
-                "user__email",
-            )
+            # Definitívne poradie (per jedlo, podľa jeho vlastnej trasy) sa
+            # dorieši až neskôr v `_vydaje_payload_for_meal` — tu ide len o
+            # stabilné DB poradie.
+            .order_by("prevadzka__sort_order", "prevadzka__nazov", "user__email")
         )
 
         for order in orders:
@@ -1685,16 +1735,7 @@ class MealPlanService:
                 special_diet_note = str(
                     order_data.get("special_diet_note") or ""
                 ).strip()
-                delivery_route = (
-                    getattr(prevadzka, "delivery_route", None)
-                    if prevadzka is not None
-                    else None
-                )
-                delivery_block = (
-                    getattr(delivery_route, "block", None)
-                    if delivery_route is not None
-                    else None
-                )
+                delivery_by_meal = _delivery_by_meal(prevadzka)
                 delivery_note = (
                     str(getattr(prevadzka, "delivery_note", "") or "").strip()
                     if prevadzka is not None
@@ -1741,40 +1782,7 @@ class MealPlanService:
                             else f"user-{order.user_id}"
                         ),
                         "prevadzka_id": prevadzka.id if prevadzka is not None else None,
-                        "delivery_block_id": (
-                            delivery_block.id if delivery_block is not None else None
-                        ),
-                        "delivery_block_name": (
-                            delivery_block.name if delivery_block is not None else ""
-                        ),
-                        "delivery_block_sort_order": (
-                            delivery_block.sort_order
-                            if delivery_block is not None
-                            else 9999
-                        ),
-                        "delivery_route_id": (
-                            delivery_route.id if delivery_route is not None else None
-                        ),
-                        "delivery_route_name": (
-                            delivery_route.name if delivery_route is not None else ""
-                        ),
-                        "delivery_route_sort_order": (
-                            delivery_route.sort_order
-                            if delivery_route is not None
-                            else 9999
-                        ),
-                        "delivery_sort_order": (
-                            prevadzka.delivery_sort_order
-                            if prevadzka is not None
-                            else 9999
-                        ),
-                        # Výdaj berie prevádzka z trasy — tabuľku riadia trasy,
-                        # nie jednotlivé prevádzky.
-                        "vydaj": (
-                            delivery_route.vydaj
-                            if delivery_route is not None
-                            else str(Vydaj.A)
-                        ),
+                        "delivery_by_meal": delivery_by_meal,
                         "delivery_note": delivery_note,
                         "total_count": _tidy_count(
                             client_total_count + sum(diet_summary_counts.values())
@@ -1792,6 +1800,14 @@ class MealPlanService:
                         # spolu s obedom a nezabudne naň pri popoludňajšom kole.
                         "snack_with_lunch": bool(
                             getattr(prevadzka, "olovrant_s_obedom", False)
+                        ),
+                        # Ktoré jedlá táto prevádzka vôbec ponúka
+                        # (#dashboard-per-meal-routes, 10.9.2026) — prevádzka bez
+                        # raňajok/olovrantu sa nemá ukázať ani ako "Nepriradená" v
+                        # tabuľke jedla, ktoré vôbec neobjednáva.
+                        "visible_meals": list(
+                            getattr(prevadzka, "visible_meals", None)
+                            or ORDER_MEAL_TYPES
                         ),
                         "sub_rows": sub_rows,
                     }
@@ -1812,11 +1828,14 @@ class MealPlanService:
             # prevádzka nedostáva "bez objednávky" placeholder v bežnej
             # mriežke, má vlastný summary_only vydaj blok.
             .exclude(gramage_summary_only=True)
-            .select_related("celok", "delivery_route__block")
+            .select_related(
+                "celok",
+                "delivery_route_breakfast__block",
+                "delivery_route_lunch__block",
+                "delivery_route_olovrant__block",
+            )
         )
         for prevadzka in missing_prevadzky:
-            delivery_route = prevadzka.delivery_route
-            delivery_block = delivery_route.block if delivery_route else None
             display_client = (
                 str(prevadzka.report_alias or "").strip() or prevadzka.nazov
             )
@@ -1826,24 +1845,7 @@ class MealPlanService:
                     "client_id": None,
                     "row_key": f"prevadzka-{prevadzka.id}",
                     "prevadzka_id": prevadzka.id,
-                    "delivery_block_id": delivery_block.id if delivery_block else None,
-                    "delivery_block_name": (
-                        delivery_block.name if delivery_block else ""
-                    ),
-                    "delivery_block_sort_order": (
-                        delivery_block.sort_order if delivery_block else 9999
-                    ),
-                    "delivery_route_id": (
-                        delivery_route.id if delivery_route else None
-                    ),
-                    "delivery_route_name": (
-                        delivery_route.name if delivery_route else ""
-                    ),
-                    "delivery_route_sort_order": (
-                        delivery_route.sort_order if delivery_route else 9999
-                    ),
-                    "delivery_sort_order": prevadzka.delivery_sort_order,
-                    "vydaj": (delivery_route.vydaj if delivery_route else str(Vydaj.A)),
+                    "delivery_by_meal": _delivery_by_meal(prevadzka),
                     "delivery_note": str(prevadzka.delivery_note or "").strip(),
                     "total_count": 0,
                     "standard_total_count": 0,
@@ -1854,6 +1856,7 @@ class MealPlanService:
                     "admin_order_note": str(prevadzka.admin_order_note or "").strip(),
                     "special_diet_note": "",
                     "snack_with_lunch": bool(prevadzka.olovrant_s_obedom),
+                    "visible_meals": list(prevadzka.visible_meals or ORDER_MEAL_TYPES),
                     "sub_rows": [],
                     # Odlišuje hlavičku bez objednávky od riadku so samými
                     # nulami — frontend/PDF ju môže vykresliť viditeľne inak
@@ -1863,39 +1866,131 @@ class MealPlanService:
                 }
             )
 
-        rows.sort(
-            key=lambda r: (
-                # Výdajný bod je najvyššia úroveň tabuľky — až v ňom sa radí podľa
-                # rozvozu, aby prevádzka nepreskakovala medzi dvoma tabuľkami.
-                r["vydaj"],
-                r["delivery_block_sort_order"],
-                r["delivery_route_sort_order"],
-                r["delivery_sort_order"],
-                str(r["client"]).casefold(),
+        # Definitívne poradie riadkov je per-jedlo (raňajky/obed/olovrant majú
+        # vlastné trasy, #dashboard-per-meal-routes) — zoradí sa až vnútri
+        # `_vydaje_payload_for_meal`, nie tu globálne.
+
+        def _row_for_meal_type(row: dict, meal_type: str) -> dict | None:
+            """Per-jedlo variant klientského riadku (#dashboard-per-meal-routes,
+            10.9.2026) — orezáva sub_rows aj súhrny na jedlá, ktoré TÁTO
+            konkrétna tabuľka smie ukázať (inak by napr. obedová tabuľka
+            (po rozšírení o olovrantový stĺpec nižšie) zobrazila aj olovrant
+            prevádzok, ktoré ho vozia zvlášť popoludní).
+
+            "Olovrant s obedom" (`snack_with_lunch`) je jediná výnimka z
+            prísneho 1:1 mapovania stĺpec↔trasa: taká prevádzka do
+            samostatnej olovrantovej tabuľky vôbec nepatrí (vráti `None`,
+            vylúči sa aj z "Nepriradené") — jej olovrant sa objaví v
+            OBEDOVEJ tabuľke ako dodatočný (žltý) stĺpec vedľa obeda.
+            """
+            if meal_type == "olovrant" and row.get("snack_with_lunch"):
+                return None
+            allowed_meals = set(ORDER_MEAL_TO_PLAN_MEALS.get(meal_type, ()))
+            if meal_type == "lunch" and row.get("snack_with_lunch"):
+                allowed_meals |= set(ORDER_MEAL_TO_PLAN_MEALS.get("olovrant", ()))
+            allowed_indexes = {
+                index
+                for index, cg in enumerate(col_groups)
+                if cg["meal"] in allowed_meals
+            }
+
+            def _zero_outside(grid: list) -> list:
+                return [
+                    values if index in allowed_indexes else []
+                    for index, values in enumerate(grid)
+                ]
+
+            new_row = dict(row)
+            new_row["sub_rows"] = [
+                sr
+                for sr in row.get("sub_rows") or []
+                if sr.get("meal") in allowed_meals
+            ]
+            new_row["standard_col_grams"] = _zero_outside(
+                row.get("standard_col_grams") or []
             )
-        )
+            new_row["standard_total_count"] = _tidy_count(
+                sum(
+                    (
+                        Decimal(str(sr.get("count") or 0))
+                        for sr in new_row["sub_rows"]
+                        if not sr.get("diet_name")
+                    ),
+                    Decimal("0"),
+                )
+            )
+            new_diet_summary_rows = []
+            for diet in row.get("diet_summary_rows") or []:
+                meal_counts = {
+                    meal: count
+                    for meal, count in (diet.get("meal_counts") or {}).items()
+                    if meal in allowed_meals
+                }
+                diet_count = sum(
+                    (Decimal(str(c or 0)) for c in meal_counts.values()), Decimal("0")
+                )
+                if not diet_count:
+                    continue
+                new_diet = dict(diet)
+                new_diet["meal_counts"] = meal_counts
+                new_diet["count"] = _tidy_count(diet_count)
+                new_diet["col_grams"] = _zero_outside(diet.get("col_grams") or [])
+                new_diet_summary_rows.append(new_diet)
+            new_row["diet_summary_rows"] = new_diet_summary_rows
+            new_row["total_count"] = _tidy_count(
+                Decimal(str(new_row["standard_total_count"]))
+                + sum(
+                    (Decimal(str(d["count"])) for d in new_diet_summary_rows),
+                    Decimal("0"),
+                )
+            )
+            return new_row
 
-        def _vydaje_payload(rows_for_payload: list[dict]) -> tuple[list, list]:
-            """Riadky zoskupené podľa výdajného bodu, vnútri podľa trás.
+        def _vydaje_payload_for_meal(
+            rows_for_payload: list[dict], meal_type: str
+        ) -> tuple[list, list]:
+            """Riadky zoskupené podľa výdajného bodu, vnútri podľa trás — pre
 
-            Tabuľku riadia trasy: trasa patrí práve jednému výdaju a ťahá doň
-            všetky svoje prevádzky. Poradie trás ostáva rozvozové (blok → trasa),
-            aby vodič čítal tabuľku v poradí, v akom nakladá.
+            JEDNO konkrétne jedlo. Tabuľku riadia trasy: trasa patrí práve
+            jednému výdaju a ťahá doň všetky svoje prevádzky. Poradie trás
+            ostáva rozvozové (blok → trasa), aby vodič čítal tabuľku v
+            poradí, v akom nakladá — a raňajky/obed/olovrant majú vlastný,
+            navzájom nezávislý takýto strom.
             """
             route_rows: dict[int, list[dict]] = {}
             unassigned_rows = []
-            for row in rows_for_payload:
-                route_id = row.get("delivery_route_id")
+            for raw_row in rows_for_payload:
+                # Prevádzka, ktorá toto jedlo vôbec neponúka, sa nemá ukázať
+                # ani ako "Nepriradená" (#dashboard-per-meal-routes).
+                if meal_type not in (raw_row.get("visible_meals") or ORDER_MEAL_TYPES):
+                    continue
+                row = _row_for_meal_type(raw_row, meal_type)
+                if row is None:
+                    continue
+                meal_delivery = row["delivery_by_meal"][meal_type]
+                route_id = meal_delivery.get("delivery_route_id")
                 if route_id is None:
                     unassigned_rows.append(row)
                     continue
                 route_rows.setdefault(route_id, []).append(row)
 
+            unassigned_rows.sort(key=lambda r: str(r["client"]).casefold())
+
             if not route_rows:
                 return [], unassigned_rows
 
+            for rows_for_route in route_rows.values():
+                rows_for_route.sort(
+                    key=lambda r: (
+                        r["delivery_by_meal"][meal_type]["delivery_sort_order"],
+                        str(r["client"]).casefold(),
+                    )
+                )
+
             routes = list(
-                DeliveryRoute.objects.filter(is_active=True, block__is_active=True)
+                DeliveryRoute.objects.filter(
+                    is_active=True, block__is_active=True, block__meal_type=meal_type
+                )
                 .select_related("block")
                 .order_by("block__sort_order", "sort_order", "name")
             )
@@ -1906,8 +2001,8 @@ class MealPlanService:
                 for route in routes:
                     if route.vydaj != value:
                         continue
-                    rows_for_route = route_rows.get(route.id)
-                    if not rows_for_route:
+                    matched_rows = route_rows.get(route.id)
+                    if not matched_rows:
                         continue
                     routes_payload.append(
                         {
@@ -1922,7 +2017,7 @@ class MealPlanService:
                             "note": route.note,
                             "sort_order": route.sort_order,
                             "block_name": route.block.name,
-                            "rows": rows_for_route,
+                            "rows": matched_rows,
                         }
                     )
                 if routes_payload:
@@ -2032,53 +2127,61 @@ class MealPlanService:
                 }
             )
 
-        vydaje, unassigned_rows = _vydaje_payload(rows)
-
         # `gramage_summary_only` prevádzky (British School, Cluster C, #531) —
         # vlastný vydaj blok, kusový sumár priamo z `DailyOrder.data`, mimo
         # bežnej mriežky (vylúčené vyššie z `orders`/`missing_prevadzky`).
+        # Táto prevádzka nemá trasu ako ostatné (route id `None`), takže sa
+        # rovnako pridá do stromu KAŽDÉHO jedla — jednotlivé jedlá si z
+        # `cluster["meals"]` vykreslia len to svoje, rovnako ako predtým.
         from .british_cluster_summary import build_gramage_summary_only_clusters
 
         summary_clusters = build_gramage_summary_only_clusters(date_str)
-        if summary_clusters:
-            vydaj_order = [value for value, _ in Vydaj.choices]
-            vydaj_labels = dict(Vydaj.choices)
-            for cluster in summary_clusters:
-                vydaje.append(
-                    {
-                        "key": cluster["vydaj_key"],
-                        "name": vydaj_labels.get(
-                            cluster["vydaj_key"], cluster["vydaj_key"]
-                        ),
-                        "summary_only": True,
-                        "british_summary": cluster["meals"],
-                        "routes": [
-                            {
-                                "id": None,
-                                "name": cluster["route_name"],
-                                "driver": "",
-                                "departure_time": None,
-                                "note": "",
-                                "sort_order": 0,
-                                "block_name": "",
-                                "rows": [],
-                            }
-                        ],
-                    }
+        vydaj_order = [value for value, _ in Vydaj.choices]
+        vydaj_labels = dict(Vydaj.choices)
+
+        vydaje_by_meal: dict[str, list] = {}
+        unassigned_rows_by_meal: dict[str, list] = {}
+        for meal_type in ORDER_MEAL_TYPES:
+            vydaje, unassigned_rows = _vydaje_payload_for_meal(rows, meal_type)
+            if summary_clusters:
+                for cluster in summary_clusters:
+                    vydaje.append(
+                        {
+                            "key": cluster["vydaj_key"],
+                            "name": vydaj_labels.get(
+                                cluster["vydaj_key"], cluster["vydaj_key"]
+                            ),
+                            "summary_only": True,
+                            "british_summary": cluster["meals"],
+                            "routes": [
+                                {
+                                    "id": None,
+                                    "name": cluster["route_name"],
+                                    "driver": "",
+                                    "departure_time": None,
+                                    "note": "",
+                                    "sort_order": 0,
+                                    "block_name": "",
+                                    "rows": [],
+                                }
+                            ],
+                        }
+                    )
+                vydaje.sort(
+                    key=lambda v: (
+                        vydaj_order.index(v["key"]) if v["key"] in vydaj_order else 99
+                    )
                 )
-            vydaje.sort(
-                key=lambda v: (
-                    vydaj_order.index(v["key"]) if v["key"] in vydaj_order else 99
-                )
-            )
+            vydaje_by_meal[meal_type] = vydaje
+            unassigned_rows_by_meal[meal_type] = unassigned_rows
 
         return {
             "date": date_str,
             "meal_plan_id": plan_id,
             "col_groups": col_groups,
             "rows": rows,
-            "vydaje": vydaje,
-            "unassigned_rows": unassigned_rows,
+            "vydaje_by_meal": vydaje_by_meal,
+            "unassigned_rows_by_meal": unassigned_rows_by_meal,
             "totals": totals_serialized,
             "count_summary": count_summary,
             "diet_colors": diet_color_map,

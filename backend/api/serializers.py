@@ -55,7 +55,16 @@ class DailyOrderSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DailyOrder
-        fields = ["id", "date", "status", "data", "is_auto", "updated_at", "prevadzka"]
+        fields = [
+            "id",
+            "date",
+            "status",
+            "data",
+            "is_auto",
+            "updated_at",
+            "prevadzka",
+            "touched_meals",
+        ]
         read_only_fields = ["id", "is_auto", "updated_at"]
         # DRF by z UniqueConstraint(prevadzka, date) odvodil UniqueTogetherValidator,
         # ktorý spraví `prevadzka` povinným poľom — lenže pri jedno-prevádzkovom
@@ -76,6 +85,18 @@ class DailyOrderSerializer(serializers.ModelSerializer):
     }
 
     _ALLOWED_MEAL_KEYS = frozenset({"breakfast", "lunch", "olovrant"})
+
+    # Ktoré jedlá klient/admin V TOMTO ZÁPISE skutočne odklikol/rozhodol —
+    # aj keď výsledok je nula (viď `DailyOrder.touched_meals`). Nepovinné a
+    # nezávislé od `data`, lebo `_ALLOWED_DATA_KEYS`/`validate_data` validuje
+    # len tvar objednávky, nie audit toho, čo bolo "riešené". `create()`/
+    # `update()` toto pole zlučujú (union) s tým, čo už na riadku bolo —
+    # nikdy sa neuberá, len pridáva (Jarabinka 11.9.2026).
+    touched_meals = serializers.ListField(
+        child=serializers.ChoiceField(choices=sorted(_ALLOWED_MEAL_KEYS)),
+        required=False,
+        default=list,
+    )
     # Poznámka k špeciálnej diéte sedí v `data` vedľa jedál (tak ju posiela klient
     # aj admin editor a tak ju číta admin UI), takže musí prejsť allowlistom —
     # nie je to jedlo, preto sa validuje zvlášť a preskakuje traverzáciu kategórií.
@@ -874,9 +895,13 @@ class DailyOrderSerializer(serializers.ModelSerializer):
         new_data = validated_data.get("data", {})
         existing_order = (
             DailyOrder.objects.filter(prevadzka=prevadzka, date=validated_data["date"])
-            .only("data")
+            .only("data", "touched_meals")
             .first()
         )
+        # Tento vstup sa spojí až po ``select_for_update()`` nižšie. Výpočet
+        # unionu zo snapshotu tu by pri dvoch súbežných requestoch vedel
+        # stratiť marker, ktorý prvý request medzičasom práve uložil.
+        incoming_touched_meals = set(validated_data.get("touched_meals") or [])
         if not is_admin:
             self._validate_deadlines(
                 validated_data["date"],
@@ -905,14 +930,21 @@ class DailyOrderSerializer(serializers.ModelSerializer):
                         prevadzka.pk,
                         validated_data["date"],
                     )
+                actual_previous_data = order.data or {}
                 order.data = new_data
+                order.touched_meals = sorted(
+                    set(order.touched_meals or []) | incoming_touched_meals
+                )
                 # Issue #507: a manual submit overwriting an auto-generated
                 # placeholder (`is_auto=True`, created by auto_order_service
                 # after the deadline) is real, reviewed data now — clear the
                 # flag so admin overview stops flagging it "na kontrolu"
                 # forever, even after someone actually filled it in.
                 order.is_auto = False
-                order.save(update_fields=["data", "is_auto", "updated_at"])
+                order.save(
+                    update_fields=["data", "touched_meals", "is_auto", "updated_at"]
+                )
+                actual_audit_event = "update"
             except DailyOrder.DoesNotExist:
                 # Wrap create() in its own savepoint so that if IntegrityError is
                 # raised (another request raced us to INSERT), only this savepoint
@@ -924,22 +956,32 @@ class DailyOrderSerializer(serializers.ModelSerializer):
                             prevadzka=prevadzka,
                             date=validated_data["date"],
                             data=new_data,
+                            touched_meals=sorted(incoming_touched_meals),
                         )
+                        actual_previous_data = {}
+                        actual_audit_event = "create"
                 except IntegrityError:
                     # Another request won the INSERT race; retry with a lock.
                     order = DailyOrder.objects.select_for_update(nowait=False).get(
                         prevadzka=prevadzka, date=validated_data["date"]
                     )
+                    actual_previous_data = order.data or {}
                     order.data = new_data
-                    order.save(update_fields=["data", "updated_at"])
+                    # Retry už drží lock na aktuálnom riadku; union musí čítať
+                    # jeho čerstvú hodnotu, nie hodnotu pred prvým pokusom.
+                    order.touched_meals = sorted(
+                        set(order.touched_meals or []) | incoming_touched_meals
+                    )
+                    order.save(update_fields=["data", "touched_meals", "updated_at"])
+                    actual_audit_event = "update"
 
         self._sync_auto_order_pause(prevadzka, new_data)
         # Audit trail: `create()` je upsert (viď docstring), takže "create"
         # requesty tu bežne aj prepisujú existujúci riadok. `perform_create`
         # v `order_views.py` z tohto odvodí, či ide o skutočné vytvorenie
         # alebo o úpravu, a čo bolo predtým.
-        order._audit_event = "update" if existing_order else "create"
-        order._audit_previous_data = existing_order.data if existing_order else {}
+        order._audit_event = actual_audit_event
+        order._audit_previous_data = actual_previous_data
         return order
 
     @staticmethod
@@ -997,10 +1039,23 @@ class DailyOrderSerializer(serializers.ModelSerializer):
                 user=instance.user, date=instance.date, status="draft", data={}
             )
 
-        instance.data = new_data
-        # Issue #507: see the matching comment in create() above.
-        instance.is_auto = False
-        instance.save(update_fields=["data", "is_auto", "updated_at"])
+        # ``instance`` mohol view načítať dávno pred PATCHom. Zamkneme a znova
+        # načítame aktuálny riadok, aby paralelný PATCH nikdy nevymazal marker
+        # pridaný iným requestom.
+        with transaction.atomic():
+            instance = DailyOrder.objects.select_for_update().get(pk=instance.pk)
+            actual_previous_data = instance.data or {}
+            instance.data = new_data
+            instance.touched_meals = sorted(
+                set(instance.touched_meals or [])
+                | set(validated_data.get("touched_meals") or [])
+            )
+            # Issue #507: see the matching comment in create() above.
+            instance.is_auto = False
+            instance.save(
+                update_fields=["data", "touched_meals", "is_auto", "updated_at"]
+            )
+        instance._audit_previous_data = actual_previous_data
         self._sync_auto_order_pause(instance.prevadzka, new_data)
         return instance
 

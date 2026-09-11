@@ -176,6 +176,13 @@ describe('AdminOrderEditorModal', () => {
             );
         });
 
+        // Jarabinka 11.9.2026: admin editor je "nastav celý deň naraz" — každý
+        // zobrazený chod je touched, aj keď admin nechal 0, inak by ho
+        // auto-order cron mohol ticho doplniť neskôr.
+        const postCall = mockApiFetch.mock.calls.find(([, options]) => options?.method === 'POST');
+        const body = JSON.parse(postCall![1].body as string);
+        expect(body.touched_meals).toEqual(['breakfast', 'lunch', 'olovrant']);
+
         expect(mockToastSuccess).toHaveBeenCalledWith('Objednávka bola vytvorená.');
         expect(BASE_PROPS.onSaved).toHaveBeenCalledTimes(1);
     });
@@ -223,6 +230,10 @@ describe('AdminOrderEditorModal', () => {
                 }),
             );
         });
+
+        const patchCall = mockApiFetch.mock.calls.find(([, options]) => options?.method === 'PATCH');
+        const body = JSON.parse(patchCall![1].body as string);
+        expect(body.touched_meals).toEqual(['breakfast', 'lunch', 'olovrant']);
 
         expect(mockToastSuccess).toHaveBeenCalledWith('Objednávka bola uložená.');
         expect(BASE_PROPS.onSaved).toHaveBeenCalledTimes(1);

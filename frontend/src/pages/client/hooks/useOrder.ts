@@ -290,8 +290,22 @@ export const useOrder = (activePrevadzkaId?: number, waitForPrevadzkaChoice = fa
                     // API returns { id, status, data: { breakfast..., special_diet_note? } }
                     const serverOrder = await response.json() as { id: number, status: 'draft' | 'submitted', data: DailyOrder & { special_diet_note?: unknown, full_day_order?: unknown } };
 
-                    if (serverOrder && serverOrder.data && Object.keys(serverOrder.data).length > 0) {
-                        // Server has data
+                    if (
+                        serverOrder &&
+                        serverOrder.id != null &&
+                        serverOrder.data &&
+                        (Object.keys(serverOrder.data).length > 0 || serverOrder.status === 'submitted')
+                    ) {
+                        // `id` znamená, že existuje uložený riadok aj keď má
+                        // legacy tvar `data={}`. Prázdny `data={}` sám o sebe
+                        // ale ešte neznamená, že server je autoritatívny —
+                        // pri čerstvo vytvorenom draft riadku (napr. auto-order
+                        // placeholder) by to zbytočne prepísalo nedotknutý
+                        // localStorage draft nulami pri každom refreshi. Keď je
+                        // však riadok `submitted` (užívateľ/cron ho reálne
+                        // odoslal na nulu), server musí vyhrať, inak by sa dala
+                        // znova odoslať stará draft hodnota nad explicitne
+                        // vynulovanou objednávkou.
                         if (isMounted) {
                             // Merge mechanism could be complex, for now Server Authority wins
                             const merged = OrderService.enforceStructure(serverOrder.data, OrderService.createEmptyOrder());
@@ -319,7 +333,13 @@ export const useOrder = (activePrevadzkaId?: number, waitForPrevadzkaChoice = fa
                             const isFullDayOrder = serverOrder.data.full_day_order === true;
                             setFullDayOrderState(isFullDayOrder);
                             if (isFullDayOrder) {
-                                setFullDayData(merged.breakfast);
+                                // Celodenná objednávka nemusí mať raňajky
+                                // dostupné. Obnov ju z prvého reálne
+                                // vyplneného chodu, nie napevno z breakfast.
+                                const storedMeal = (
+                                    ['breakfast', 'lunch', 'olovrant'] as const
+                                ).find((meal) => !OrderService.isMealEmpty(merged[meal]));
+                                setFullDayData(merged[storedMeal ?? 'breakfast']);
                             }
 
                             // Update active meals based on content
@@ -625,7 +645,14 @@ export const useOrder = (activePrevadzkaId?: number, waitForPrevadzkaChoice = fa
 
 
     const toggleMeal = (mealKey: string) => {
+        const isTurningOff = Boolean(activeMeals[mealKey]);
         setActiveMeals(prev => ({ ...prev, [mealKey]: !prev[mealKey] }));
+        // Otvorenie chodu ešte nie je rozhodnutie: lazy-copy smie načítať
+        // poslednú objednávku. Vypnutie je naopak explicitné "nechcem" a
+        // musí chrániť nulu pred scoped auto-orderom.
+        if (isTurningOff) {
+            setTouchedMeals(prev => new Set(prev).add(mealKey));
+        }
     };
 
     const toggleFullDay = () => {
@@ -814,6 +841,16 @@ export const useOrder = (activePrevadzkaId?: number, waitForPrevadzkaChoice = fa
                     date,
                     status: 'submitted',
                     ...(prevadzkaId ? { prevadzka: prevadzkaId } : {}),
+                    // Ktoré chody klient v TEJTO session skutočne riešil (aj na
+                    // nulu) — server si to union-uje s tým, čo už na daný deň
+                    // bolo touched, a auto-order cron takto označené jedlo už
+                    // nikdy nedoplní, nech dáta vyzerajú akokoľvek prázdno
+                    // (Jarabinka 11.9.2026 — pozri `DailyOrder.touched_meals`).
+                    touched_meals: fullDayOrder
+                        ? adminVisibleMeals
+                        : (['breakfast', 'lunch', 'olovrant'] as const).filter(
+                            key => touchedMeals.has(key),
+                        ),
                     data: {
                         ...payload,
                         special_diet_note: specialDietNote || undefined,
@@ -918,7 +955,7 @@ export const useOrder = (activePrevadzkaId?: number, waitForPrevadzkaChoice = fa
         getVisibleMenusForMeal(mealKey, adminVisibleMenus);
 
     const adminVisibleMealsSetting = prevadzkaSettings?.visible_meals;
-    const adminVisibleMealsBase = adminVisibleMealsSetting == null
+    const adminVisibleMealsBase = !adminVisibleMealsSetting || adminVisibleMealsSetting.length === 0
         ? ['breakfast', 'lunch', 'olovrant']
         : adminVisibleMealsSetting;
     const adminVisibleMeals = filterMealsByDay(

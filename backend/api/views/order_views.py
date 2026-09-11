@@ -169,7 +169,11 @@ class DailyOrderViewSet(viewsets.ModelViewSet):
         target_user = serializer.instance.user
         order = serializer.save()
         order._audit_event = "update"
-        order._audit_previous_data = previous_data
+        # Serializer načítava riadok pod lockom; jeho snapshot je jediný
+        # správny základ auditu pri paralelnom PATCHi.
+        order._audit_previous_data = getattr(
+            order, "_audit_previous_data", previous_data
+        )
         self._log_order_audit(
             order=order, actor=self.request.user, target_user=target_user
         )

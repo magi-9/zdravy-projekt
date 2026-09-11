@@ -9,9 +9,10 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from ..exceptions import ClosedDayOrderModificationError
-from ..models import Celok, DailyOrder, Prevadzka
+from ..models import Celok, DailyOrder, EventLog, Prevadzka
 from ..order_data import MEAL_KEYS, OrderData, safe_count
 from ..scheduling import closed_dates_for_prevadzky, is_weekend, next_business_day
+from .event_log_service import log_event
 
 logger = logging.getLogger(__name__)
 
@@ -410,7 +411,20 @@ def apply_auto_orders(
                 if existing_order
                 else {meal: {} for meal in MEAL_KEYS}
             )
-            missing = [meal for meal in scope if _scoped_is_empty(current_data, [meal])]
+            # `touched_meals` (Jarabinka 11.9.2026): jedlo, ktoré klient/admin
+            # v nejakom zápise skutočne odklikol — aj na nulu — sa už nikdy
+            # nesmie považovať za "chýbajúce", nech dáta vyzerajú akokoľvek
+            # prázdno. Bez tohto rozlíšenia `_scoped_is_empty` (počty > 0)
+            # nevedelo odlíšiť "klient zadal 0" od "klient sa k jedlu vôbec
+            # nedostal" a ticho prepísalo zámerne vynulovaný deň šablónou.
+            touched = (
+                set(existing_order.touched_meals or []) if existing_order else set()
+            )
+            missing = [
+                meal
+                for meal in scope
+                if meal not in touched and _scoped_is_empty(current_data, [meal])
+            ]
             if not missing:
                 skipped += 1
                 continue
@@ -418,20 +432,20 @@ def apply_auto_orders(
             template_fill = _build_auto_data(
                 template, missing, visible_portion_types, target_date=target_date
             )
-            filled_any = False
+            filled_meals: List[str] = []
             for meal in missing:
                 value = template_fill.get(meal, {})
                 if not _scoped_is_empty({meal: value}, [meal]):
                     current_data[meal] = value
-                    filled_any = True
-            if not filled_any:
+                    filled_meals.append(meal)
+            if not filled_meals:
                 skipped += 1
                 continue
 
             if existing_order is None:
                 try:
                     with transaction.atomic():
-                        _, auto_created = DailyOrder.objects.get_or_create(
+                        created_order, auto_created = DailyOrder.objects.get_or_create(
                             prevadzka_id=prevadzka_id,
                             date=target_date,
                             defaults={
@@ -441,19 +455,108 @@ def apply_auto_orders(
                             },
                         )
                 except IntegrityError:
-                    # Concurrent task already created the row; treat as skipped.
+                    # Druhý scoped beh mohol riadok práve vytvoriť. Pri ďalšom
+                    # spustení sa jeho chod doplní; tento beh ho neprepíše.
                     skipped += 1
                     continue
                 if not auto_created:
-                    # A manual/other order appeared between preload and now.
-                    skipped += 1
-                    continue
-            else:
-                # `is_auto` sa tu zámerne nemení: manuálny riadok (False)
-                # ostáva manuálny aj s dopísaným auto-jedlom, plne auto (True)
-                # ostáva plne auto.
-                existing_order.data = current_data
-                existing_order.save(update_fields=["data"])
+                    # Iný scoped beh (alebo manuálny zápis) vytvoril riadok
+                    # po preloade. Nevynechaj svoj chod: pokračuj zamknutou
+                    # existing-row vetvou, ktorá ho znovu vyhodnotí.
+                    existing_order = created_order
+                else:
+                    log_event(
+                        EventLog.EventType.ORDER_ADMIN_UPDATE,
+                        actor=None,
+                        actor_label="Auto-objednávka (cron)",
+                        target_user=client,
+                        prevadzka=created_order.prevadzka,
+                        summary=(
+                            f"Auto-objednávka vytvorila {', '.join(filled_meals)} "
+                            f"(šablóna z {template.date}) pre prevádzku "
+                            f"{created_order.prevadzka} na {target_date}."
+                        ),
+                        payload={
+                            "order_id": created_order.pk,
+                            "date": str(target_date),
+                            "prevadzka_id": created_order.prevadzka_id,
+                            "prevadzka_nazov": str(created_order.prevadzka),
+                            "template_date": str(template.date),
+                            "filled_meals": filled_meals,
+                            "meals": {
+                                meal: current_data.get(meal, {})
+                                for meal in filled_meals
+                            },
+                        },
+                    )
+            if existing_order is not None:
+                # Preload na začiatku služby je len optimalizácia. Tesne pred
+                # rozhodnutím a zápisom musíme riadok načítať pod lockom: medzi
+                # preloadom a týmto miestom mohol klient stihnúť uložiť
+                # explicitnú nulu s ``touched_meals``.
+                with transaction.atomic():
+                    existing_order = (
+                        DailyOrder.objects.select_for_update()
+                        .select_related("prevadzka")
+                        .get(pk=existing_order.pk)
+                    )
+                    current_data = dict(existing_order.data or {})
+                    touched = set(existing_order.touched_meals or [])
+                    missing = [
+                        meal
+                        for meal in scope
+                        if meal not in touched
+                        and _scoped_is_empty(current_data, [meal])
+                    ]
+                    if not missing:
+                        skipped += 1
+                        continue
+
+                    template_fill = _build_auto_data(
+                        template,
+                        missing,
+                        visible_portion_types,
+                        target_date=target_date,
+                    )
+                    filled_meals = []
+                    for meal in missing:
+                        value = template_fill.get(meal, {})
+                        if not _scoped_is_empty({meal: value}, [meal]):
+                            current_data[meal] = value
+                            filled_meals.append(meal)
+                    if not filled_meals:
+                        skipped += 1
+                        continue
+
+                    # `is_auto` sa tu zámerne nemení: manuálny riadok (False)
+                    # ostáva manuálny aj s dopísaným auto-jedlom, plne auto
+                    # (True) ostáva plne auto.
+                    existing_order.data = current_data
+                    existing_order.save(update_fields=["data", "updated_at"])
+                    log_event(
+                        EventLog.EventType.ORDER_ADMIN_UPDATE,
+                        actor=None,
+                        actor_label="Auto-objednávka (cron)",
+                        target_user=client,
+                        prevadzka=existing_order.prevadzka,
+                        summary=(
+                            f"Auto-objednávka doplnila {', '.join(filled_meals)} "
+                            f"(šablóna z {template.date}) pre prevádzku "
+                            f"{existing_order.prevadzka} na {target_date}."
+                        ),
+                        payload={
+                            "order_id": existing_order.pk,
+                            "date": str(target_date),
+                            "prevadzka_id": existing_order.prevadzka_id,
+                            "prevadzka_nazov": str(existing_order.prevadzka),
+                            "template_date": str(template.date),
+                            "filled_meals": filled_meals,
+                            "meals": {
+                                meal: current_data.get(meal, {})
+                                for meal in filled_meals
+                            },
+                        },
+                    )
 
             created.append(client.email)
             logger.info(
@@ -483,7 +586,7 @@ def apply_auto_orders(
         # handling to ensure that at most one auto-order row is ultimately created.
         try:
             with transaction.atomic():
-                _, auto_created = DailyOrder.objects.get_or_create(
+                created_order, auto_created = DailyOrder.objects.get_or_create(
                     prevadzka_id=prevadzka_id,
                     date=target_date,
                     defaults={
@@ -501,6 +604,28 @@ def apply_auto_orders(
             # A manual order appeared between the preload query and now.
             skipped += 1
             continue
+
+        log_event(
+            EventLog.EventType.ORDER_ADMIN_UPDATE,
+            actor=None,
+            actor_label="Auto-objednávka (cron)",
+            target_user=client,
+            prevadzka=created_order.prevadzka,
+            summary=(
+                f"Auto-objednávka vytvorila {', '.join(visible_meals)} "
+                f"(šablóna z {template.date}) pre prevádzku "
+                f"{created_order.prevadzka} na {target_date}."
+            ),
+            payload={
+                "order_id": created_order.pk,
+                "date": str(target_date),
+                "prevadzka_id": created_order.prevadzka_id,
+                "prevadzka_nazov": str(created_order.prevadzka),
+                "template_date": str(template.date),
+                "filled_meals": visible_meals,
+                "meals": {meal: auto_data.get(meal, {}) for meal in visible_meals},
+            },
+        )
 
         created.append(client.email)
         logger.info(

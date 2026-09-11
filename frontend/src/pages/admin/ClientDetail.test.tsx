@@ -749,3 +749,47 @@ describe("ClientDetail dashboard history limit", () => {
     expect(screen.queryByRole("button", { name: "Zobraziť celú históriu" })).not.toBeInTheDocument();
   });
 });
+
+describe("ClientDetail order protection", () => {
+  const order = {
+    id: 42,
+    date: "2026-08-01",
+    status: "submitted",
+    data: { breakfast: {}, lunch: {}, olovrant: {} },
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockApiFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes("/admin/portion-types/")) return Promise.resolve(response([]));
+      if (url.includes("/diets/")) return Promise.resolve(response([]));
+      if (url.includes("/orders/")) {
+        if (init?.method === "PATCH") return Promise.resolve(response({}));
+        return Promise.resolve(response([order]));
+      }
+      if (url.includes("/admin/edupage-connections/")) return Promise.resolve(response([]));
+      if (url.includes("/admin/celky/3/")) return Promise.resolve(response(celokWithLogins));
+      if (url.includes("/admin/facility-prevadzky/7/")) return Promise.resolve(response(facility));
+      return Promise.resolve(response([]));
+    });
+  });
+
+  it("reset explicitly protects all meals from a later scoped auto-order", async () => {
+    const user = userEvent.setup();
+    renderClientDetail();
+
+    await user.click(await screen.findByRole("button", { name: "Vynulovať objednávku" }));
+    await user.click(screen.getByRole("button", { name: "Vynulovať" }));
+
+    await waitFor(() => {
+      const call = mockApiFetch.mock.calls.find(
+        ([url, init]) => String(url).includes("/orders/42/") && init?.method === "PATCH",
+      );
+      expect(call).toBeDefined();
+      expect(JSON.parse(String(call?.[1]?.body))).toEqual({
+        data: { breakfast: {}, lunch: {}, olovrant: {} },
+        touched_meals: ["breakfast", "lunch", "olovrant"],
+      });
+    });
+  });
+});
