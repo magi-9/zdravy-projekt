@@ -10,6 +10,7 @@
 """
 
 import datetime
+import importlib
 
 import pytest
 from django.contrib.auth.models import User
@@ -164,3 +165,56 @@ def test_other_prevadzky_lunch_row_has_no_olovrant_contribution():
 
     assert {sr["meal"] for sr in lunch_row["sub_rows"]} == {"main_course"}
     assert {sr["meal"] for sr in olovrant_row["sub_rows"]} == {"afternoon_snack"}
+
+
+def test_deploy_backfill_copies_lunch_route_only_to_eligible_empty_meal_routes():
+    """Nové per-meal trasy zdedia obed iba kde to dáva logistický zmysel."""
+    lunch_route = _route("lunch")
+    custom_breakfast_route = _route("breakfast")
+    normal = _prevadzka("MŠ Normálna", visible_meals=["breakfast", "lunch", "olovrant"])
+    normal.delivery_route_lunch = lunch_route
+    normal.delivery_sort_order_lunch = 7
+    normal.save(update_fields=["delivery_route_lunch", "delivery_sort_order_lunch"])
+
+    yellow = _prevadzka(
+        "MŠ Žltá migrácia",
+        visible_meals=["breakfast", "lunch", "olovrant"],
+        olovrant_s_obedom=True,
+    )
+    yellow.delivery_route_lunch = lunch_route
+    yellow.delivery_sort_order_lunch = 8
+    yellow.save(update_fields=["delivery_route_lunch", "delivery_sort_order_lunch"])
+
+    custom = _prevadzka("MŠ Ručná", visible_meals=["breakfast", "lunch"])
+    custom.delivery_route_lunch = lunch_route
+    custom.delivery_sort_order_lunch = 9
+    custom.delivery_route_breakfast = custom_breakfast_route
+    custom.delivery_sort_order_breakfast = 3
+    custom.save(
+        update_fields=[
+            "delivery_route_lunch",
+            "delivery_sort_order_lunch",
+            "delivery_route_breakfast",
+            "delivery_sort_order_breakfast",
+        ]
+    )
+
+    migration = importlib.import_module(
+        "api.migrations.0113_backfill_per_meal_routes_from_lunch"
+    )
+    migration.copy_lunch_route_to_eligible_meals(
+        importlib.import_module("django.apps").apps, None
+    )
+
+    normal.refresh_from_db()
+    yellow.refresh_from_db()
+    custom.refresh_from_db()
+    assert normal.delivery_route_breakfast_id == lunch_route.id
+    assert normal.delivery_sort_order_breakfast == 7
+    assert normal.delivery_route_olovrant_id == lunch_route.id
+    assert normal.delivery_sort_order_olovrant == 7
+    assert yellow.delivery_route_breakfast_id == lunch_route.id
+    assert yellow.delivery_route_olovrant_id is None
+    assert custom.delivery_route_breakfast_id == custom_breakfast_route.id
+    assert custom.delivery_sort_order_breakfast == 3
+    assert custom.delivery_route_olovrant_id is None
