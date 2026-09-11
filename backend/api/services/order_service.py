@@ -9,7 +9,11 @@ from django.utils import timezone
 from ..models import DailyOrder, Holiday, PrevadzkaClosure
 from ..order_data import MEAL_KEYS, OrderData
 from ..scheduling import expand_closures, is_weekend
-from .auto_order_service import _build_auto_data, _is_order_empty
+from .auto_order_service import (
+    _build_auto_data,
+    _edupage_prevadzka_ids,
+    _is_order_empty,
+)
 from .prevadzka_service import dostupne_prevadzky
 
 # Okno, v ktorom sa hľadá 5 dní na objednanie. Musí pokryť aj dlhšie voľno
@@ -216,6 +220,10 @@ class OrderService:
         # Rovnaké pravidlo ako v `apply_auto_orders`, aby sedel odhad aj výsledok.
         # Prevádzka bez šablóny do odhadu nič nepridá, takže stačia tieto kľúče.
         templates_by_prevadzka: Dict[int, DailyOrder] = {}
+        # Predikcia v klientskom prehľade smie ukazovať iba to, čo môže
+        # `apply_auto_orders` naozaj vytvoriť. EduPage prevádzky má na starosti
+        # scrape a pauznutá prevádzka nesmie pokračovať v starej šablóne.
+        edupage_prevadzka_ids = _edupage_prevadzka_ids()
         for order in (
             DailyOrder.objects.filter(prevadzka__in=prevadzky, date__lt=workdays[0])
             .select_related("prevadzka")
@@ -223,6 +231,11 @@ class OrderService:
             .order_by("prevadzka_id", "-date")
         ):
             if order.prevadzka_id in templates_by_prevadzka:
+                continue
+            if (
+                order.prevadzka_id in edupage_prevadzka_ids
+                or order.prevadzka.auto_order_paused
+            ):
                 continue
             if not _is_order_empty(order.data or {}):
                 templates_by_prevadzka[order.prevadzka_id] = order

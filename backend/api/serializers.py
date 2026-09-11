@@ -930,6 +930,7 @@ class DailyOrderSerializer(serializers.ModelSerializer):
                         prevadzka.pk,
                         validated_data["date"],
                     )
+                actual_previous_data = order.data or {}
                 order.data = new_data
                 order.touched_meals = sorted(
                     set(order.touched_meals or []) | incoming_touched_meals
@@ -943,6 +944,7 @@ class DailyOrderSerializer(serializers.ModelSerializer):
                 order.save(
                     update_fields=["data", "touched_meals", "is_auto", "updated_at"]
                 )
+                actual_audit_event = "update"
             except DailyOrder.DoesNotExist:
                 # Wrap create() in its own savepoint so that if IntegrityError is
                 # raised (another request raced us to INSERT), only this savepoint
@@ -956,11 +958,14 @@ class DailyOrderSerializer(serializers.ModelSerializer):
                             data=new_data,
                             touched_meals=sorted(incoming_touched_meals),
                         )
+                        actual_previous_data = {}
+                        actual_audit_event = "create"
                 except IntegrityError:
                     # Another request won the INSERT race; retry with a lock.
                     order = DailyOrder.objects.select_for_update(nowait=False).get(
                         prevadzka=prevadzka, date=validated_data["date"]
                     )
+                    actual_previous_data = order.data or {}
                     order.data = new_data
                     # Retry už drží lock na aktuálnom riadku; union musí čítať
                     # jeho čerstvú hodnotu, nie hodnotu pred prvým pokusom.
@@ -968,14 +973,15 @@ class DailyOrderSerializer(serializers.ModelSerializer):
                         set(order.touched_meals or []) | incoming_touched_meals
                     )
                     order.save(update_fields=["data", "touched_meals", "updated_at"])
+                    actual_audit_event = "update"
 
         self._sync_auto_order_pause(prevadzka, new_data)
         # Audit trail: `create()` je upsert (viď docstring), takže "create"
         # requesty tu bežne aj prepisujú existujúci riadok. `perform_create`
         # v `order_views.py` z tohto odvodí, či ide o skutočné vytvorenie
         # alebo o úpravu, a čo bolo predtým.
-        order._audit_event = "update" if existing_order else "create"
-        order._audit_previous_data = existing_order.data if existing_order else {}
+        order._audit_event = actual_audit_event
+        order._audit_previous_data = actual_previous_data
         return order
 
     @staticmethod
@@ -1038,6 +1044,7 @@ class DailyOrderSerializer(serializers.ModelSerializer):
         # pridaný iným requestom.
         with transaction.atomic():
             instance = DailyOrder.objects.select_for_update().get(pk=instance.pk)
+            actual_previous_data = instance.data or {}
             instance.data = new_data
             instance.touched_meals = sorted(
                 set(instance.touched_meals or [])
@@ -1048,6 +1055,7 @@ class DailyOrderSerializer(serializers.ModelSerializer):
             instance.save(
                 update_fields=["data", "touched_meals", "is_auto", "updated_at"]
             )
+        instance._audit_previous_data = actual_previous_data
         self._sync_auto_order_pause(instance.prevadzka, new_data)
         return instance
 

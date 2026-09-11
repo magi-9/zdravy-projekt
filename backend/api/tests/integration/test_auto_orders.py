@@ -929,6 +929,22 @@ class TestAutoOrderTemplateSelection:
 
         assert found_predicted
 
+    def test_paused_or_edupage_prevadzka_is_not_shown_as_auto_prediction(
+        self, authenticated_client, user
+    ):
+        """Home predikcia nesmie sľubovať auto-order, ktorý cron preskočí."""
+        prevadzka = user.profile.dostupne_prevadzky().get()
+        DailyOrder.objects.create(user=user, date=MONDAY, data=NON_EMPTY_DATA)
+        prevadzka.auto_order_paused = True
+        prevadzka.save(update_fields=["auto_order_paused"])
+
+        response = authenticated_client.get(reverse("planned-orders-list"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert all(
+            item["predictedTotal"] == 0 for item in response.data if not item["exists"]
+        )
+
 
 @pytest.mark.django_db
 class TestApplyAutoOrdersScopedTouchedMeals:
