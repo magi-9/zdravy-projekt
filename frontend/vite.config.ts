@@ -38,5 +38,11 @@ export default defineConfig({
     // e2e/ patrí Playwrightu (`npm run test:e2e`) — vitest by tie špecky
     // spustil v jsdom bez prehliadača a spadli by na chýbajúcom `test` importe.
     exclude: ['node_modules/**', 'dist/**', 'e2e/**'],
+    // Default 5000ms je na zdieľanom CI runneri (viac testov paralelne)
+    // niekedy tesný pre testy s viacerými `waitFor`/`fireEvent` krokmi za
+    // sebou — OrderPage.test.tsx padal flaky na "Test timed out in 5000ms"
+    // aj keď lokálne prebehol v zlomku času (release/2026-09-11, CI run
+    // 34648382372). Zvýšené namiesto úpravy jednotlivých testov.
+    testTimeout: 15000,
   },
 });

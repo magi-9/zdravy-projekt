@@ -91,6 +91,43 @@ class TestResolveDietName(unittest.TestCase):
         )
         self.assertEqual(result.attention_by_prevadzka.get("One", []), [])
 
+    def test_scrape_uses_canonical_context_stored_on_instance(self):
+        target = date(2026, 6, 17)
+        html = _make_html(
+            {
+                "prehlad": {
+                    target.isoformat(): {"2": {"A": {"typ_platitela": {"1": {"o": 2}}}}}
+                }
+            },
+            {"A": {"nazov": "NoMilk", "skratka": "NM"}},
+            [
+                {
+                    "setting": "vydaj_normal",
+                    "hodnota": json.dumps(
+                        {"1": {"2": {"vydaj_od": "11:00", "vydaj_do": "14:00"}}}
+                    ),
+                }
+            ],
+            [
+                {
+                    "setting": "typy_platitelov",
+                    "hodnota": {"1": {"nazov": "J1", "porcia": "0"}},
+                }
+            ],
+            target.isoformat(),
+        )
+        scraper = EdupageScraper()
+        scraper.canonical_diet_names = {"NO MILK": "NO MILK – NO EGG"}
+        scraper.visible_diets_by_prevadzka = {"": {"NO MILK – NO EGG"}}
+
+        with patch.object(scraper, "_fetch", return_value=html):
+            result = scraper.scrape("https://example.edupage.org", target)
+
+        self.assertEqual(
+            result.order_data["lunch"]["Škôlka"]["diets"],
+            {"NO MILK – NO EGG": 2},
+        )
+
     def test_known_skratka_nm(self):
         self.assertEqual(self._r("NM", "NoMilk"), "NO MILK")
 
