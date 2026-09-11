@@ -102,7 +102,7 @@ def test_seed_british_school_assigns_a_cluster_c_route_when_trasa_extra_exists()
     call_command("seed_british_school_2026_08")
 
     prevadzka = Prevadzka.objects.get(nazov="British School")
-    route = prevadzka.delivery_route
+    route = prevadzka.delivery_route_lunch
     assert route is not None
     assert route.vydaj == Vydaj.C
     assert route.block.name == "Trasa extra"
@@ -116,7 +116,7 @@ def test_seed_british_school_warns_when_trasa_extra_is_missing():
 
     assert "blok 'Trasa extra' neexistuje" in stdout.getvalue()
     prevadzka = Prevadzka.objects.get(nazov="British School")
-    assert prevadzka.delivery_route is None
+    assert prevadzka.delivery_route_lunch is None
 
 
 @pytest.mark.django_db

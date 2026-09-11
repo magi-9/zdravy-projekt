@@ -1448,12 +1448,15 @@ def cache_closed_day_pdf_task(date_str: str) -> None:
 
     try:
         target_date = datetime.date.fromisoformat(date_str)
-        pdf_bytes = render_gramage_dashboard_pdf(date_str)
-        set_cached(
-            get_closed_day_pdf_cache_key(target_date.isoformat()),
-            pdf_bytes,
-            timeout=CLOSED_DAY_PDF_TIMEOUT,
-        )
+        # Raňajky/obed/olovrant majú vlastné, na sebe nezávislé PDF
+        # (#dashboard-per-meal-routes) — každé sa predgeneruje zvlášť.
+        for meal_type in ("breakfast", "lunch", "olovrant"):
+            pdf_bytes = render_gramage_dashboard_pdf(date_str, meal_type=meal_type)
+            set_cached(
+                get_closed_day_pdf_cache_key(target_date.isoformat(), meal_type),
+                pdf_bytes,
+                timeout=CLOSED_DAY_PDF_TIMEOUT,
+            )
     except Exception:
         logger.exception(
             "cache_closed_day_pdf_task: nepodarilo sa predgenerovať PDF gramáže "
