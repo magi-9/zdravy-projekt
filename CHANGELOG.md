@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.5.1](https://github.com/tomag-9/zdravy-projekt/compare/v3.5.0...v3.5.1) (2026-09-11)
+
+
+### Bug Fixes
+
+* **objednavky:** kategória menu neobmedzuje, len visible_menus prevádzky ([#636](https://github.com/tomag-9/zdravy-projekt/issues/636)) ([bda7dee](https://github.com/tomag-9/zdravy-projekt/commit/bda7dee0122b8fb39a42c8fa2b4779a4721ed7bd))
+
 ## [3.5.0](https://github.com/tomag-9/zdravy-projekt/compare/v3.4.0...v3.5.0) (2026-09-11)
 
 
