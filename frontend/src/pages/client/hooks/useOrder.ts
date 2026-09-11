@@ -290,11 +290,22 @@ export const useOrder = (activePrevadzkaId?: number, waitForPrevadzkaChoice = fa
                     // API returns { id, status, data: { breakfast..., special_diet_note? } }
                     const serverOrder = await response.json() as { id: number, status: 'draft' | 'submitted', data: DailyOrder & { special_diet_note?: unknown, full_day_order?: unknown } };
 
-                    if (serverOrder && serverOrder.id != null && serverOrder.data) {
+                    if (
+                        serverOrder &&
+                        serverOrder.id != null &&
+                        serverOrder.data &&
+                        (Object.keys(serverOrder.data).length > 0 || serverOrder.status === 'submitted')
+                    ) {
                         // `id` znamená, že existuje uložený riadok aj keď má
-                        // legacy tvar `data={}`. Počet kľúčov by takú
-                        // explicitnú nulu pomýlil s neexistujúcou objednávkou
-                        // a nechal by v UI starý localStorage draft.
+                        // legacy tvar `data={}`. Prázdny `data={}` sám o sebe
+                        // ale ešte neznamená, že server je autoritatívny —
+                        // pri čerstvo vytvorenom draft riadku (napr. auto-order
+                        // placeholder) by to zbytočne prepísalo nedotknutý
+                        // localStorage draft nulami pri každom refreshi. Keď je
+                        // však riadok `submitted` (užívateľ/cron ho reálne
+                        // odoslal na nulu), server musí vyhrať, inak by sa dala
+                        // znova odoslať stará draft hodnota nad explicitne
+                        // vynulovanou objednávkou.
                         if (isMounted) {
                             // Merge mechanism could be complex, for now Server Authority wins
                             const merged = OrderService.enforceStructure(serverOrder.data, OrderService.createEmptyOrder());
