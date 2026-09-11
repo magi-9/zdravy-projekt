@@ -15,7 +15,24 @@ vi.mock("../../context/ToastContext", () => ({
   useToast: () => ({ success: mockToastSuccess, error: mockToastError }),
 }));
 
-const layout = (name: string, mealType: "breakfast" | "lunch" | "olovrant") => ({
+const route = (id: number, name: string) => ({
+  id,
+  block: 1,
+  vydaj: "A",
+  name,
+  driver: "",
+  departure_time: null,
+  note: "",
+  sort_order: 1,
+  is_active: true,
+  prevadzky: [],
+});
+
+const layout = (
+  name: string,
+  mealType: "breakfast" | "lunch" | "olovrant",
+  routes: ReturnType<typeof route>[] = [],
+) => ({
   blocks: [{
     id: 1,
     meal_type: mealType,
@@ -24,7 +41,7 @@ const layout = (name: string, mealType: "breakfast" | "lunch" | "olovrant") => (
     include_in_main_summary: true,
     include_in_extra_summary: false,
     is_active: true,
-    routes: [],
+    routes,
   }],
   unassigned_prevadzky: [],
 });
@@ -59,5 +76,28 @@ describe("DeliveryLayoutAdmin", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(screen.queryByText("Obedové trasy")).not.toBeInTheDocument();
     expect(screen.getByText("Raňajkové trasy")).toBeInTheDocument();
+  });
+
+  // Raňajky/olovrant nemajú Cluster (#dashboard-per-meal-routes,
+  // 11.9.2026 backfill-bug follow-up) — kuchyňa ich vydáva z jedného
+  // miesta, takže výber/filter clustra pre tieto dve jedlá v UI nedáva
+  // zmysel a mátol by (vyzeralo by to, že sa dá znova rozdeliť).
+  it("hides the Cluster filter and per-route picker outside of the lunch tab", async () => {
+    mockApiFetch.mockImplementation((url: string) => {
+      if (url.includes("meal_type=breakfast")) {
+        return response(layout("Raňajkové trasy", "breakfast", [route(1, "Trasa 1")]));
+      }
+      return response(layout("Obedové trasy", "lunch", [route(2, "Trasa L")]));
+    });
+
+    render(<DeliveryLayoutAdmin />);
+    await screen.findByText("Obedové trasy");
+    expect(screen.getByLabelText("Cluster")).toBeInTheDocument();
+    expect(screen.getByLabelText("Cluster — Trasa L")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Raňajky" }));
+    await screen.findByText("Raňajkové trasy");
+    expect(screen.queryByLabelText("Cluster")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Cluster — Trasa 1")).not.toBeInTheDocument();
   });
 });
