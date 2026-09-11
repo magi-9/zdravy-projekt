@@ -864,8 +864,8 @@ def scrape_edupage_orders_task(
             nest_order_data_by_category,
             prevadzky_without_match,
         )
-        from api.models import DailyOrder, GlobalSettings
         from api.management.commands.repoint_deduplicated_diets_2026_09 import MAPPINGS
+        from api.models import DailyOrder, GlobalSettings
         from api.scheduling import business_days, closed_dates_for_prevadzky, is_day_off
         from api.services import _next_workday
         from api.services.edupage_connection_service import edupage_operations
