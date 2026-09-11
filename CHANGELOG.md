@@ -1,5 +1,14 @@
 # Changelog
 
+## [3.6.5](https://github.com/tomag-9/zdravy-projekt/compare/v3.6.4...v3.6.5) (2026-09-11)
+
+
+### Bug Fixes
+
+* **edupage:** trvalo umlčať false-positive olovrant attention flagy ([0ac66db](https://github.com/tomag-9/zdravy-projekt/commit/0ac66dba1ab13faa8b854257912f90c145c60862))
+* **edupage:** zachovať kompletné diétne kombinácie ([3d68d04](https://github.com/tomag-9/zdravy-projekt/commit/3d68d0461db773fa057e0c91efde59ff1fbc990e))
+* **tests:** opraviť zabudnutú duplicitnú asserciu na dsbNNN SJ diétu ([89f8dac](https://github.com/tomag-9/zdravy-projekt/commit/89f8daccc9e0c3554b3be8b24164780ee4946432))
+
 ## [3.6.4](https://github.com/tomag-9/zdravy-projekt/compare/v3.6.3...v3.6.4) (2026-09-11)
 
 
