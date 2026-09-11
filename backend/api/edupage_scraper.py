@@ -384,6 +384,11 @@ class ScrapeResult:
 
 class EdupageScraper:
     TIMEOUT = 15
+    # Optional per-run context. Tasks/views set these before calling `scrape`
+    # so older wrappers that only accept the original call signature remain
+    # compatible; direct keyword arguments still take precedence.
+    canonical_diet_names: dict[str, str] | None = None
+    visible_diets_by_prevadzka: dict[str, set[str]] | None = None
 
     def scrape(
         self,
@@ -394,6 +399,10 @@ class EdupageScraper:
         canonical_diet_names: dict[str, str] | None = None,
         visible_diets_by_prevadzka: dict[str, set[str]] | None = None,
     ) -> ScrapeResult:
+        if canonical_diet_names is None:
+            canonical_diet_names = self.canonical_diet_names
+        if visible_diets_by_prevadzka is None:
+            visible_diets_by_prevadzka = self.visible_diets_by_prevadzka
         url = self._inject_date(mealsguest_url, target_date)
         html = self._fetch(url)
         config = config_pre_url(mealsguest_url)
