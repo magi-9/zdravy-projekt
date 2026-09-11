@@ -864,8 +864,8 @@ def scrape_edupage_orders_task(
             nest_order_data_by_category,
             prevadzky_without_match,
         )
-        from api.models import DailyOrder, GlobalSettings
         from api.management.commands.repoint_deduplicated_diets_2026_09 import MAPPINGS
+        from api.models import DailyOrder, GlobalSettings
         from api.scheduling import business_days, closed_dates_for_prevadzky, is_day_off
         from api.services import _next_workday
         from api.services.edupage_connection_service import edupage_operations
@@ -1042,13 +1042,13 @@ def scrape_edupage_orders_task(
 
             for target_date, requested_meals in date_to_meals.items():
                 try:
+                    scraper.canonical_diet_names = dict(MAPPINGS)
+                    scraper.visible_diets_by_prevadzka = visible_diets_by_prevadzka
                     result = scraper.scrape(
                         operation["url"],
                         target_date,
                         prevadzka_matches=matches if len(prevadzky) > 1 else None,
                         allowed_diets=allowed_diets,
-                        canonical_diet_names=dict(MAPPINGS),
-                        visible_diets_by_prevadzka=visible_diets_by_prevadzka,
                     )
                 except Exception:
                     logger.exception(

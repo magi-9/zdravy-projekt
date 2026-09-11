@@ -126,7 +126,7 @@ def test_scrape_imports_orders_for_open_day(admin_client, admin_user, monkeypatc
     )
     monkeypatch.setattr(
         "api.views.edupage_views.EdupageScraper.scrape",
-        lambda self, url, date, prevadzka_matches=None, allowed_diets=None: ScrapeResult(
+        lambda self, url, date, **kwargs: ScrapeResult(
             date=date,
             order_data={"lunch": {"menuCounts": {"A": 3}, "diets": {}}},
         ),
@@ -143,4 +143,49 @@ def test_scrape_imports_orders_for_open_day(admin_client, admin_user, monkeypatc
     order = DailyOrder.objects.get(prevadzka=prevadzka, date=target_date)
     assert order.data == {
         "lunch": {"Open import school": {"menuCounts": {"A": 3}, "diets": {}}}
+    }
+
+
+@pytest.mark.django_db
+def test_manual_scrape_persists_attention_flags_for_kontrola(
+    admin_client, admin_user, monkeypatch
+):
+    """Manuálny import nesmie zahodiť upozornenie, ktoré má vidieť Kontrola."""
+    target_date = "2099-08-09"
+    celok = Celok.objects.create(nazov="Attention import school")
+    prevadzka = Prevadzka.objects.create(celok=celok, nazov="Attention import")
+    operation = {
+        "connection_id": 124,
+        "name": "Attention import",
+        "url": "https://example.edupage.org/menu/mealsGuest?id=attention",
+        "user": admin_user,
+        "prevadzky": [prevadzka],
+    }
+    monkeypatch.setattr(
+        "api.views.edupage_views.edupage_operations",
+        lambda connection_id=None: [operation],
+    )
+    monkeypatch.setattr(
+        "api.views.edupage_views.EdupageScraper.scrape",
+        lambda self, url, date, **kwargs: ScrapeResult(
+            date=date,
+            order_data={"lunch": {"menuCounts": {"A": 1}, "diets": {}}},
+            attention=["A:legacy→NO MILK nie je medzi viditeľnými diétami prevádzky"],
+            unmapped_letters=["N:Neznáma diéta"],
+            uncertain_letters=["A:XY→NO MILK"],
+            config_notes=["olovrant chýba"],
+        ),
+    )
+
+    response = admin_client.post(
+        f"{CONNECTIONS_URL}scrape/", {"date": target_date}, format="json"
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    order = DailyOrder.objects.get(prevadzka=prevadzka, date=target_date)
+    assert order.scrape_flags == {
+        "attention": ["A:legacy→NO MILK nie je medzi viditeľnými diétami prevádzky"],
+        "config_notes": ["olovrant chýba"],
+        "unmapped_diets": ["N:Neznáma diéta"],
+        "uncertain_diets": ["A:XY→NO MILK"],
     }
