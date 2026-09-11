@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.6.4](https://github.com/tomag-9/zdravy-projekt/compare/v3.6.3...v3.6.4) (2026-09-11)
+
+
+### Bug Fixes
+
+* **edupage:** potvrdiť viditeľné kombinované diéty ([#647](https://github.com/tomag-9/zdravy-projekt/issues/647)) ([4ebb8c3](https://github.com/tomag-9/zdravy-projekt/commit/4ebb8c31ba6a4b44072fecf34b0a51ec00374f5b))
+
 ## [3.6.3](https://github.com/tomag-9/zdravy-projekt/compare/v3.6.2...v3.6.3) (2026-09-11)
 
 
