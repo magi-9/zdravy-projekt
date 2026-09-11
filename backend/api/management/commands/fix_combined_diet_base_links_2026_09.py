@@ -82,11 +82,6 @@ DIET_2_COMPONENTS = [
     "NO HORCICA",
 ]
 
-# Chýbajúce jednozložkové diéty, ktoré diéta #2 potrebuje ako base_diets, ale
-# appka ich pod týmto presným menom ešte nemala (`No Citrus` existovalo len v
-# jednotnom čísle, `NO SOSOVICA` vôbec).
-MISSING_SINGLE_DIETS = ["NO CITRUSY", "NO SOSOVICA"]
-
 
 class Command(BaseCommand):
     help = (
@@ -97,15 +92,10 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("--dry-run", action="store_true")
 
-    def _get_or_create_single(self, name: str, dry_run: bool) -> Diet | None:
+    def _get_or_create_single(self, name: str) -> Diet:
         diet = Diet.objects.filter(name__iexact=name).first()
         if diet is not None:
             return diet
-        if dry_run:
-            self.stdout.write(
-                f"  [dry-run] vytvoril by som jednozložkovú diétu {name!r}"
-            )
-            return None
         diet = Diet.objects.create(name=name)
         self.stdout.write(
             self.style.SUCCESS(f"  vytvorená jednozložková diéta {name!r}")
@@ -119,20 +109,11 @@ class Command(BaseCommand):
         dry_run: bool,
         legacy_name: str | None = None,
     ) -> None:
-        components = [
-            self._get_or_create_single(component, dry_run)
-            for component in component_names
-        ]
-        if dry_run and any(c is None for c in components):
-            self.stdout.write(
-                f"  [dry-run] preskakujem prepojenie {name!r} — chýbajúce zložky "
-                "by sa v dry-run móde nevytvorili"
-            )
-            return
-
-        # Prednostne naviaž na existujúcu diétu pod STARÝM (predkompozitným)
-        # menom, ak taká je — inak by vznikla nepoužívaná duplicita popri
-        # aktívne priradenej diéte (viď modul docstring, diéta #2/id=46).
+        # Nájdi cieľovú diétu PRED riešením zložiek — čisté čítanie, nič sa
+        # nevytvára, takže toto sa musí spustiť aj v --dry-run móde. Bez
+        # tohto poradia dry-run pri chýbajúcich zložkách skončil skôr, než
+        # vôbec skúsil legacy meno, a ukázal zavádzajúci náhľad "založím
+        # novú diétu", hoci ostrý beh správne našiel existujúcu (id=46).
         diet = None
         if legacy_name is not None:
             diet = Diet.objects.filter(name__iexact=legacy_name).first()
@@ -141,7 +122,36 @@ class Command(BaseCommand):
                     f"  kombinovaná diéta nájdená pod starým menom {diet.name!r} "
                     f"(id={diet.id}) — nezakladám duplicitu pod {name!r}"
                 )
+        if diet is None:
+            diet = Diet.objects.filter(name__iexact=name).first()
+            if diet is not None:
+                self.stdout.write(
+                    f"  kombinovaná diéta {name!r} už existuje (id={diet.id})"
+                )
 
+        missing = [
+            c
+            for c in component_names
+            if not Diet.objects.filter(name__iexact=c).exists()
+        ]
+
+        if dry_run:
+            if diet is None:
+                self.stdout.write(f"  [dry-run] vytvoril by som diétu {name!r}")
+            for component in missing:
+                self.stdout.write(
+                    f"  [dry-run] vytvoril by som jednozložkovú diétu {component!r}"
+                )
+            target = f"{diet.name!r} (id={diet.id})" if diet else f"{name!r} (nová)"
+            self.stdout.write(
+                f"    [dry-run] nastavil by som base_diets diéty {target} na "
+                f"{component_names}"
+            )
+            return
+
+        components = [
+            self._get_or_create_single(component) for component in component_names
+        ]
         if diet is None:
             diet, created = Diet.objects.get_or_create(
                 name__iexact=name, defaults={"name": name}
@@ -150,20 +160,11 @@ class Command(BaseCommand):
                 self.stdout.write(
                     self.style.SUCCESS(f"  vytvorená kombinovaná diéta {name!r}")
                 )
-            else:
-                self.stdout.write(
-                    f"  kombinovaná diéta {name!r} už existuje (id={diet.id})"
-                )
 
         existing = set(diet.base_diets.values_list("id", flat=True))
         wanted = {c.id for c in components}
         if existing == wanted:
             self.stdout.write("    base_diets už sedia, nič nemením")
-            return
-        if dry_run:
-            self.stdout.write(
-                f"    [dry-run] nastavil by som base_diets na {component_names}"
-            )
             return
         diet.base_diets.set(components)
         self.stdout.write(f"    base_diets nastavené na {component_names}")

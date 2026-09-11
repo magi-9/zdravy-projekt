@@ -210,6 +210,51 @@ describe("ClientDetail adults pack separately (EduPage)", () => {
   });
 });
 
+describe("ClientDetail menu B/C deadline exemption", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockApiFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes("/admin/portion-types/")) return Promise.resolve(response([]));
+      if (url.includes("/diets/")) return Promise.resolve(response([]));
+      if (url.includes("/orders/")) return Promise.resolve(response([]));
+      if (url.includes("/admin/celky/3/")) return Promise.resolve(response(celokWithLogins));
+      if (url.includes("/admin/facility-prevadzky/7/") && init?.method === "PATCH") {
+        return Promise.resolve(response({ ...facility, ...JSON.parse(String(init.body)) }));
+      }
+      if (url.includes("/admin/facility-prevadzky/7/")) {
+        return Promise.resolve(response(facility));
+      }
+      return Promise.resolve(response([]));
+    });
+  });
+
+  it("toggles menu_bc_same_deadline_as_lunch on and saves it", async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={["/admin/facilities/7"]}>
+        <Routes>
+          <Route path="/admin/facilities/:id" element={<ClientDetail />} />
+          <Route path="/admin/facilities" element={<div>Facilities</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Objednávanie" }));
+    expect(screen.getByText("Menu B/C: rovnaký termín ako Menu A")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Menu B/C rovnaký termín ako Menu A" }));
+    await user.click(screen.getByRole("button", { name: "Uložiť nastavenia" }));
+
+    await waitFor(() => {
+      const patchCall = mockApiFetch.mock.calls.find(
+        ([url, init]) => String(url).includes("/admin/facility-prevadzky/7/")
+          && init?.method === "PATCH",
+      );
+      expect(patchCall).toBeDefined();
+      expect(JSON.parse(String(patchCall?.[1]?.body)).menu_bc_same_deadline_as_lunch).toBe(true);
+    });
+  });
+});
+
 describe("ClientDetail facility & login management", () => {
   beforeEach(() => {
     vi.clearAllMocks();
