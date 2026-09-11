@@ -992,6 +992,37 @@ class TestApplyAutoOrdersScopedTouchedMeals:
             == before_log_count
         )
 
+    def test_scoped_fill_reloads_locked_row_before_writing(self, user):
+        """Zápis klienta po preloade a pred cron save nesmie byť prepísaný."""
+        DailyOrder.objects.create(user=user, date=MONDAY, data=NON_EMPTY_DATA)
+        existing = DailyOrder.objects.create(user=user, date=TUESDAY, data=EMPTY_DATA)
+        original_select_for_update = DailyOrder.objects.select_for_update
+        client_write_done = False
+
+        def select_for_update_after_client_write(*args, **kwargs):
+            nonlocal client_write_done
+            if not client_write_done:
+                # Simuluje request, ktorý prešiel validáciou tesne pred
+                # uzávierkou a commitne po preloade cronu.
+                DailyOrder.objects.filter(pk=existing.pk).update(
+                    data=EMPTY_DATA,
+                    touched_meals=["lunch"],
+                )
+                client_write_done = True
+            return original_select_for_update(*args, **kwargs)
+
+        with patch.object(
+            DailyOrder.objects,
+            "select_for_update",
+            side_effect=select_for_update_after_client_write,
+        ):
+            apply_auto_orders(target_date=TUESDAY, meal_types=["lunch"])
+
+        existing.refresh_from_db()
+        assert client_write_done
+        assert existing.data["lunch"] == {}
+        assert existing.touched_meals == ["lunch"]
+
     def test_scoped_fill_of_untouched_meal_bumps_updated_at_and_logs_event(self, user):
         """Keď sa scoped beh naozaj dotkne netknutého jedla, musí to teraz
         byť vidno — predtým `save(update_fields=["data"])` obišlo aj
@@ -1038,6 +1069,19 @@ class TestApplyAutoOrdersScopedTouchedMeals:
         spätne kompatibilné, žiadna migrácia dát netreba."""
         existing = DailyOrder.objects.create(user=user, date=TUESDAY, data=EMPTY_DATA)
         assert existing.touched_meals == []
+
+    def test_scoped_new_order_is_audited(self, user):
+        """Aj vytvorenie nového scoped auto-riadka musí mať per-order audit."""
+        DailyOrder.objects.create(user=user, date=MONDAY, data=NON_EMPTY_DATA)
+
+        apply_auto_orders(target_date=TUESDAY, meal_types=["lunch"])
+
+        order = DailyOrder.objects.get(user=user, date=TUESDAY)
+        event = EventLog.objects.get(
+            event_type=EventLog.EventType.ORDER_ADMIN_UPDATE,
+            payload__order_id=order.pk,
+        )
+        assert event.payload["filled_meals"] == ["lunch"]
 
 
 @pytest.mark.django_db

@@ -96,6 +96,46 @@ class TestSerializerConcurrency:
         assert DailyOrder.objects.filter(user=user, date=TARGET_DATE).count() == 1
         assert order.data == new_data
 
+    def test_create_existing_order_unions_touched_meals_from_locked_row(self, user):
+        """Union sa robí až po locku, nie zo snapshotu pred ním."""
+        existing = DailyOrder.objects.create(
+            user=user,
+            date=TARGET_DATE,
+            data={},
+            touched_meals=["breakfast"],
+        )
+
+        serializer = _make_serializer(
+            {"date": str(TARGET_DATE), "data": {}, "touched_meals": ["lunch"]},
+            user,
+        )
+        assert serializer.is_valid(), serializer.errors
+        serializer.save(user=user)
+
+        existing.refresh_from_db()
+        assert existing.touched_meals == ["breakfast", "lunch"]
+
+    def test_patch_unions_touched_meals_from_locked_row(self, user):
+        order = DailyOrder.objects.create(
+            user=user,
+            date=TARGET_DATE,
+            data={},
+            touched_meals=["breakfast"],
+        )
+        request = Mock()
+        request.user = user
+        serializer = DailyOrderSerializer(
+            order,
+            data={"data": {}, "touched_meals": ["lunch"]},
+            partial=True,
+            context={"request": request},
+        )
+        assert serializer.is_valid(), serializer.errors
+        serializer.save()
+
+        order.refresh_from_db()
+        assert order.touched_meals == ["breakfast", "lunch"]
+
     def test_integrity_error_retry_path(self, user):
         """
         Simulate the race: DoesNotExist → create() raises IntegrityError

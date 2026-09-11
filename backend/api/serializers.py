@@ -898,15 +898,10 @@ class DailyOrderSerializer(serializers.ModelSerializer):
             .only("data", "touched_meals")
             .first()
         )
-        # Union, nikdy neuberá (Jarabinka 11.9.2026): jedlo raz odklikané
-        # (aj na nulu) ostáva chránené aj vtedy, keď tento konkrétny zápis
-        # rieši len iné jedlo/iný deň.
-        previous_touched_meals = (
-            existing_order.touched_meals or [] if existing_order else []
-        )
-        merged_touched_meals = sorted(
-            set(previous_touched_meals) | set(validated_data.get("touched_meals") or [])
-        )
+        # Tento vstup sa spojí až po ``select_for_update()`` nižšie. Výpočet
+        # unionu zo snapshotu tu by pri dvoch súbežných requestoch vedel
+        # stratiť marker, ktorý prvý request medzičasom práve uložil.
+        incoming_touched_meals = set(validated_data.get("touched_meals") or [])
         if not is_admin:
             self._validate_deadlines(
                 validated_data["date"],
@@ -936,7 +931,9 @@ class DailyOrderSerializer(serializers.ModelSerializer):
                         validated_data["date"],
                     )
                 order.data = new_data
-                order.touched_meals = merged_touched_meals
+                order.touched_meals = sorted(
+                    set(order.touched_meals or []) | incoming_touched_meals
+                )
                 # Issue #507: a manual submit overwriting an auto-generated
                 # placeholder (`is_auto=True`, created by auto_order_service
                 # after the deadline) is real, reviewed data now — clear the
@@ -957,7 +954,7 @@ class DailyOrderSerializer(serializers.ModelSerializer):
                             prevadzka=prevadzka,
                             date=validated_data["date"],
                             data=new_data,
-                            touched_meals=merged_touched_meals,
+                            touched_meals=sorted(incoming_touched_meals),
                         )
                 except IntegrityError:
                     # Another request won the INSERT race; retry with a lock.
@@ -965,7 +962,11 @@ class DailyOrderSerializer(serializers.ModelSerializer):
                         prevadzka=prevadzka, date=validated_data["date"]
                     )
                     order.data = new_data
-                    order.touched_meals = merged_touched_meals
+                    # Retry už drží lock na aktuálnom riadku; union musí čítať
+                    # jeho čerstvú hodnotu, nie hodnotu pred prvým pokusom.
+                    order.touched_meals = sorted(
+                        set(order.touched_meals or []) | incoming_touched_meals
+                    )
                     order.save(update_fields=["data", "touched_meals", "updated_at"])
 
         self._sync_auto_order_pause(prevadzka, new_data)
@@ -1032,15 +1033,21 @@ class DailyOrderSerializer(serializers.ModelSerializer):
                 user=instance.user, date=instance.date, status="draft", data={}
             )
 
-        instance.data = new_data
-        # Union, nikdy neuberá — viď matchujúci komentár v create() vyššie.
-        instance.touched_meals = sorted(
-            set(instance.touched_meals or [])
-            | set(validated_data.get("touched_meals") or [])
-        )
-        # Issue #507: see the matching comment in create() above.
-        instance.is_auto = False
-        instance.save(update_fields=["data", "touched_meals", "is_auto", "updated_at"])
+        # ``instance`` mohol view načítať dávno pred PATCHom. Zamkneme a znova
+        # načítame aktuálny riadok, aby paralelný PATCH nikdy nevymazal marker
+        # pridaný iným requestom.
+        with transaction.atomic():
+            instance = DailyOrder.objects.select_for_update().get(pk=instance.pk)
+            instance.data = new_data
+            instance.touched_meals = sorted(
+                set(instance.touched_meals or [])
+                | set(validated_data.get("touched_meals") or [])
+            )
+            # Issue #507: see the matching comment in create() above.
+            instance.is_auto = False
+            instance.save(
+                update_fields=["data", "touched_meals", "is_auto", "updated_at"]
+            )
         self._sync_auto_order_pause(instance.prevadzka, new_data)
         return instance
 

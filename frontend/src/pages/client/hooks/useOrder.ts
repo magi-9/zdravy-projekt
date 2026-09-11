@@ -625,11 +625,14 @@ export const useOrder = (activePrevadzkaId?: number, waitForPrevadzkaChoice = fa
 
 
     const toggleMeal = (mealKey: string) => {
+        const isTurningOff = Boolean(activeMeals[mealKey]);
         setActiveMeals(prev => ({ ...prev, [mealKey]: !prev[mealKey] }));
-        // Zapnutie/vypnutie chodu je explicitné rozhodnutie (aj "dnes tento
-        // chod nechcem") — musí sa počítať ako touched, inak by auto-order
-        // cron mohol vypnutý chod ticho doplniť naspäť (Jarabinka 11.9.2026).
-        setTouchedMeals(prev => new Set(prev).add(mealKey));
+        // Otvorenie chodu ešte nie je rozhodnutie: lazy-copy smie načítať
+        // poslednú objednávku. Vypnutie je naopak explicitné "nechcem" a
+        // musí chrániť nulu pred scoped auto-orderom.
+        if (isTurningOff) {
+            setTouchedMeals(prev => new Set(prev).add(mealKey));
+        }
     };
 
     const toggleFullDay = () => {
@@ -824,7 +827,7 @@ export const useOrder = (activePrevadzkaId?: number, waitForPrevadzkaChoice = fa
                     // nikdy nedoplní, nech dáta vyzerajú akokoľvek prázdno
                     // (Jarabinka 11.9.2026 — pozri `DailyOrder.touched_meals`).
                     touched_meals: fullDayOrder
-                        ? ['breakfast', 'lunch', 'olovrant']
+                        ? adminVisibleMeals
                         : (['breakfast', 'lunch', 'olovrant'] as const).filter(
                             key => touchedMeals.has(key),
                         ),
