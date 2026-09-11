@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.5.0](https://github.com/tomag-9/zdravy-projekt/compare/v3.4.0...v3.5.0) (2026-09-11)
+
+
+### Features
+
+* **admin:** checkbox pre menu_bc_same_deadline_as_lunch v nastaveniach prevádzky ([33bf27a](https://github.com/tomag-9/zdravy-projekt/commit/33bf27a8966ee2fd16b8769830e31eebd52bdf48))
+
+
+### Bug Fixes
+
+* **diety:** dry-run náhľad fix_combined_diet_base_links_2026_09 hlásil zavádzajúce 'založím novú diétu' ([7c59e8e](https://github.com/tomag-9/zdravy-projekt/commit/7c59e8ec784941c3386eb8a3fa31884616fdf7b8))
+
 ## [3.4.0](https://github.com/tomag-9/zdravy-projekt/compare/v3.3.1...v3.4.0) (2026-09-10)
 
 
