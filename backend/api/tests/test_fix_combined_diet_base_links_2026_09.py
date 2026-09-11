@@ -1,3 +1,5 @@
+from io import StringIO
+
 import pytest
 from django.core.management import call_command
 
@@ -124,3 +126,30 @@ def test_dry_run_makes_no_changes():
 
     after = list(Diet.objects.values_list("name", flat=True))
     assert before == after
+
+
+@pytest.mark.django_db
+def test_dry_run_reports_legacy_match_even_with_missing_components():
+    """Regresný test presne na prod scenár (10.9.2026): legacy diéta #46 v DB
+    už je, ale NO CITRUSY/NO SOSOVICA ešte nie — dry-run musí ukázať, že sa
+    diéta NÁJDE podľa starého mena, nie zavádzajúco 'skip, chýbajú zložky'
+    (pôvodná chyba: legacy lookup bežal až PO probe zložiek, takže sa preň
+    v dry-run nikdy nedostalo)."""
+    for name in DIET_2_COMPONENTS:
+        if name not in ("NO CITRUSY", "NO SOSOVICA"):
+            Diet.objects.create(name=name)
+    legacy = Diet.objects.create(name=DIET_2_LEGACY_NAME)
+
+    stdout = StringIO()
+    call_command("fix_combined_diet_base_links_2026_09", "--dry-run", stdout=stdout)
+    output = stdout.getvalue()
+
+    assert f"nájdená pod starým menom {DIET_2_LEGACY_NAME!r}" in output
+    assert f"(id={legacy.id})" in output
+    assert "vytvoril by som jednozložkovú diétu 'NO CITRUSY'" in output
+    assert "vytvoril by som jednozložkovú diétu 'NO SOSOVICA'" in output
+    # Nesmie tvrdiť, že založí novú diétu pod DIET_2_NAME.
+    assert f"vytvoril by som diétu {DIET_2_NAME!r}" not in output
+    # A skutočne nič nezmenilo.
+    assert not Diet.objects.filter(name=DIET_2_NAME).exists()
+    assert not Diet.objects.filter(name="NO CITRUSY").exists()
