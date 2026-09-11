@@ -455,37 +455,41 @@ def apply_auto_orders(
                             },
                         )
                 except IntegrityError:
-                    # Concurrent task already created the row; treat as skipped.
+                    # Druhý scoped beh mohol riadok práve vytvoriť. Pri ďalšom
+                    # spustení sa jeho chod doplní; tento beh ho neprepíše.
                     skipped += 1
                     continue
                 if not auto_created:
-                    # A manual/other order appeared between preload and now.
-                    skipped += 1
-                    continue
-                log_event(
-                    EventLog.EventType.ORDER_ADMIN_UPDATE,
-                    actor=None,
-                    actor_label="Auto-objednávka (cron)",
-                    target_user=client,
-                    prevadzka=created_order.prevadzka,
-                    summary=(
-                        f"Auto-objednávka vytvorila {', '.join(filled_meals)} "
-                        f"(šablóna z {template.date}) pre prevádzku "
-                        f"{created_order.prevadzka} na {target_date}."
-                    ),
-                    payload={
-                        "order_id": created_order.pk,
-                        "date": str(target_date),
-                        "prevadzka_id": created_order.prevadzka_id,
-                        "prevadzka_nazov": str(created_order.prevadzka),
-                        "template_date": str(template.date),
-                        "filled_meals": filled_meals,
-                        "meals": {
-                            meal: current_data.get(meal, {}) for meal in filled_meals
+                    # Iný scoped beh (alebo manuálny zápis) vytvoril riadok
+                    # po preloade. Nevynechaj svoj chod: pokračuj zamknutou
+                    # existing-row vetvou, ktorá ho znovu vyhodnotí.
+                    existing_order = created_order
+                else:
+                    log_event(
+                        EventLog.EventType.ORDER_ADMIN_UPDATE,
+                        actor=None,
+                        actor_label="Auto-objednávka (cron)",
+                        target_user=client,
+                        prevadzka=created_order.prevadzka,
+                        summary=(
+                            f"Auto-objednávka vytvorila {', '.join(filled_meals)} "
+                            f"(šablóna z {template.date}) pre prevádzku "
+                            f"{created_order.prevadzka} na {target_date}."
+                        ),
+                        payload={
+                            "order_id": created_order.pk,
+                            "date": str(target_date),
+                            "prevadzka_id": created_order.prevadzka_id,
+                            "prevadzka_nazov": str(created_order.prevadzka),
+                            "template_date": str(template.date),
+                            "filled_meals": filled_meals,
+                            "meals": {
+                                meal: current_data.get(meal, {})
+                                for meal in filled_meals
+                            },
                         },
-                    },
-                )
-            else:
+                    )
+            if existing_order is not None:
                 # Preload na začiatku služby je len optimalizácia. Tesne pred
                 # rozhodnutím a zápisom musíme riadok načítať pod lockom: medzi
                 # preloadom a týmto miestom mohol klient stihnúť uložiť
