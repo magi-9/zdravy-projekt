@@ -865,6 +865,7 @@ def scrape_edupage_orders_task(
             prevadzky_without_match,
         )
         from api.models import DailyOrder, GlobalSettings
+        from api.management.commands.repoint_deduplicated_diets_2026_09 import MAPPINGS
         from api.scheduling import business_days, closed_dates_for_prevadzky, is_day_off
         from api.services import _next_workday
         from api.services.edupage_connection_service import edupage_operations
@@ -1014,6 +1015,12 @@ def scrape_edupage_orders_task(
             # Viac prevádzok → EduPage riadky rozdelíme podľa `edupage_match`.
             # Jedna prevádzka → split nerobíme a všetko ide do nej.
             by_nazov = {p.nazov: p for p in prevadzky}
+            visible_diets_by_prevadzka = {
+                (p.nazov if len(prevadzky) > 1 else ""): set(
+                    p.visible_diets.values_list("name", flat=True)
+                )
+                for p in prevadzky
+            }
             # Voľno prevádzky (#490): na taký deň sa jej plán nezakladá vôbec.
             # Jeden dotaz na celok, nie na každý (prevádzka × deň).
             scrape_dates = list(date_to_meals)
@@ -1040,6 +1047,8 @@ def scrape_edupage_orders_task(
                         target_date,
                         prevadzka_matches=matches if len(prevadzky) > 1 else None,
                         allowed_diets=allowed_diets,
+                        canonical_diet_names=dict(MAPPINGS),
+                        visible_diets_by_prevadzka=visible_diets_by_prevadzka,
                     )
                 except Exception:
                     logger.exception(

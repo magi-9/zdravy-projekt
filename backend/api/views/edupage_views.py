@@ -16,6 +16,7 @@ from ..edupage_scraper import (
     prevadzky_without_match,
 )
 from ..models import DailyOrder, EdupageConnection, EventLog
+from ..management.commands.repoint_deduplicated_diets_2026_09 import MAPPINGS
 from ..permissions import IsAdminOrAbove, SectionAccess
 from ..serializers import DailyOrderSerializer
 from ..services.edupage_connection_service import edupage_operations
@@ -127,6 +128,12 @@ class AdminEdupageConnectionViewSet(viewsets.ModelViewSet):
                 continue
 
             by_nazov = {p.nazov: p for p in prevadzky}
+            visible_diets_by_prevadzka = {
+                (p.nazov if len(prevadzky) > 1 else ""): set(
+                    p.visible_diets.values_list("name", flat=True)
+                )
+                for p in prevadzky
+            }
             matches = build_prevadzka_matches(prevadzky)
             bez_matchu = prevadzky_without_match(prevadzky)
             if len(prevadzky) > 1 and bez_matchu:
@@ -149,6 +156,8 @@ class AdminEdupageConnectionViewSet(viewsets.ModelViewSet):
                     target_date,
                     prevadzka_matches=matches if len(prevadzky) > 1 else None,
                     allowed_diets=allowed_diets,
+                    canonical_diet_names=dict(MAPPINGS),
+                    visible_diets_by_prevadzka=visible_diets_by_prevadzka,
                 )
             except Exception:
                 logger.exception(

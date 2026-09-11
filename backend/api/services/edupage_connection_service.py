@@ -41,6 +41,7 @@ def edupage_operations(
         Prevadzka.objects.filter(is_active=True)
         .select_related("celok")
         .prefetch_related(
+            "visible_diets",
             "profile_accesses__profile__user",
             "celok__profile_accesses__profile__user",
         )
