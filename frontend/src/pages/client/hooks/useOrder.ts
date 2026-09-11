@@ -626,6 +626,10 @@ export const useOrder = (activePrevadzkaId?: number, waitForPrevadzkaChoice = fa
 
     const toggleMeal = (mealKey: string) => {
         setActiveMeals(prev => ({ ...prev, [mealKey]: !prev[mealKey] }));
+        // Zapnutie/vypnutie chodu je explicitné rozhodnutie (aj "dnes tento
+        // chod nechcem") — musí sa počítať ako touched, inak by auto-order
+        // cron mohol vypnutý chod ticho doplniť naspäť (Jarabinka 11.9.2026).
+        setTouchedMeals(prev => new Set(prev).add(mealKey));
     };
 
     const toggleFullDay = () => {
@@ -814,6 +818,16 @@ export const useOrder = (activePrevadzkaId?: number, waitForPrevadzkaChoice = fa
                     date,
                     status: 'submitted',
                     ...(prevadzkaId ? { prevadzka: prevadzkaId } : {}),
+                    // Ktoré chody klient v TEJTO session skutočne riešil (aj na
+                    // nulu) — server si to union-uje s tým, čo už na daný deň
+                    // bolo touched, a auto-order cron takto označené jedlo už
+                    // nikdy nedoplní, nech dáta vyzerajú akokoľvek prázdno
+                    // (Jarabinka 11.9.2026 — pozri `DailyOrder.touched_meals`).
+                    touched_meals: fullDayOrder
+                        ? ['breakfast', 'lunch', 'olovrant']
+                        : (['breakfast', 'lunch', 'olovrant'] as const).filter(
+                            key => touchedMeals.has(key),
+                        ),
                     data: {
                         ...payload,
                         special_diet_note: specialDietNote || undefined,

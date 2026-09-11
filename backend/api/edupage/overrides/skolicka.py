@@ -21,7 +21,7 @@ from __future__ import annotations
 import re
 import unicodedata
 
-from ..base import PayerRule
+from ..base import LetterRule, PayerRule
 
 _VARIANT_RE = re.compile(r"[-–]\s*(.+)$")
 _MILK_RE = re.compile(r"[BN]M")
@@ -56,4 +56,29 @@ def skolicka_zs_payer_hook(payer_name: str) -> PayerRule | None:
         return PayerRule(diet="NO MILK")
     if has_gluten:
         return PayerRule(diet="NO GLUTEN")
+    return None
+
+
+def skolicka_zs_letter_hook(letter: str, skratka: str, nazov: str) -> LetterRule | None:
+    """Menu B/C (živé písmená 'Klasik B' aj 'Učiteľské menu' so skratkou 'C',
+    guest dump 10.9.2026) prebijú diétu z payer labelu namiesto opačne.
+
+    Učiteľ (aj žiak 2. stupňa) s diétou (payer nazov 'učiteľ nM'/'nMnG' —
+    `skolicka_zs_payer_hook`) smie podľa EduPage `povoleneMenu` objednať aj
+    klasické písmeno Menu B alebo "Učiteľské menu" (skratka 'C') namiesto
+    svojej diéty — je to ich vlastná zodpovednosť skontrolovať si v
+    jedálničku, že tam ich alergén nie je (user 10.9.2026). Bez tohto hooku
+    `_parse` payer-level diétu vždy prebije `effective_menu` na "A"
+    (`effective_menu = "A" if effective_diet else ...`) a reálna voľba
+    Menu B/C sa ticho stratí pod diétou.
+
+    Skutočné diétne písmená (napr. skratka 'nM'/'nMnG' — `BezMlieka`,
+    `BezLepku/BezMlieka`) `resolve_menu_variant` nerozpozná ako menu (nesú
+    diétový signál), takže tam hook vráti `None` a diétu necháme na
+    generický engine ako doteraz."""
+    from api.edupage_scraper import EdupageScraper
+
+    variant = EdupageScraper.resolve_menu_variant(skratka, nazov)
+    if variant in ("B", "C"):
+        return LetterRule(menu=variant, suppress_payer_diet=True)
     return None

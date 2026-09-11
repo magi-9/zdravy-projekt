@@ -104,6 +104,25 @@ class DailyOrder(models.Model):
     is_auto = models.BooleanField(
         default=False, help_text="True if this order was auto-generated after deadline"
     )
+    touched_meals = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=(
+            "Ktoré jedlá (breakfast/lunch/olovrant) klient/admin V TOMTO RIADKU "
+            "skutočne odklikol/rozhodol — aj keď výsledok je nula (napr. "
+            "'Vymazať'/'Vynulovať'). Union naprieč zápismi (`update()` pridáva, "
+            "nikdy neuberá). `apply_auto_orders` (scoped beh, #issue Jarabinka "
+            "11.9.2026) toto jedlo potom nikdy neprepíše, aj keď dáta pre neho "
+            "vyzerajú prázdne — bez tohto rozlíšenia doterajší "
+            "`_scoped_is_empty` count-based check nevedel odlíšiť 'klient "
+            "explicitne zadal 0' od 'klient sa k jedlu vôbec nedostal', a "
+            "auto-cron tichým `save(update_fields=['data'])` (bez EventLogu, "
+            "bez `updated_at`) prepísal zámerne vynulovaný deň šablónou z "
+            "predošlého dňa. Prázdny zoznam (default, aj historické riadky "
+            "spred tohto poľa) = žiadne jedlo nie je chránené, teda sa preň "
+            "použije pôvodné (count-based) správanie — spätne kompatibilné."
+        ),
+    )
     attention_dismissed = models.BooleanField(
         default=False,
         help_text=(
@@ -193,7 +212,11 @@ class ClosedDay(models.Model):
 
 
 class Diet(models.Model):
-    name = models.CharField(max_length=100, unique=True)
+    # 100 bolo pri kombinovaných diétach málo — 14-zložková kombinácia (napr.
+    # NoMilk/NoGluten/NoEgg/.../NoHorcica, user 10.9.2026) má cez 160 znakov a
+    # tvorba tíško padala na "Ensure this field has no more than 100
+    # characters", čo frontend hlásil ako zavádzajúce "možno už existuje".
+    name = models.CharField(max_length=255, unique=True)
     sort_order = models.PositiveSmallIntegerField(default=0, db_index=True)
     is_active = models.BooleanField(default=True)
     description = models.TextField(blank=True, null=True)
@@ -746,6 +769,18 @@ class Prevadzka(models.Model):
         blank=True,
         default="",
         help_text="Interná poznámka k objednávkam prevádzky v admin prehľadoch.",
+    )
+    menu_bc_same_deadline_as_lunch = models.BooleanField(
+        default=False,
+        help_text=(
+            "Keď je zapnuté, na Menu B/C tejto prevádzky sa NEVZŤAHUJE prísny "
+            "globálny 2-dňový termín nárastu (`GlobalSettings.deadline_menu_bc`) "
+            "— platí preň rovnaký termín ako na Menu A (bežná uzávierka daného "
+            "jedla). Určené pre školy, kde je Menu B/C pevná, vopred známa "
+            "voľba (napr. len v piatok cez `menu_day_restrictions`), nie "
+            "narýchlo dokupovaná porcia (user 10.9.2026: Múdre hranie Škola, "
+            "Benjamin Pezinok, Benjamin Senec, Pinocchio)."
+        ),
     )
     auto_order_paused = models.BooleanField(
         default=False,

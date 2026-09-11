@@ -69,6 +69,7 @@ interface FacilityDetail {
   pack_separately_enabled: boolean;
   adults_pack_separately_enabled: boolean;
   olovrant_s_obedom: boolean;
+  menu_bc_same_deadline_as_lunch: boolean;
   orders_count: number | null;
   // Priradené diéty s poznámkou per (prevádzka, diéta) — pozri PrevadzkaDiet
   // na backende. Zdroj pre `dietNotes` pri načítaní; samotné priradenie
@@ -166,6 +167,7 @@ const ClientDetail: React.FC = () => {
   const [adminOrderNote, setAdminOrderNote] = useState("");
   const [packSeparatelyEnabled, setPackSeparatelyEnabled] = useState(false);
   const [adultsPackSeparatelyEnabled, setAdultsPackSeparatelyEnabled] = useState(false);
+  const [menuBcSameDeadlineAsLunch, setMenuBcSameDeadlineAsLunch] = useState(false);
   const [olovrantSObedom, setOlovrantSObedom] = useState(false);
   const [prevadzkaForm, setPrevadzkaForm] = useState<PrevadzkaForm>({
     nazov: "",
@@ -249,6 +251,7 @@ const ClientDetail: React.FC = () => {
     setAdminOrderNote(data.admin_order_note || "");
     setPackSeparatelyEnabled(!!data.pack_separately_enabled);
     setAdultsPackSeparatelyEnabled(!!data.adults_pack_separately_enabled);
+    setMenuBcSameDeadlineAsLunch(!!data.menu_bc_same_deadline_as_lunch);
     setOlovrantSObedom(!!data.olovrant_s_obedom);
     setPrevadzkaForm({
       nazov: data.nazov,
@@ -594,6 +597,7 @@ const ClientDetail: React.FC = () => {
         pack_separately_enabled: packSeparatelyEnabled,
         adults_pack_separately_enabled: adultsPackSeparatelyEnabled,
         olovrant_s_obedom: olovrantSObedom,
+        menu_bc_same_deadline_as_lunch: menuBcSameDeadlineAsLunch,
       };
 
       const res = await apiFetch(`${API}/admin/facility-prevadzky/${facility.id}/`, {
@@ -1120,6 +1124,19 @@ const ClientDetail: React.FC = () => {
                       </div>
                     );
                   })}
+                </div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, marginTop: 16, paddingTop: 16, borderTop: "1px solid var(--line-soft)" }}>
+                  <div>
+                    <div style={{ fontWeight: 600, color: "var(--ink-1)", fontSize: 14 }}>Menu B/C: rovnaký termín ako Menu A</div>
+                    <div style={{ color: "var(--ink-3)", fontSize: 13 }}>
+                      Vypne prísny 2-dňový termín na nárast Menu B/C pre túto prevádzku — platí naň len bežná uzávierka obeda. Určené pre školy s pevnou (napr. piatkovou) voľbou Menu B pre deti.
+                    </div>
+                  </div>
+                  <Toggle
+                    on={menuBcSameDeadlineAsLunch}
+                    onChange={setMenuBcSameDeadlineAsLunch}
+                    ariaLabel="Menu B/C rovnaký termín ako Menu A"
+                  />
                 </div>
               </Card>
 

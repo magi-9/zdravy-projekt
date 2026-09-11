@@ -55,7 +55,16 @@ class DailyOrderSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DailyOrder
-        fields = ["id", "date", "status", "data", "is_auto", "updated_at", "prevadzka"]
+        fields = [
+            "id",
+            "date",
+            "status",
+            "data",
+            "is_auto",
+            "updated_at",
+            "prevadzka",
+            "touched_meals",
+        ]
         read_only_fields = ["id", "is_auto", "updated_at"]
         # DRF by z UniqueConstraint(prevadzka, date) odvodil UniqueTogetherValidator,
         # ktorý spraví `prevadzka` povinným poľom — lenže pri jedno-prevádzkovom
@@ -76,6 +85,18 @@ class DailyOrderSerializer(serializers.ModelSerializer):
     }
 
     _ALLOWED_MEAL_KEYS = frozenset({"breakfast", "lunch", "olovrant"})
+
+    # Ktoré jedlá klient/admin V TOMTO ZÁPISE skutočne odklikol/rozhodol —
+    # aj keď výsledok je nula (viď `DailyOrder.touched_meals`). Nepovinné a
+    # nezávislé od `data`, lebo `_ALLOWED_DATA_KEYS`/`validate_data` validuje
+    # len tvar objednávky, nie audit toho, čo bolo "riešené". `create()`/
+    # `update()` toto pole zlučujú (union) s tým, čo už na riadku bolo —
+    # nikdy sa neuberá, len pridáva (Jarabinka 11.9.2026).
+    touched_meals = serializers.ListField(
+        child=serializers.ChoiceField(choices=sorted(_ALLOWED_MEAL_KEYS)),
+        required=False,
+        default=list,
+    )
     # Poznámka k špeciálnej diéte sedí v `data` vedľa jedál (tak ju posiela klient
     # aj admin editor a tak ju číta admin UI), takže musí prejsť allowlistom —
     # nie je to jedlo, preto sa validuje zvlášť a preskakuje traverzáciu kategórií.
@@ -531,6 +552,7 @@ class DailyOrderSerializer(serializers.ModelSerializer):
         new_data: Dict[str, Any],
         input_status: str,
         existing_data: Dict[str, Any] | None = None,
+        prevadzka: Prevadzka | None = None,
     ) -> None:
         changed_meals = cls._changed_meals(new_data, existing_data, input_status)
         changed_restricted_menus = cls._changed_restricted_menus(
@@ -566,13 +588,20 @@ class DailyOrderSerializer(serializers.ModelSerializer):
                     ),
                 )
 
-        if changed_restricted_menus:
+        if changed_restricted_menus and not (
+            prevadzka is not None and prevadzka.menu_bc_same_deadline_as_lunch
+        ):
             # Nahlásiť/zvýšiť Menu B/C má prísny 2-dňový termín (kuchyňa ich
             # dokupuje vopred) — ale ODHLÁSIŤ/znížiť sa dá až do rána v deň
             # výdaja, rovnaký termín ako bežné jedlo (user 2.9.2026: "nahlasit
             # si to vedia najviac 2 dni vopred ale odhlasit si to vedia az do
             # rana"). Bez tohto rozlíšenia by rodič nemohol odhlásiť dieťa
             # tesne pred obedom, len preto, že B/C termín už prešiel.
+            #
+            # Prevádzky s `menu_bc_same_deadline_as_lunch` (napr. piatkové
+            # Menu B pre deti, user 10.9.2026) tento prísnejší termín vôbec
+            # nevidia — Menu B/C tam podlieha len bežnej uzávierke jedla,
+            # ktorú už vynútil `changed_meals` loop vyššie.
             is_increase = cls._restricted_menus_increased(
                 new_data, existing_data, changed_restricted_menus
             )
@@ -841,6 +870,7 @@ class DailyOrderSerializer(serializers.ModelSerializer):
                     validated_data.get("data", {}),
                     input_status,
                     existing_order.data if existing_order else None,
+                    prevadzka,
                 )
             DailyOrder.objects.filter(
                 prevadzka=prevadzka, date=validated_data["date"]
@@ -865,8 +895,17 @@ class DailyOrderSerializer(serializers.ModelSerializer):
         new_data = validated_data.get("data", {})
         existing_order = (
             DailyOrder.objects.filter(prevadzka=prevadzka, date=validated_data["date"])
-            .only("data")
+            .only("data", "touched_meals")
             .first()
+        )
+        # Union, nikdy neuberá (Jarabinka 11.9.2026): jedlo raz odklikané
+        # (aj na nulu) ostáva chránené aj vtedy, keď tento konkrétny zápis
+        # rieši len iné jedlo/iný deň.
+        previous_touched_meals = (
+            existing_order.touched_meals or [] if existing_order else []
+        )
+        merged_touched_meals = sorted(
+            set(previous_touched_meals) | set(validated_data.get("touched_meals") or [])
         )
         if not is_admin:
             self._validate_deadlines(
@@ -874,6 +913,7 @@ class DailyOrderSerializer(serializers.ModelSerializer):
                 new_data,
                 input_status,
                 existing_order.data if existing_order else None,
+                prevadzka,
             )
 
         # Use select_for_update inside an atomic block to prevent race conditions
@@ -896,13 +936,16 @@ class DailyOrderSerializer(serializers.ModelSerializer):
                         validated_data["date"],
                     )
                 order.data = new_data
+                order.touched_meals = merged_touched_meals
                 # Issue #507: a manual submit overwriting an auto-generated
                 # placeholder (`is_auto=True`, created by auto_order_service
                 # after the deadline) is real, reviewed data now — clear the
                 # flag so admin overview stops flagging it "na kontrolu"
                 # forever, even after someone actually filled it in.
                 order.is_auto = False
-                order.save(update_fields=["data", "is_auto", "updated_at"])
+                order.save(
+                    update_fields=["data", "touched_meals", "is_auto", "updated_at"]
+                )
             except DailyOrder.DoesNotExist:
                 # Wrap create() in its own savepoint so that if IntegrityError is
                 # raised (another request raced us to INSERT), only this savepoint
@@ -914,6 +957,7 @@ class DailyOrderSerializer(serializers.ModelSerializer):
                             prevadzka=prevadzka,
                             date=validated_data["date"],
                             data=new_data,
+                            touched_meals=merged_touched_meals,
                         )
                 except IntegrityError:
                     # Another request won the INSERT race; retry with a lock.
@@ -921,7 +965,8 @@ class DailyOrderSerializer(serializers.ModelSerializer):
                         prevadzka=prevadzka, date=validated_data["date"]
                     )
                     order.data = new_data
-                    order.save(update_fields=["data", "updated_at"])
+                    order.touched_meals = merged_touched_meals
+                    order.save(update_fields=["data", "touched_meals", "updated_at"])
 
         self._sync_auto_order_pause(prevadzka, new_data)
         # Audit trail: `create()` je upsert (viď docstring), takže "create"
@@ -963,7 +1008,11 @@ class DailyOrderSerializer(serializers.ModelSerializer):
 
         if not is_admin:
             self._validate_deadlines(
-                instance.date, new_data, input_status, instance.data
+                instance.date,
+                new_data,
+                input_status,
+                instance.data,
+                instance.prevadzka if instance.prevadzka_id else None,
             )
 
         if input_status != "draft" and instance.prevadzka_id:
@@ -984,9 +1033,14 @@ class DailyOrderSerializer(serializers.ModelSerializer):
             )
 
         instance.data = new_data
+        # Union, nikdy neuberá — viď matchujúci komentár v create() vyššie.
+        instance.touched_meals = sorted(
+            set(instance.touched_meals or [])
+            | set(validated_data.get("touched_meals") or [])
+        )
         # Issue #507: see the matching comment in create() above.
         instance.is_auto = False
-        instance.save(update_fields=["data", "is_auto", "updated_at"])
+        instance.save(update_fields=["data", "touched_meals", "is_auto", "updated_at"])
         self._sync_auto_order_pause(instance.prevadzka, new_data)
         return instance
 

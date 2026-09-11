@@ -692,6 +692,24 @@ describe("OrderPage Logic & Triggers", () => {
     expect(within(row("Olovrant")).queryByText("Menu B")).not.toBeInTheDocument();
   });
 
+  it("offers Menu B for Škôlka when the prevádzka has it in visible_menus (kategória menu sama neobmedzuje)", async () => {
+    mockPrevadzkaWithPerMealMenus();
+    const date = localDateStr();
+    localStorageMock.setItem(
+      `activeMeals_${date}`,
+      JSON.stringify({ breakfast: false, lunch: true, olovrant: false }),
+    );
+
+    renderPage();
+
+    const lunchCard = getMealCard("Obed");
+    const skolkaRow = getCategoryRow(lunchCard, "Škôlka");
+
+    await waitFor(() => {
+      expect(within(skolkaRow).getByText("Menu B")).toBeInTheDocument();
+    });
+  });
+
   it("Copy Breakfast: Copies from Previous Day Lunch", async () => {
     const today = localDateStr();
     const prevDay = new Date();
@@ -1118,6 +1136,47 @@ describe("OrderPage Logic & Triggers", () => {
       // Submit musí ísť na deň, ktorý si user reálne vybral cez DaySelector
       // (zajtra) — nie sa vrátiť na pôvodný URL dátum (dnes).
       expect(body.date).toBe(tomorrow);
+    });
+  });
+
+  // ── touched_meals (Jarabinka 11.9.2026 — auto-order nesmie prepísať zámerne
+  // vynulovaný chod) ──────────────────────────────────────────────────────
+
+  it("submit sends touched_meals only for meals the client actually interacted with", async () => {
+    const date = localDateStr();
+    localStorageMock.setItem(
+      `order_${date}`,
+      JSON.stringify({
+        status: "draft",
+        breakfast: { Škôlka: { menuCounts: { A: 0 }, diets: {} } },
+        lunch: { Škôlka: { menuCounts: { A: 0 }, diets: {} } },
+        olovrant: { Škôlka: { menuCounts: { A: 0 }, diets: {} } },
+      }),
+    );
+    // Raňajky aktívne, obed a olovrant neaktívne — a nič z toho zatiaľ nebolo
+    // touchnuté v tejto session.
+    localStorageMock.setItem(
+      `activeMeals_${date}`,
+      JSON.stringify({ breakfast: true, lunch: false, olovrant: false }),
+    );
+
+    renderPage();
+
+    const breakfastCard = getMealCard("Raňajky");
+    const skolkaRow = getCategoryRow(breakfastCard, "Škôlka");
+    const input = await within(skolkaRow).findByLabelText("Počet porcií pre menu A");
+    fireEvent.change(input, { target: { value: "3" } });
+    fireEvent.blur(input);
+
+    fireEvent.click(screen.getByText("Odoslať objednávku"));
+
+    await waitFor(() => {
+      const postCall = mockApiFetch.mock.calls.find(
+        (call) => call[0]?.includes("/orders/") && call[1]?.method === "POST",
+      );
+      expect(postCall).toBeDefined();
+      const body = JSON.parse(postCall![1].body as string);
+      expect(body.touched_meals).toEqual(["breakfast"]);
     });
   });
 

@@ -379,6 +379,10 @@ const HomePage = () => {
             date: day.date,
             status: "submitted",
             ...(prevadzkaId ? { prevadzka: prevadzkaId } : {}),
+            // Explicitné "chcem 0" pre všetky tri chody — auto-order cron
+            // toto už nikdy nesmie ticho prepísať (Jarabinka 11.9.2026,
+            // pozri `DailyOrder.touched_meals`).
+            touched_meals: ["breakfast", "lunch", "olovrant"],
             data: { breakfast: {}, lunch: {}, olovrant: {} },
           }),
         });
@@ -406,7 +410,11 @@ const HomePage = () => {
       const res = await apiFetch(`${API_URL}/orders/${modalOrderId}/`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "submitted", data: { breakfast: {}, lunch: {}, olovrant: {} } }),
+        body: JSON.stringify({
+          status: "submitted",
+          touched_meals: ["breakfast", "lunch", "olovrant"],
+          data: { breakfast: {}, lunch: {}, olovrant: {} },
+        }),
       });
       if (!res.ok) await parseOrderActionError(res);
       const date = selectedDate;

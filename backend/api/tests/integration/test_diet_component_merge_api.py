@@ -157,12 +157,33 @@ class DietComponentMergeApiTest(APITestCase):
         ]
         assert DietComponentMerge.objects.count() == 0
 
-    def test_toggle_rejects_soup_as_unsupported_meal(self):
+    def test_toggle_accepts_soup_as_its_own_independent_meal(self):
+        """Polievka (11.9.2026) je nezávislá od hlavného jedla — vlastný
+        "spolu/zvlášť" riadok, nie zdieľaný s `main_course`."""
         response = self.client.post(
             "/api/admin/diet-component-merge/toggle/",
             {
                 "date": self.plan.date.isoformat(),
                 "meal": "soup",
+                "component_index": 0,
+                "diet_id": self.diet.id,
+                "merged": False,
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert DietComponentMerge.objects.filter(meal="soup", diet=self.diet).exists()
+        # Hlavné jedlo ostáva netknuté (default "spolu") — nezávislá bunka.
+        assert not DietComponentMerge.objects.filter(
+            meal=MealCategory.MAIN_COURSE, diet=self.diet
+        ).exists()
+
+    def test_toggle_rejects_unsupported_meal(self):
+        response = self.client.post(
+            "/api/admin/diet-component-merge/toggle/",
+            {
+                "date": self.plan.date.isoformat(),
+                "meal": "dessert",
                 "component_index": 0,
                 "diet_id": self.diet.id,
                 "merged": True,

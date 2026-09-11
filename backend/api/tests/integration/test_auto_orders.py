@@ -20,6 +20,7 @@ from api.models import (
     Celok,
     ClosedDay,
     DailyOrder,
+    EventLog,
     Prevadzka,
     ProfileCelokAccess,
     ProfilePrevadzkaAccess,
@@ -927,6 +928,116 @@ class TestAutoOrderTemplateSelection:
                 assert item["predictedTotal"] == expected_lunch_total
 
         assert found_predicted
+
+
+@pytest.mark.django_db
+class TestApplyAutoOrdersScopedTouchedMeals:
+    """Regression: Jarabinka /M16 Jasle, 11.9.2026.
+
+    Klient (7.9.) explicitne vynuloval obed na 11.9. (`lunch: {}`), ale
+    scoped `apply_auto_orders(meal_types=[...])` beh (raňajky večer vopred,
+    obed/olovrant ráno v deň podávania) to o pár hodín neskôr ticho prepísal
+    šablónou z predošlého dňa — `_scoped_is_empty` (počet > 0) nevedelo
+    odlíšiť "klient zadal 0" od "klient sa k jedlu vôbec nedostal", a zápis
+    šiel cez `save(update_fields=["data"])`, teda bez `updated_at` aj bez
+    EventLogu. Fix: `DailyOrder.touched_meals` — jedlo raz explicitne
+    odkliknuté (aj na nulu) sa už nikdy nepovažuje za "chýbajúce".
+    """
+
+    def test_scoped_fill_backfills_untouched_empty_meal_by_default(self, user):
+        """Bez `touched_meals` sa prázdne jedlo doplní šablónou — dokumentuje
+        zámerné správanie pre rozdelenie raňajky/obed na dva samostatné crony."""
+        DailyOrder.objects.create(user=user, date=MONDAY, data=NON_EMPTY_DATA)
+        existing = DailyOrder.objects.create(user=user, date=TUESDAY, data=EMPTY_DATA)
+        assert existing.touched_meals == []
+
+        result = apply_auto_orders(target_date=TUESDAY, meal_types=["lunch"])
+
+        existing.refresh_from_db()
+        assert existing.data["lunch"] == NON_EMPTY_DATA["lunch"]
+        assert user.email in result["created"]
+
+    def test_touched_meal_is_never_backfilled_even_when_empty(self, user):
+        """Presne nahlásený bug: `lunch` je v `touched_meals` (klient ho
+        explicitne zadal na 0) — scoped auto-fill ho nesmie prepísať."""
+        DailyOrder.objects.create(user=user, date=MONDAY, data=NON_EMPTY_DATA)
+        existing = DailyOrder.objects.create(
+            user=user, date=TUESDAY, data=EMPTY_DATA, touched_meals=["lunch"]
+        )
+
+        result = apply_auto_orders(target_date=TUESDAY, meal_types=["lunch"])
+
+        existing.refresh_from_db()
+        assert existing.data["lunch"] == EMPTY_DATA["lunch"]
+        assert user.email not in result["created"]
+
+    def test_touched_meal_write_is_fully_skipped_no_bump_no_log(self, user):
+        """Keď sa nič nedoplní (všetko touched), nesmie sa meniť ani
+        `updated_at`, ani pribudnúť EventLog — žiadny zápis sa nekonal."""
+        DailyOrder.objects.create(user=user, date=MONDAY, data=NON_EMPTY_DATA)
+        existing = DailyOrder.objects.create(
+            user=user, date=TUESDAY, data=EMPTY_DATA, touched_meals=["lunch"]
+        )
+        before_updated_at = existing.updated_at
+        before_log_count = EventLog.objects.filter(
+            prevadzka_id=existing.prevadzka_id
+        ).count()
+
+        apply_auto_orders(target_date=TUESDAY, meal_types=["lunch"])
+
+        existing.refresh_from_db()
+        assert existing.updated_at == before_updated_at
+        assert (
+            EventLog.objects.filter(prevadzka_id=existing.prevadzka_id).count()
+            == before_log_count
+        )
+
+    def test_scoped_fill_of_untouched_meal_bumps_updated_at_and_logs_event(self, user):
+        """Keď sa scoped beh naozaj dotkne netknutého jedla, musí to teraz
+        byť vidno — predtým `save(update_fields=["data"])` obišlo aj
+        `updated_at`, aj EventLog úplne potichu."""
+        DailyOrder.objects.create(user=user, date=MONDAY, data=NON_EMPTY_DATA)
+        existing = DailyOrder.objects.create(user=user, date=TUESDAY, data=EMPTY_DATA)
+        before_updated_at = existing.updated_at
+
+        apply_auto_orders(target_date=TUESDAY, meal_types=["lunch"])
+
+        existing.refresh_from_db()
+        assert existing.updated_at > before_updated_at
+        event = EventLog.objects.filter(
+            prevadzka_id=existing.prevadzka_id,
+            event_type=EventLog.EventType.ORDER_ADMIN_UPDATE,
+        ).latest("created_at")
+        assert event.payload["filled_meals"] == ["lunch"]
+        assert event.payload["date"] == TUESDAY.isoformat()
+
+    def test_partially_touched_row_only_fills_untouched_meals(self, user):
+        """`lunch` touched (chránené), `olovrant` netknuté (doplní sa, ak má
+        šablóna obsah) — v tom istom riadku, v tom istom behu."""
+        template_data = {
+            "breakfast": {"Dospelý": {"menuCounts": {"A": 1}, "diets": {}}},
+            "lunch": {"Dospelý": {"menuCounts": {"B": 2}, "diets": {}}},
+            "olovrant": {"Dospelý": {"menuCounts": {"A": 1}, "diets": {}}},
+        }
+        DailyOrder.objects.create(user=user, date=MONDAY, data=template_data)
+        existing = DailyOrder.objects.create(
+            user=user,
+            date=TUESDAY,
+            data={"breakfast": {}, "lunch": {}, "olovrant": {}},
+            touched_meals=["lunch"],
+        )
+
+        apply_auto_orders(target_date=TUESDAY, meal_types=["lunch", "olovrant"])
+
+        existing.refresh_from_db()
+        assert existing.data["lunch"] == {}
+        assert existing.data["olovrant"] == template_data["olovrant"]
+
+    def test_touched_meals_defaults_to_empty_list(self, user):
+        """Nové pole na historických/nových riadkoch defaultuje na `[]` —
+        spätne kompatibilné, žiadna migrácia dát netreba."""
+        existing = DailyOrder.objects.create(user=user, date=TUESDAY, data=EMPTY_DATA)
+        assert existing.touched_meals == []
 
 
 @pytest.mark.django_db

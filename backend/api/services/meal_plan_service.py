@@ -72,10 +72,17 @@ def resolve_diet_menu_variants(date: datetime.date) -> dict[str, str]:
 
 
 # Jedlá, kde má zlúčenie diétnych zložiek (#568) zmysel — pri obede sa vždy
-# viaže výhradne na Menu A (viď `DietComponentMerge` docstring), polievka nie
-# je samostatná "zložka" zo šéfkuchárskeho pohľadu (patrí pod obed).
+# viaže výhradne na Menu A (viď `DietComponentMerge` docstring). Polievka
+# (`soup`) je od 11.9.2026 samostatná voľba nezávislá od hlavného jedla —
+# diétna polievka sa niekedy pripravuje/balí zvlášť aj vtedy, keď hlavné
+# jedlo ide spolu so štandardom (a naopak), takže potrebuje vlastný riadok
+# v tomto boarde. Toto sa netýka `gramage_table_spec`/PDF — tam ostáva
+# polievka zlúčená do riadku hlavného jedla (`_merge_soup_into_main_course`),
+# lebo obe sa varia z tej istej obedovej hlavy a produkčný výstup by sa
+# duplikoval; tento board je len referencia "spolu/zvlášť" pre kuchyňu.
 DIET_COMPONENT_MERGE_MEALS = (
     "breakfast_snack",
+    "soup",
     "main_course",
     "afternoon_snack",
 )
@@ -265,7 +272,8 @@ def collapse_breakfast_snack_components(components: list) -> list:
 
 def diet_component_merge_board(date_str: str) -> dict:
     """Dáta pre klikací zoznam "spolu/zvlášť" (#568, flip 10.9.2026) — pre
-    daný deň zoznam zložiek raňajok/desiaty, obeda (len Menu A) a olovrantu
+    daný deň zoznam zložiek raňajok/desiaty, polievky, obeda (len Menu A) a
+    olovrantu
     (odvodené z denného jedálničku), zoznam aktívnych diét a aktuálny "spolu"
     stav (default, mínus explicitné "zvlášť" výnimky z
     `resolve_diet_component_separations`).
