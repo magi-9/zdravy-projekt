@@ -604,8 +604,9 @@ describe('AdminOrderEditorModal', () => {
         // Raňajky/olovrant: 5 kategórií × iba menu A.
         expect(within(breakfastCard).getAllByRole('button', { name: '+' })).toHaveLength(5);
         expect(within(olovrantCard).getAllByRole('button', { name: '+' })).toHaveLength(5);
-        // Obed: visibleMenus ['A','B'] pretnuté s GROUP_CONFIG → 1+1+2+2+2.
-        expect(within(lunchCard).getAllByRole('button', { name: '+' })).toHaveLength(8);
+        // Obed: kategória menu neobmedzuje, len prevádzka — visibleMenus ['A','B']
+        // pre všetkých 5 kategórií = 10.
+        expect(within(lunchCard).getAllByRole('button', { name: '+' })).toHaveLength(10);
     });
 
     it('hides a menu restricted to another day of the week (Menu B, piatok only, on a Tuesday)', () => {
@@ -634,7 +635,7 @@ describe('AdminOrderEditorModal', () => {
         fireEvent.click(screen.getByRole('switch', { name: /obed - prepnúť/i }));
 
         const lunchCard = getMealCard('Obed');
-        expect(within(lunchCard).getAllByRole('button', { name: '+' })).toHaveLength(8);
+        expect(within(lunchCard).getAllByRole('button', { name: '+' })).toHaveLength(10);
     });
 
     it('shows the full-day card and, once enabled, keeps meal cards visible with full-day status', () => {

@@ -692,6 +692,24 @@ describe("OrderPage Logic & Triggers", () => {
     expect(within(row("Olovrant")).queryByText("Menu B")).not.toBeInTheDocument();
   });
 
+  it("offers Menu B for Škôlka when the prevádzka has it in visible_menus (kategória menu sama neobmedzuje)", async () => {
+    mockPrevadzkaWithPerMealMenus();
+    const date = localDateStr();
+    localStorageMock.setItem(
+      `activeMeals_${date}`,
+      JSON.stringify({ breakfast: false, lunch: true, olovrant: false }),
+    );
+
+    renderPage();
+
+    const lunchCard = getMealCard("Obed");
+    const skolkaRow = getCategoryRow(lunchCard, "Škôlka");
+
+    await waitFor(() => {
+      expect(within(skolkaRow).getByText("Menu B")).toBeInTheDocument();
+    });
+  });
+
   it("Copy Breakfast: Copies from Previous Day Lunch", async () => {
     const today = localDateStr();
     const prevDay = new Date();
