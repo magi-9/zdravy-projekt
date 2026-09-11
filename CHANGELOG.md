@@ -1,5 +1,23 @@
 # Changelog
 
+## [3.6.0](https://github.com/tomag-9/zdravy-projekt/compare/v3.5.1...v3.6.0) (2026-09-11)
+
+
+### Features
+
+* **diety:** polievka samostatná zložka v diet-component-merge boarde ([0b6f97f](https://github.com/tomag-9/zdravy-projekt/commit/0b6f97f8272c84aee92d6d557a0343d07c1aee7b))
+* samostatné trasy a tabuľky pre raňajky/obed/olovrant (redo, zmergované s [#568](https://github.com/tomag-9/zdravy-projekt/issues/568)) ([#630](https://github.com/tomag-9/zdravy-projekt/issues/630)) ([4648c2e](https://github.com/tomag-9/zdravy-projekt/commit/4648c2e075ba72ec03a7eee835b99a1dad3349c9))
+
+
+### Bug Fixes
+
+* **objednavky:** align client order state with automation ([7b7e3d5](https://github.com/tomag-9/zdravy-projekt/commit/7b7e3d5e6f0907179d593ad553f904ea293dad9c))
+* **objednavky:** auto-order nesmie prepísať explicitne vynulovaný chod ([ada26cf](https://github.com/tomag-9/zdravy-projekt/commit/ada26cf6647dc5383f8c1ba1929afa596096a787))
+* **objednavky:** complete concurrent scoped auto-orders ([2cb0c36](https://github.com/tomag-9/zdravy-projekt/commit/2cb0c3669e9ca3b846c6003555c543dc3029991e))
+* **objednavky:** N+1 v predikcii a prepis nedotknutého draftu prázdnym GET ([2b57586](https://github.com/tomag-9/zdravy-projekt/commit/2b57586d81c059e4947f539ace4ea68b76fa67dd))
+* **objednavky:** serialize auto-order and explicit resets ([c2bc418](https://github.com/tomag-9/zdravy-projekt/commit/c2bc418adad55d61725cd8f81aedcfe034da486b))
+* **trasy:** backfill meal routes from lunch ([a60ee36](https://github.com/tomag-9/zdravy-projekt/commit/a60ee36258e7f281f9e1faa7db4f6f31db83811b))
+
 ## [3.5.1](https://github.com/tomag-9/zdravy-projekt/compare/v3.5.0...v3.5.1) (2026-09-11)
 
 
