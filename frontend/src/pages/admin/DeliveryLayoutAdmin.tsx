@@ -409,7 +409,9 @@ const DeliveryLayoutAdmin: React.FC = () => {
         name: newRouteName.trim(),
         driver: newRouteDriver.trim(),
         departure_time: newRouteTime || null,
-        vydaj: newRouteVydaj,
+        // Mimo obeda cluster nefiguruje vôbec (pole v modáli je skryté) —
+        // vynúť "A", nech to nezávisí od predošlej hodnoty z obedového tabu.
+        vydaj: mealType === "lunch" ? newRouteVydaj : "A",
         sort_order: showRouteModalFor.routes.length + 1,
       }),
     });
@@ -547,20 +549,26 @@ const DeliveryLayoutAdmin: React.FC = () => {
       <PageHead
         eyebrow="Rozvoz"
         title="Poradie a trasy"
-        desc="Rozdelenie prevádzok do blokov a trás. Cluster sa nastavuje na trase — trasy Cluster A tvoria tabuľku A, trasy Cluster B tabuľku B."
+        desc={
+          mealType === "lunch"
+            ? "Rozdelenie prevádzok do blokov a trás. Cluster sa nastavuje na trase — trasy Cluster A tvoria tabuľku A, trasy Cluster B tabuľku B."
+            : "Rozdelenie prevádzok do blokov a trás. Toto jedlo nemá clustre — kuchyňa ho vydáva z jedného miesta, tabuľka sa nedelí."
+        }
         actions={
           <>
-            <Select
-              value={vydajFilter}
-              onChange={(e) => setVydajFilter(e.target.value)}
-              style={{ width: "auto" }}
-              aria-label="Cluster"
-            >
-              <option value="">Všetky clustre</option>
-              {VYDAJE.map((item) => (
-                <option key={item.key} value={item.key}>{item.label}</option>
-              ))}
-            </Select>
+            {mealType === "lunch" && (
+              <Select
+                value={vydajFilter}
+                onChange={(e) => setVydajFilter(e.target.value)}
+                style={{ width: "auto" }}
+                aria-label="Cluster"
+              >
+                <option value="">Všetky clustre</option>
+                {VYDAJE.map((item) => (
+                  <option key={item.key} value={item.key}>{item.label}</option>
+                ))}
+              </Select>
+            )}
             <Button variant="secondary" onClick={() => setShowBlockModal(true)}>
               <Plus /> Blok
             </Button>
@@ -622,7 +630,10 @@ const DeliveryLayoutAdmin: React.FC = () => {
               {block.routes.map((route) => {
                 // Výdaj je na trase, takže filter skryje celú trasu aj s jej
                 // prevádzkami — presne to, čo uvidíš v tabuľke daného výdaja.
-                if (vydajFilter && (route.vydaj || "A") !== vydajFilter) return null;
+                // Mimo obeda sa filter neponúka (pozri PageHead vyššie), takže
+                // sa ani neaplikuje — inak by tam mohla ostať "zaseknutá"
+                // hodnota z predošlého prepnutia z obedového tabu.
+                if (mealType === "lunch" && vydajFilter && (route.vydaj || "A") !== vydajFilter) return null;
                 return (
                 <div
                   key={route.id}
@@ -638,16 +649,18 @@ const DeliveryLayoutAdmin: React.FC = () => {
                       </div>
                     </div>
                     <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                      <Select
-                        value={route.vydaj || "A"}
-                        onChange={(e) => void setRouteVydaj(route, e.target.value)}
-                        style={{ width: "auto" }}
-                        aria-label={`Cluster — ${route.name}`}
-                      >
-                        {VYDAJE.map((item) => (
-                          <option key={item.key} value={item.key}>{item.label}</option>
-                        ))}
-                      </Select>
+                      {mealType === "lunch" && (
+                        <Select
+                          value={route.vydaj || "A"}
+                          onChange={(e) => void setRouteVydaj(route, e.target.value)}
+                          style={{ width: "auto" }}
+                          aria-label={`Cluster — ${route.name}`}
+                        >
+                          {VYDAJE.map((item) => (
+                            <option key={item.key} value={item.key}>{item.label}</option>
+                          ))}
+                        </Select>
+                      )}
                       <IconButton onClick={() => openEditRoute(route)} title="Upraviť trasu" aria-label="Upraviť trasu">
                         <Pencil />
                       </IconButton>
@@ -842,13 +855,15 @@ const DeliveryLayoutAdmin: React.FC = () => {
                 <Input type="time" value={newRouteTime} onChange={(e) => setNewRouteTime(e.target.value)} />
               </Field>
             </div>
-            <Field label="Cluster" hint="(ktorá tabuľka trasu obsahuje)">
-              <Select value={newRouteVydaj} onChange={(e) => setNewRouteVydaj(e.target.value)}>
-                {VYDAJE.map((item) => (
-                  <option key={item.key} value={item.key}>{item.label}</option>
-                ))}
-              </Select>
-            </Field>
+            {mealType === "lunch" && (
+              <Field label="Cluster" hint="(ktorá tabuľka trasu obsahuje)">
+                <Select value={newRouteVydaj} onChange={(e) => setNewRouteVydaj(e.target.value)}>
+                  {VYDAJE.map((item) => (
+                    <option key={item.key} value={item.key}>{item.label}</option>
+                  ))}
+                </Select>
+              </Field>
+            )}
           </form>
         </Modal>
       )}

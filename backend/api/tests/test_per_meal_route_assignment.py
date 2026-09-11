@@ -218,3 +218,81 @@ def test_deploy_backfill_copies_lunch_route_only_to_eligible_empty_meal_routes()
     assert custom.delivery_route_breakfast_id == custom_breakfast_route.id
     assert custom.delivery_sort_order_breakfast == 3
     assert custom.delivery_route_olovrant_id is None
+
+
+def test_deploy_backfill_0113_pointed_breakfast_and_olovrant_at_the_lunch_route_itself():
+    """0113 nastavila `delivery_route_breakfast_id = delivery_route_lunch_id` —
+    teda tú ISTÚ trasu, ktorej blok má `meal_type="lunch"`. Prevádzka tak
+    zmizla z raňajkovej obrazovky úplne: nie je v žiadnom raňajkovom bloku
+    (trasa patrí obedu) a nie je ani medzi "Nepriradenými" (pole nie je NULL).
+    0114 to opraví presmerovaním na skutočnú raňajkovú/olovrantovú trasu."""
+    lunch_route = _route("lunch")
+
+    broken = _prevadzka("MŠ Rozbitá", visible_meals=["breakfast", "lunch", "olovrant"])
+    broken.delivery_route_lunch = lunch_route
+    broken.delivery_sort_order_lunch = 4
+    # Presne stav po chybnej 0113: breakfast/olovrant ukazuje na obedovú trasu.
+    broken.delivery_route_breakfast = lunch_route
+    broken.delivery_sort_order_breakfast = 4
+    broken.delivery_route_olovrant = lunch_route
+    broken.delivery_sort_order_olovrant = 4
+    broken.save(
+        update_fields=[
+            "delivery_route_lunch",
+            "delivery_sort_order_lunch",
+            "delivery_route_breakfast",
+            "delivery_sort_order_breakfast",
+            "delivery_route_olovrant",
+            "delivery_sort_order_olovrant",
+        ]
+    )
+
+    # Druhá prevádzka na tej istej (rozbitej) obedovej trase — obe majú
+    # skončiť na TEJ ISTEJ novej raňajkovej trase, nie na dvoch rôznych.
+    also_broken = _prevadzka("MŠ Tiež rozbitá", visible_meals=["breakfast", "lunch"])
+    also_broken.delivery_route_lunch = lunch_route
+    also_broken.delivery_route_breakfast = lunch_route
+    also_broken.save(update_fields=["delivery_route_lunch", "delivery_route_breakfast"])
+
+    # Táto prevádzka má breakfast trasu už správne (nie rovnakú ako lunch) —
+    # migrácia ju nemá ani sa dotknúť.
+    custom_breakfast_route = _route("breakfast")
+    already_fine = _prevadzka("MŠ Fajn", visible_meals=["breakfast", "lunch"])
+    already_fine.delivery_route_lunch = lunch_route
+    already_fine.delivery_route_breakfast = custom_breakfast_route
+    already_fine.save(
+        update_fields=["delivery_route_lunch", "delivery_route_breakfast"]
+    )
+
+    migration = importlib.import_module(
+        "api.migrations.0114_fix_meal_routes_pointing_at_lunch_route"
+    )
+    migration.repoint_meal_routes_off_the_lunch_route(
+        importlib.import_module("django.apps").apps, None
+    )
+
+    broken.refresh_from_db()
+    also_broken.refresh_from_db()
+    already_fine.refresh_from_db()
+
+    # Nová trasa je vlastná raňajkám/olovrantu, nie tá istá ako obed.
+    assert broken.delivery_route_breakfast_id != lunch_route.id
+    assert broken.delivery_route_olovrant_id != lunch_route.id
+    new_breakfast_route = broken.delivery_route_breakfast
+    new_olovrant_route = broken.delivery_route_olovrant
+    assert new_breakfast_route.block.meal_type == "breakfast"
+    assert new_olovrant_route.block.meal_type == "olovrant"
+    # Bez rozlíšenia clustrov — vždy jeden, aby sa tabuľka nikdy nedelila.
+    assert new_breakfast_route.vydaj == "A"
+    assert new_olovrant_route.vydaj == "A"
+    # Meno trasy (vodič/rozvoz) sa zachová, len sa presunie pod správne jedlo.
+    assert new_breakfast_route.name == lunch_route.name
+    # Poradie sa nemení, len sa opravuje trasa, na ktorú ukazuje.
+    assert broken.delivery_sort_order_breakfast == 4
+
+    # Obe prevádzky z tej istej rozbitej obedovej trasy skončia na tej istej
+    # novej raňajkovej trase — žiadna duplicitná trasa navyše.
+    assert also_broken.delivery_route_breakfast_id == new_breakfast_route.id
+
+    # Už správne nastavená prevádzka ostáva netknutá.
+    assert already_fine.delivery_route_breakfast_id == custom_breakfast_route.id
