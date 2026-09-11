@@ -57,6 +57,10 @@ export interface SpecVydaj {
 
 export interface TableSpec {
   total_columns: number;
+  /** Raňajky / obed / olovrant (#dashboard-per-meal-routes) — raňajky a
+   * olovrant majú na obrazovke málo stĺpcov, preto sa nenútia na celú šírku
+   * (viď `meal-${meal_type}` trieda nižšie a `gramage-table.css`, 11.9.2026). */
+  meal_type?: string;
   sections: SpecSection[];
   /** Výdajné body kuchyne — každý sa dá zobraziť a vytlačiť sám. */
   vydaje: SpecVydaj[];
@@ -284,6 +288,13 @@ const GramageTable: React.FC<GramageTableProps> = ({
 
   const mealBands = spec.header.meals ?? [];
 
+  // Raňajky/olovrant majú málo stĺpcov — nenúti sa im min-width:100% ako
+  // obedu, aby sa na obrazovke neroztiahli naprázdno (11.9.2026).
+  const mealTypeClass =
+    spec.meal_type === "breakfast" || spec.meal_type === "olovrant"
+      ? ` meal-${spec.meal_type}`
+      : "";
+
   // Vyhľadávanie podľa mena prevádzky (#573) — filtruje klientske riadky a
   // všetko, čo pod nimi visí (group_id), plus trasy, pod ktorými by inak
   // nezostal ani jeden zhodný klient (prázdna trasa by pôsobila ako chyba).
@@ -325,7 +336,10 @@ const GramageTable: React.FC<GramageTableProps> = ({
 
   return (
     <Card style={{ overflow: "hidden" }} className={fill ? "zpa-card--fill" : undefined}>
-      <div className={`zpa-table-wrap zpa-gram-wrap${fill ? ' zpa-gram-wrap--fill' : ''}${className ? ` ${className}` : ''}`}>
+      <div
+        data-testid="gramage-table-wrap"
+        className={`zpa-table-wrap zpa-gram-wrap${fill ? ' zpa-gram-wrap--fill' : ''}${mealTypeClass}${className ? ` ${className}` : ''}`}
+      >
         <table className="zpa-gram">
           <thead>
             {mealBands.length > 0 && (

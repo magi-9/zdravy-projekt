@@ -1437,14 +1437,28 @@ class AdminMealPlanApiTest(APITestCase):
             {"breakfast_snack": 2, "main_course": 2, "afternoon_snack": 2},
         )
 
-        summary_diet_cells = [
-            row["cells"][0]
-            for row in payload["spec"]["rows"]
-            if row["kind"] == "summary-diet"
-        ]
-        self.assertEqual(len(summary_diet_cells), 1)
-        # Zobrazený počet je rozpis podľa jedla, nie plochý súčet "6".
-        self.assertEqual(summary_diet_cells[0]["count"], "2 + 2 + 2")
+        # Raňajky/obed/olovrant sú od #dashboard-per-meal-routes samostatné
+        # tabuľky (`?meal_type=`, default "lunch") — každá ukáže len svoj
+        # vlastný (jednoduchý, nie rozpísaný) počet, nikdy súčet iných jedál.
+        for meal_type, expected_count in (
+            ("breakfast", "2"),
+            ("lunch", "2"),
+            ("olovrant", "2"),
+        ):
+            with self.subTest(meal_type=meal_type):
+                response = self.client.get(
+                    "/api/admin/meal-plans/gramage-dashboard/"
+                    f"?date=2026-03-16&meal_type={meal_type}"
+                )
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                spec = response.json()["spec"]
+                summary_diet_cells = [
+                    row["cells"][0]
+                    for row in spec["rows"]
+                    if row["kind"] == "summary-diet"
+                ]
+                self.assertEqual(len(summary_diet_cells), 1)
+                self.assertEqual(summary_diet_cells[0]["count"], expected_count)
 
     def test_meal_plan_endpoints_require_admin(self):
         self.client.force_authenticate(user=self.client_user)

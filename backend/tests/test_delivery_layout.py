@@ -20,12 +20,13 @@ pytestmark = pytest.mark.django_db
 
 
 def _prevadzka(nazov, *, route=None, order=0):
+    """Prevádzka s obedovou trasou — testy v tomto súbore riešia len obed."""
     celok, _ = Celok.objects.get_or_create(nazov=f"Celok {nazov}")
     return Prevadzka.objects.create(
         celok=celok,
         nazov=nazov,
-        delivery_route=route,
-        delivery_sort_order=order,
+        delivery_route_lunch=route,
+        delivery_sort_order_lunch=order,
     )
 
 
@@ -37,7 +38,9 @@ def test_delivery_layout_endpoint_returns_blocks_routes_and_unassigned(
     assigned = _prevadzka("Jolly 1", route=route, order=1)
     unassigned = _prevadzka("Jolly 2")
 
-    response = admin_authenticated_client.get("/api/admin/delivery-blocks/layout/")
+    response = admin_authenticated_client.get(
+        "/api/admin/delivery-blocks/layout/?meal_type=lunch"
+    )
 
     assert response.status_code == 200
     payload = response.json()
@@ -59,6 +62,7 @@ def test_delivery_layout_reorder_moves_prevadzky_between_routes(
     response = admin_authenticated_client.post(
         "/api/admin/delivery-blocks/reorder/",
         {
+            "meal_type": "lunch",
             "blocks": [
                 {
                     "id": block.id,
@@ -76,10 +80,59 @@ def test_delivery_layout_reorder_moves_prevadzky_between_routes(
     assert response.status_code == 200
     first.refresh_from_db()
     second.refresh_from_db()
-    assert first.delivery_route_id == route_b.id
-    assert first.delivery_sort_order == 1
-    assert second.delivery_route_id == route_a.id
-    assert second.delivery_sort_order == 1
+    assert first.delivery_route_lunch_id == route_b.id
+    assert first.delivery_sort_order_lunch == 1
+    assert second.delivery_route_lunch_id == route_a.id
+    assert second.delivery_sort_order_lunch == 1
+
+
+def test_delivery_routes_cannot_be_assigned_to_the_wrong_meal_type(
+    admin_authenticated_client,
+):
+    """Každé pole prevádzky má vlastnú trasu, ale len rovnakého typu jedla."""
+    lunch_block = DeliveryBlock.objects.create(name="Obed", meal_type="lunch")
+    breakfast_block = DeliveryBlock.objects.create(
+        name="Raňajky", meal_type="breakfast"
+    )
+    breakfast_route = DeliveryRoute.objects.create(
+        block=breakfast_block, name="Ranná trasa"
+    )
+    lunch_route = DeliveryRoute.objects.create(block=lunch_block, name="Obedová trasa")
+    prevadzka = _prevadzka("Správne priradenie")
+
+    patch_response = admin_authenticated_client.patch(
+        f"/api/admin/prevadzky-delivery/{prevadzka.id}/",
+        {"delivery_route_lunch": breakfast_route.id},
+        format="json",
+    )
+    reorder_response = admin_authenticated_client.post(
+        "/api/admin/delivery-blocks/reorder/",
+        {
+            "meal_type": "lunch",
+            "blocks": [
+                {
+                    "id": lunch_block.id,
+                    "routes": [
+                        {"id": breakfast_route.id, "prevadzky": [{"id": prevadzka.id}]}
+                    ],
+                }
+            ],
+        },
+        format="json",
+    )
+    route_move_response = admin_authenticated_client.patch(
+        f"/api/admin/delivery-routes/{lunch_route.id}/",
+        {"block": breakfast_block.id},
+        format="json",
+    )
+
+    assert patch_response.status_code == 400
+    assert reorder_response.status_code == 400
+    assert route_move_response.status_code == 400
+    prevadzka.refresh_from_db()
+    assert prevadzka.delivery_route_lunch_id is None
+    lunch_route.refresh_from_db()
+    assert lunch_route.block_id == lunch_block.id
 
 
 def test_route_vydaj_can_be_switched(admin_authenticated_client):
@@ -173,9 +226,11 @@ def test_gramage_dashboard_splits_table_by_route_vydaj():
 
     data = MealPlanService.gramage_dashboard(plan.date.isoformat())
 
-    assert [vydaj["key"] for vydaj in data["vydaje"]] == ["A", "B"]
+    assert [vydaj["key"] for vydaj in data["vydaje_by_meal"]["lunch"]] == ["A", "B"]
     for vydaj, expected_route, expected_client in zip(
-        data["vydaje"], ["Trasa A", "Trasa B"], ["A prevádzka", "B prevádzka"]
+        data["vydaje_by_meal"]["lunch"],
+        ["Trasa A", "Trasa B"],
+        ["A prevádzka", "B prevádzka"],
     ):
         assert [route["name"] for route in vydaj["routes"]] == [expected_route]
         assert [row["client"] for row in vydaj["routes"][0]["rows"]] == [
@@ -224,9 +279,11 @@ def test_gramage_dashboard_groups_rows_by_delivery_layout_order():
     assert [row["client"] for row in data["rows"]] == ["A prevádzka", "B prevádzka"]
     # Najvyššia úroveň tabuľky je výdajný bod prevádzky (default „Cluster A"),
     # poradie vnútri neho ostáva rozvozové.
-    assert data["vydaje"][0]["name"] == "Cluster A"
-    assert data["vydaje"][0]["routes"][0]["name"] == "TRASA EXTRA"
-    assert [row["client"] for row in data["vydaje"][0]["routes"][0]["rows"]] == [
+    assert data["vydaje_by_meal"]["lunch"][0]["name"] == "Cluster A"
+    assert data["vydaje_by_meal"]["lunch"][0]["routes"][0]["name"] == "TRASA EXTRA"
+    assert [
+        row["client"] for row in data["vydaje_by_meal"]["lunch"][0]["routes"][0]["rows"]
+    ] == [
         "A prevádzka",
         "B prevádzka",
     ]

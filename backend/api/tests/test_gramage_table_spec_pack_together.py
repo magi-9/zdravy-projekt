@@ -78,7 +78,9 @@ def _payload(vydaje, diet_pack_state=None):
         "rows": [],
         "totals": [["0.00"]],
         "count_summary": [],
-        "vydaje": vydaje,
+        # `vydaje_by_meal` (#dashboard-per-meal-routes) — tento payload má len
+        # obedové stĺpce, takže patrí pod "lunch" (default `meal_type`).
+        "vydaje_by_meal": {"lunch": vydaje},
         "diet_pack_state": diet_pack_state or {},
     }
 
@@ -297,7 +299,7 @@ def test_pack_together_row_appears_for_unassigned_prevadzky_too():
             }
         ]
     )
-    payload["unassigned_rows"] = [row]
+    payload["unassigned_rows_by_meal"] = {"lunch": [row]}
 
     spec = build_table_spec(payload, include_summary_rows=False)
 
