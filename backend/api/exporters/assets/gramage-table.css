@@ -21,6 +21,13 @@
     border-spacing: 0;
     font-size: 13px;
 }
+/* Raňajky/olovrant majú len zopár stĺpcov (#dashboard-per-meal-routes) —
+ * nútené na celú šírku obrazovky (`min-width: 100%` vyššie) sa naprázdno
+ * roztiahli (užívateľ 11.9.2026). Obed má stĺpcov dosť, že si šírku
+ * prirodzene vyplní, preto zostáva bez zmeny. Trieda ide z `GramageTable`
+ * (`meal-${meal_type}`, iba pre tieto dve jedlá). */
+.zpa-gram-wrap.meal-breakfast .zpa-gram,
+.zpa-gram-wrap.meal-olovrant .zpa-gram { min-width: 0; }
 .zpa-gram th,
 .zpa-gram td { min-width: 70px; }
 .zpa-gram th:first-child,

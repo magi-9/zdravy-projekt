@@ -1027,6 +1027,7 @@ def build_table_spec(
 
     return {
         "date": data.get("date"),
+        "meal_type": meal_type,
         "total_columns": total_columns,
         "header": header,
         "rows": rows,

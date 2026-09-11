@@ -39,16 +39,26 @@ _MONTHS = [
 ]
 
 
-def _stylesheet() -> str:
+_PORTRAIT_MEAL_TYPES = {"breakfast", "olovrant"}
+
+
+def _stylesheet(meal_type: str) -> str:
     """Najprv spoločná tabuľka, až potom papier.
 
     `gramage-pdf.css` je vrstva navrch: dopĺňa premenné a prepisuje to, čo je
     na obrazovke inak (šírky stĺpcov, veľkosti písma, pruhy). Pri opačnom poradí
     ju screen pravidlá s rovnakou špecificitou prebijú a tlač ostane pri
     rozmeroch monitora.
+
+    Raňajky a olovrant majú oproti obedu len zopár stĺpcov (#dashboard-per-meal-
+    routes) — na šírku A4 sa naprázdno roztiahli (užívateľ 11.9.2026). Obed
+    stĺpce prirodzene vyplní, tak zostáva na šírku ako doteraz; override ide
+    až za `gramage-pdf.css`, aby v CSS kaskáde prebil jeho `@page`.
     """
     table = (ASSETS / "gramage-table.css").read_text(encoding="utf-8")
     page = (ASSETS / "gramage-pdf.css").read_text(encoding="utf-8")
+    if meal_type in _PORTRAIT_MEAL_TYPES:
+        page = f"{page}\n@page {{ size: A4 portrait; }}"
     return f"{table}\n{page}"
 
 
@@ -252,10 +262,11 @@ def render_document(spec: dict, title: str = "Gramáž jedál") -> str:
     denný report tá istá.
     """
     date_text = format_date(spec.get("date") or "")
+    meal_type = str(spec.get("meal_type") or "lunch")
     return (
         "<!DOCTYPE html><html lang='sk'><head><meta charset='utf-8'>"
         f"<title>{escape(title)} — {escape(str(spec.get('date') or ''))}</title>"
-        f"<style>{_stylesheet()}</style></head><body>"
+        f"<style>{_stylesheet(meal_type)}</style></head><body>"
         f"<h1>{escape(title)}<small>{escape(date_text)}</small></h1>"
         f"{render_table(spec)}"
         "</body></html>"

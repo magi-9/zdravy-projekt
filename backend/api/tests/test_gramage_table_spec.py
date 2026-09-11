@@ -1839,3 +1839,15 @@ def test_summary_only_cluster_excluded_from_first_two_combination():
         and row["cells"][0]["text"].startswith("SUMÁR")
     ]
     assert "SUMÁR CLUSTER A + C S DIÉTAMI MŠ" not in titles
+
+
+def test_spec_carries_its_own_meal_type():
+    """`meal_type` musí byť v spec-u — frontend aj PDF ho potrebujú na to, aby
+    raňajky/olovrant vedeli renderovať na výšku (užívateľ 11.9.2026), zatiaľ
+    čo obed zostáva bez zmeny (viď `gramage_table_html._stylesheet` a
+    `GramageTable.tsx`)."""
+    payload = _with_breakfast_and_snack()
+
+    assert build_table_spec(payload, meal_type="lunch")["meal_type"] == "lunch"
+    assert build_table_spec(payload, meal_type="breakfast")["meal_type"] == "breakfast"
+    assert build_table_spec(payload, meal_type="olovrant")["meal_type"] == "olovrant"
