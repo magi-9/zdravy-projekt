@@ -384,6 +384,11 @@ class ScrapeResult:
 
 class EdupageScraper:
     TIMEOUT = 15
+    # Kontext konkrétneho behu nastavuje cron/admin view. Je tu deklarovaný aj
+    # typovo, aby volanie `scrape()` ostalo spätne kompatibilné s testovacími
+    # mockmi so starou signatúrou.
+    canonical_diet_names: dict[str, str] | None = None
+    visible_diets_by_prevadzka: dict[str, set[str]] | None = None
 
     def scrape(
         self,
@@ -391,7 +396,15 @@ class EdupageScraper:
         target_date: date,
         prevadzka_matches: dict[str, list[str]] | None = None,
         allowed_diets: set[str] | None = None,
+        canonical_diet_names: dict[str, str] | None = None,
+        visible_diets_by_prevadzka: dict[str, set[str]] | None = None,
     ) -> ScrapeResult:
+        canonical_diet_names = canonical_diet_names or getattr(
+            self, "canonical_diet_names", None
+        )
+        visible_diets_by_prevadzka = visible_diets_by_prevadzka or getattr(
+            self, "visible_diets_by_prevadzka", None
+        )
         url = self._inject_date(mealsguest_url, target_date)
         html = self._fetch(url)
         config = config_pre_url(mealsguest_url)
@@ -401,6 +414,8 @@ class EdupageScraper:
             config=config,
             prevadzka_matches=prevadzka_matches,
             allowed_diets=allowed_diets,
+            canonical_diet_names=canonical_diet_names,
+            visible_diets_by_prevadzka=visible_diets_by_prevadzka,
         )
         if config is not None:
             result = apply_config(result, config)
@@ -790,6 +805,8 @@ class EdupageScraper:
         config: PrevadzkaConfig | None = None,
         prevadzka_matches: dict[str, list[str]] | None = None,
         allowed_diets: set[str] | None = None,
+        canonical_diet_names: dict[str, str] | None = None,
+        visible_diets_by_prevadzka: dict[str, set[str]] | None = None,
     ) -> ScrapeResult:
         prehlad_raw = self._extract_block(html, "prehlad")
         nazov_menu_raw = self._extract_block(html, "nazovMenu")
@@ -805,6 +822,10 @@ class EdupageScraper:
         # nezaložilo druhú, len inak písanú diétu.
         allowed_by_key = {
             _normalise_key(name): name for name in (allowed_diets or ALLOWED_DIET_NAMES)
+        }
+        canonical_by_key = {
+            _normalise_key(old): new
+            for old, new in (canonical_diet_names or {}).items()
         }
         letter_hook = config.letter_hook if config is not None else None
         payer_hook = config.payer_hook if config is not None else None
@@ -975,6 +996,10 @@ class EdupageScraper:
                         else None
                     )
                     effective_diet = forced_diet or diet_name or payer_diet
+                    if effective_diet:
+                        effective_diet = canonical_by_key.get(
+                            _normalise_key(effective_diet), effective_diet
+                        )
                     effective_menu = "A" if effective_diet else (menu_variant or "A")
 
                     if rule is not None and rule.relay_attention_to:
@@ -1007,6 +1032,17 @@ class EdupageScraper:
                     # Zdieľaná skratka (`mšMal,Hey`) padne viacerým prevádzkam naraz —
                     # celý počet každej z nich, nie delený. Viď `build_prevadzka_matches`.
                     for bucket in buckets:
+                        if effective_diet and visible_diets_by_prevadzka is not None:
+                            visible = visible_diets_by_prevadzka.get(bucket, set())
+                            if effective_diet not in visible:
+                                visibility_label = (
+                                    f"{letter}:{skratka}→{effective_diet} "
+                                    "nie je medzi viditeľnými diétami prevádzky"
+                                )
+                                attention.append(visibility_label)
+                                attention_buckets.setdefault(bucket, set()).add(
+                                    visibility_label
+                                )
                         if flag_label is not None:
                             attention_buckets.setdefault(bucket, set()).add(flag_label)
                         if unmapped_label is not None:

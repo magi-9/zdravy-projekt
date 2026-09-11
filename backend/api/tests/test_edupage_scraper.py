@@ -48,6 +48,49 @@ class TestResolveDietName(unittest.TestCase):
     def _r(self, sk, naz):
         return EdupageScraper.resolve_diet_name(sk, naz)
 
+
+class TestResolveDietName(unittest.TestCase):
+    def _r(self, sk, naz):
+        return EdupageScraper.resolve_diet_name(sk, naz)
+
+    def test_canonicalizes_legacy_diet_and_flags_only_the_prevadzka_without_it(self):
+        target = date(2026, 6, 17)
+        html = _make_html(
+            {
+                "prehlad": {
+                    target.isoformat(): {"2": {"A": {"typ_platitela": {"1": {"o": 2}}}}}
+                }
+            },
+            {"A": {"nazov": "NoMilk", "skratka": "NM"}},
+            [
+                {
+                    "setting": "vydaj_normal",
+                    "hodnota": json.dumps(
+                        {"1": {"2": {"vydaj_od": "11:00", "vydaj_do": "14:00"}}}
+                    ),
+                }
+            ],
+            [
+                {
+                    "setting": "typy_platitelov",
+                    "hodnota": {"1": {"nazov": "J1", "porcia": "0"}},
+                }
+            ],
+            target.isoformat(),
+        )
+        result = EdupageScraper()._parse(
+            html,
+            target,
+            prevadzka_matches={"J1": ["One"], "J2": ["Two"]},
+            canonical_diet_names={"NO MILK": "NO MILK – NO EGG"},
+            visible_diets_by_prevadzka={"One": {"NO MILK – NO EGG"}, "Two": set()},
+        )
+        self.assertEqual(
+            result.order_data_by_prevadzka["One"]["lunch"]["Škôlka"]["diets"],
+            {"NO MILK – NO EGG": 2},
+        )
+        self.assertEqual(result.attention_by_prevadzka.get("One", []), [])
+
     def test_known_skratka_nm(self):
         self.assertEqual(self._r("NM", "NoMilk"), "NO MILK")
 

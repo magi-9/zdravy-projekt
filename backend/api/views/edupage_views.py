@@ -15,6 +15,7 @@ from ..edupage_scraper import (
     nest_order_data_by_category,
     prevadzky_without_match,
 )
+from ..management.commands.repoint_deduplicated_diets_2026_09 import MAPPINGS
 from ..models import DailyOrder, EdupageConnection, EventLog
 from ..permissions import IsAdminOrAbove, SectionAccess
 from ..serializers import DailyOrderSerializer
@@ -127,6 +128,12 @@ class AdminEdupageConnectionViewSet(viewsets.ModelViewSet):
                 continue
 
             by_nazov = {p.nazov: p for p in prevadzky}
+            visible_diets_by_prevadzka = {
+                (p.nazov if len(prevadzky) > 1 else ""): set(
+                    p.visible_diets.values_list("name", flat=True)
+                )
+                for p in prevadzky
+            }
             matches = build_prevadzka_matches(prevadzky)
             bez_matchu = prevadzky_without_match(prevadzky)
             if len(prevadzky) > 1 and bez_matchu:
@@ -144,6 +151,8 @@ class AdminEdupageConnectionViewSet(viewsets.ModelViewSet):
                 continue
 
             try:
+                scraper.canonical_diet_names = dict(MAPPINGS)
+                scraper.visible_diets_by_prevadzka = visible_diets_by_prevadzka
                 result = scraper.scrape(
                     operation["url"],
                     target_date,
