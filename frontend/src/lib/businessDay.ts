@@ -179,6 +179,12 @@ export function dashboardDefaultDate(now: Date = new Date(), sets: DayOffSets = 
   }
   const tomorrow = new Date(now);
   tomorrow.setDate(tomorrow.getDate() + 1);
+  // V piatok po večernom scrapi už kuchyňa pripravuje pondelok. Predchádzajúce
+  // pravidlo tu kvôli sobote vrátilo späť piatok, takže Gramáž/Kontrola/
+  // Zlúčenie diét ukazovali už vybavený deň namiesto najbližšieho pracovného.
+  // Sviatok alebo voľno v iný deň zostáva zámerne na dnešku — naň sa nesmie
+  // potichu preskočiť bez potvrdeného náhľadu dát.
+  if (isWeekend(tomorrow)) return toDateKey(nextBusinessDay(tomorrow, sets));
   if (isDayOff(tomorrow, sets)) return toDateKey(previousBusinessDay(now, sets));
   return toDateKey(tomorrow);
 }

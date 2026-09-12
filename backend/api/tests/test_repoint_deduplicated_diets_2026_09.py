@@ -20,6 +20,16 @@ from api.models import (
 pytestmark = pytest.mark.django_db
 
 
+def test_cvernicka_cocoa_strawberry_legacy_name_has_canonical_target():
+    """EduPage `nMnČnJ` používa starý slash názov, ale Cvernička má visible
+    už canonical čokoládový názov. Bez tohto páru by scraper písal zbytočný
+    visibility attention flag (potvrdené 12. 9. 2026)."""
+    assert (
+        "NO MILK/NO KAKAO/NO JAHODA",
+        "NO MILK – No Čokoláda – NO JAHODA",
+    ) in command_module.MAPPINGS
+
+
 @pytest.fixture
 def mapping(monkeypatch):
     monkeypatch.setattr(command_module, "MAPPINGS", (("Stará", "Nová"),))

@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import DietComponentMergePage from "./DietComponentMerge";
 
 const mockApiFetch = vi.fn();
@@ -45,7 +45,22 @@ beforeEach(() => {
   mockApiFetch.mockReset();
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe("DietComponentMergePage", () => {
+  it("uses the same Friday-after-21:00 default day as the dashboard: Monday", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 7, 7, 21, 0, 0));
+    mockApiFetch.mockResolvedValue({ ok: true, json: async () => emptyBoard });
+
+    render(<MemoryRouter><DietComponentMergePage /></MemoryRouter>);
+
+    const input = screen.getByDisplayValue("2026-08-10");
+    expect(input).toHaveAttribute("max", "2026-08-11");
+  });
+
   it("shows an empty state when the day has no meal plan", async () => {
     mockApiFetch.mockResolvedValue({ ok: true, json: async () => emptyBoard });
 

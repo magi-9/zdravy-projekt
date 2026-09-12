@@ -130,9 +130,9 @@ describe("dashboardDefaultDate", () => {
     expect(dashboardDefaultDate(atHour(monday(), 21))).toBe("2026-08-11");
   });
 
-  it("does not switch past a weekend — Friday 21:00 stays on Friday", () => {
+  it("switches past the weekend — Friday 21:00 shows the upcoming Monday", () => {
     const friday = new Date(2026, 7, 7);
-    expect(dashboardDefaultDate(atHour(friday, 21))).toBe("2026-08-07");
+    expect(dashboardDefaultDate(atHour(friday, 21))).toBe("2026-08-10");
   });
 
   it("does not switch to a tomorrow that is a holiday", () => {
