@@ -1,10 +1,8 @@
 name: Load Test Smoke
 
 on:
-  pull_request:
-    branches: [main, develop]
-  push:
-    branches: [main]
+  # Automatický smoke je súčasťou production.yml po deployi release tagu.
+  # Tu zostáva iba vedomé manuálne spustenie pri incidente/diagnostike.
   workflow_dispatch:
 
 permissions:
