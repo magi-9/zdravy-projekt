@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.6.6](https://github.com/tomag-9/zdravy-projekt/compare/v3.6.5...v3.6.6) (2026-09-12)
+
+
+### Bug Fixes
+
+* **admin:** show Monday after Friday evening ([752dca9](https://github.com/tomag-9/zdravy-projekt/commit/752dca91111d0c211c2cc44fb220a9ae0c04cb4b))
+* **edupage:** mapovať cverničkin čokoládový variant ([2459032](https://github.com/tomag-9/zdravy-projekt/commit/24590320a9740e51d88a138a89431390b9d68e97))
+
 ## [3.6.5](https://github.com/tomag-9/zdravy-projekt/compare/v3.6.4...v3.6.5) (2026-09-11)
 
 
